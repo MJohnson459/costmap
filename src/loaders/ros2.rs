@@ -10,24 +10,31 @@ use crate::types::{
 };
 
 #[derive(Debug, Deserialize)]
+#[serde(default)]
 struct RosMapMetadata {
-    image: String,
+    image: PathBuf,
     resolution: f32,
     origin: [f32; 3],
-    #[serde(
-        default = "default_occupied_thresh",
-        deserialize_with = "deserialize_threshold"
-    )]
+    #[serde(deserialize_with = "deserialize_threshold")]
     occupied_thresh: f32,
-    #[serde(
-        default = "default_free_thresh",
-        deserialize_with = "deserialize_threshold"
-    )]
+    #[serde(deserialize_with = "deserialize_threshold")]
     free_thresh: f32,
-    #[serde(default = "default_negate")]
     negate: Negate,
-    #[serde(default = "default_map_mode")]
     mode: MapMode,
+}
+
+impl Default for RosMapMetadata {
+    fn default() -> Self {
+        Self {
+            image: PathBuf::new(),
+            resolution: 0.05,
+            origin: [0.0, 0.0, 0.0],
+            occupied_thresh: DEFAULT_OCCUPIED_THRESH,
+            free_thresh: DEFAULT_FREE_THRESH,
+            negate: Negate::Bool(false),
+            mode: MapMode::default(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,28 +53,13 @@ impl Negate {
     }
 }
 
-fn default_negate() -> Negate {
-    Negate::Bool(false)
-}
-
-#[derive(Debug, Copy, Clone, Deserialize)]
+#[derive(Debug, Copy, Clone, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 enum MapMode {
+    #[default]
     Trinary,
     Scale,
     Raw,
-}
-
-fn default_map_mode() -> MapMode {
-    MapMode::Trinary
-}
-
-fn default_occupied_thresh() -> f32 {
-    DEFAULT_OCCUPIED_THRESH
-}
-
-fn default_free_thresh() -> f32 {
-    DEFAULT_FREE_THRESH
 }
 
 fn deserialize_threshold<'de, D>(deserializer: D) -> Result<f32, D::Error>
@@ -84,10 +76,24 @@ where
     }
 }
 
-pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
-    let yaml_path = yaml_path.as_ref();
-    let yaml_str = std::fs::read_to_string(yaml_path)?;
-    let metadata: RosMapMetadata = serde_yaml::from_str(&yaml_str)?;
+/// Loads an occupancy grid from a YAML or image file.
+///
+/// If loading an image file, the values of the metadata assume the ROS2 default
+/// values with the map origin at [0,0].
+pub fn load_occupancy_grid(path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
+    let path = path.as_ref();
+    let metadata = if is_yaml(path) {
+        let yaml_str = std::fs::read_to_string(path)?;
+        let mut metadata: RosMapMetadata = serde_yaml::from_str(&yaml_str)?;
+        metadata.image = resolve_image_path(path, &metadata.image);
+        metadata
+    } else {
+        let image_path = PathBuf::from(path);
+        RosMapMetadata {
+            image: image_path.clone(),
+            ..Default::default()
+        }
+    };
 
     if matches!(metadata.mode, MapMode::Trinary | MapMode::Scale)
         && metadata.occupied_thresh <= metadata.free_thresh
@@ -98,8 +104,7 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
     }
 
     let negate = metadata.negate.is_negated();
-    let image_path = resolve_image_path(yaml_path, &metadata.image);
-    let image = image::open(&image_path)?;
+    let image = image::open(&metadata.image)?;
     let (data, width, height) = map_image_to_data(
         image,
         metadata.mode,
@@ -118,15 +123,21 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
     OccupancyGrid::new(info, data)
 }
 
-fn resolve_image_path(yaml_path: &Path, image_ref: &str) -> PathBuf {
-    let image_path = PathBuf::from(image_ref);
-    if image_path.is_absolute() {
-        return image_path;
+fn is_yaml(path: &Path) -> bool {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("yaml") | Some("yml") => true,
+        _ => false,
+    }
+}
+
+fn resolve_image_path(yaml_path: &Path, image_ref: &Path) -> PathBuf {
+    if image_ref.is_absolute() {
+        return image_ref.to_path_buf();
     }
 
     match yaml_path.parent() {
-        Some(parent) => parent.join(image_path),
-        None => image_path,
+        Some(parent) => parent.join(image_ref),
+        None => image_ref.to_path_buf(),
     }
 }
 
@@ -254,5 +265,54 @@ where
             let base = src_row + x * 3;
             data[grid_row + x] = f(raw[base], raw[base + 1], raw[base + 2]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_yaml_all_values() {
+        let test_case = r#"
+        image: simple.pgm
+        resolution: 1.0
+        origin: [0.0, 0.0, 0.0]
+        occupied_thresh: 0.65
+        free_thresh: 0.196
+        negate: 0
+        mode: trinary
+        "#;
+
+        let metadata: RosMapMetadata =
+            serde_yaml::from_str(test_case).expect("metadata should parse");
+
+        assert_eq!(metadata.image, PathBuf::from("simple.pgm"));
+        assert_eq!(metadata.resolution, 1.0);
+        assert_eq!(metadata.origin, [0.0, 0.0, 0.0]);
+        assert_eq!(metadata.occupied_thresh, 0.65);
+        assert_eq!(metadata.free_thresh, 0.196);
+        assert_eq!(metadata.negate.is_negated(), false);
+        assert!(matches!(metadata.mode, MapMode::Trinary));
+    }
+
+    #[test]
+    fn check_yaml_minimal_values() {
+        let test_case = r#"
+        image: simple.pgm
+        resolution: 0.05
+        origin: [0.0, 0.0, 0.0]
+        "#;
+
+        let metadata: RosMapMetadata =
+            serde_yaml::from_str(test_case).expect("metadata should parse");
+
+        assert_eq!(metadata.image, PathBuf::from("simple.pgm"));
+        assert_eq!(metadata.resolution, 0.05);
+        assert_eq!(metadata.origin, [0.0, 0.0, 0.0]);
+        assert_eq!(metadata.occupied_thresh, 0.65);
+        assert_eq!(metadata.free_thresh, 0.196);
+        assert_eq!(metadata.negate.is_negated(), false);
+        assert!(matches!(metadata.mode, MapMode::Trinary));
     }
 }

@@ -32,3 +32,19 @@ fn loads_real_map_fixture() {
     assert_eq!(grid.width(), width);
     assert_eq!(grid.height(), height);
 }
+
+#[test]
+fn loads_image_direct() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let image_path = manifest_dir.join("tests/fixtures/simple.pgm");
+
+    let grid = load_occupancy_grid(&image_path).expect("grid should load");
+
+    assert_eq!(grid.width(), 2);
+    assert_eq!(grid.height(), 2);
+
+    assert_eq!(grid.get(0, 0), Some(FREE));
+    assert_eq!(grid.get(1, 0), Some(OCCUPIED));
+    assert_eq!(grid.get(0, 1), Some(OCCUPIED));
+    assert_eq!(grid.get(1, 1), Some(UNKNOWN));
+}
