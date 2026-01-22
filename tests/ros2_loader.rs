@@ -1,5 +1,5 @@
+use image::GenericImageView;
 use std::path::Path;
-
 use voxel_grid::load_occupancy_grid;
 use voxel_grid::types::{FREE, OCCUPIED, UNKNOWN};
 
@@ -17,4 +17,18 @@ fn loads_trinary_ros2_map() {
     assert_eq!(grid.get(1, 0), Some(FREE));
     assert_eq!(grid.get(0, 1), Some(FREE));
     assert_eq!(grid.get(1, 1), Some(UNKNOWN));
+}
+
+#[test]
+fn loads_real_map_fixture() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let yaml_path = manifest_dir.join("tests/fixtures/warehouse.yaml");
+    let image_path = manifest_dir.join("tests/fixtures/warehouse.png");
+
+    let grid = load_occupancy_grid(&yaml_path).expect("grid should load");
+    let image = image::open(&image_path).expect("image should load");
+    let (width, height) = image.dimensions();
+
+    assert_eq!(grid.width(), width);
+    assert_eq!(grid.height(), height);
 }
