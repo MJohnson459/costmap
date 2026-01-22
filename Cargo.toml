@@ -20,3 +20,10 @@ viewer = ["pixels", "winit"]
 name = "viewer"
 path = "src/bin/viewer.rs"
 required-features = ["viewer"]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "load_warehouse"
+harness = false
