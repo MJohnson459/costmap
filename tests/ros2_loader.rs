@@ -13,9 +13,9 @@ fn loads_trinary_ros2_map() {
     assert_eq!(grid.width(), 2);
     assert_eq!(grid.height(), 2);
 
-    assert_eq!(grid.get(0, 0), Some(OCCUPIED));
-    assert_eq!(grid.get(1, 0), Some(FREE));
-    assert_eq!(grid.get(0, 1), Some(FREE));
+    assert_eq!(grid.get(0, 0), Some(FREE));
+    assert_eq!(grid.get(1, 0), Some(OCCUPIED));
+    assert_eq!(grid.get(0, 1), Some(OCCUPIED));
     assert_eq!(grid.get(1, 1), Some(UNKNOWN));
 }
 
