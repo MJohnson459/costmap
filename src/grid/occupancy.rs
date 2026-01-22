@@ -32,10 +32,6 @@ impl OccupancyGrid {
         self.info.height
     }
 
-    pub fn data(&self) -> &[i8] {
-        &self.data
-    }
-
     pub fn get(&self, x: u32, y: u32) -> Option<i8> {
         if x >= self.info.width || y >= self.info.height {
             return None;

@@ -14,10 +14,20 @@ struct RosMapMetadata {
     image: String,
     resolution: f32,
     origin: [f32; 3],
-    occupied_thresh: Option<f32>,
-    free_thresh: Option<f32>,
-    negate: Option<Negate>,
-    mode: Option<String>,
+    #[serde(
+        default = "default_occupied_thresh",
+        deserialize_with = "deserialize_threshold"
+    )]
+    occupied_thresh: f32,
+    #[serde(
+        default = "default_free_thresh",
+        deserialize_with = "deserialize_threshold"
+    )]
+    free_thresh: f32,
+    #[serde(default = "default_negate")]
+    negate: Negate,
+    #[serde(default = "default_map_mode")]
+    mode: MapMode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,21 +46,41 @@ impl Negate {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+fn default_negate() -> Negate {
+    Negate::Bool(false)
+}
+
+#[derive(Debug, Copy, Clone, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum MapMode {
     Trinary,
     Scale,
     Raw,
 }
 
-impl MapMode {
-    fn from_str(value: &str) -> Option<Self> {
-        match value.to_lowercase().as_str() {
-            "trinary" => Some(Self::Trinary),
-            "scale" => Some(Self::Scale),
-            "raw" => Some(Self::Raw),
-            _ => None,
-        }
+fn default_map_mode() -> MapMode {
+    MapMode::Trinary
+}
+
+fn default_occupied_thresh() -> f32 {
+    DEFAULT_OCCUPIED_THRESH
+}
+
+fn default_free_thresh() -> f32 {
+    DEFAULT_FREE_THRESH
+}
+
+fn deserialize_threshold<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = f32::deserialize(deserializer)?;
+    if (0.0..=1.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom(
+            "thresholds must be in the range [0.0, 1.0]",
+        ))
     }
 }
 
@@ -59,29 +89,15 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
     let yaml_str = std::fs::read_to_string(yaml_path)?;
     let metadata: RosMapMetadata = serde_yaml::from_str(&yaml_str)?;
 
-    let mode_value = metadata.mode.as_deref().unwrap_or("trinary");
-    let mode = MapMode::from_str(mode_value).ok_or_else(|| {
-        VoxelError::InvalidMetadata(format!("unsupported map mode '{mode_value}'"))
-    })?;
-
-    let occupied_thresh = metadata
-        .occupied_thresh
-        .unwrap_or(DEFAULT_OCCUPIED_THRESH);
-    let free_thresh = metadata.free_thresh.unwrap_or(DEFAULT_FREE_THRESH);
-
-    if !(0.0..=1.0).contains(&occupied_thresh) || !(0.0..=1.0).contains(&free_thresh) {
-        return Err(VoxelError::InvalidMetadata(
-            "thresholds must be in the range [0.0, 1.0]".to_string(),
-        ));
-    }
-
-    if matches!(mode, MapMode::Trinary | MapMode::Scale) && occupied_thresh <= free_thresh {
+    if matches!(metadata.mode, MapMode::Trinary | MapMode::Scale)
+        && metadata.occupied_thresh <= metadata.free_thresh
+    {
         return Err(VoxelError::InvalidMetadata(
             "occupied_thresh must be greater than free_thresh".to_string(),
         ));
     }
 
-    let negate = metadata.negate.map_or(false, |value| value.is_negated());
+    let negate = metadata.negate.is_negated();
     let image_path = resolve_image_path(yaml_path, &metadata.image);
     let image = image::open(&image_path)?;
     let (width, height) = image.dimensions();
@@ -99,11 +115,11 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
             }
             let alpha = a as f32 / 255.0;
 
-            let value = match mode {
+            let value = match metadata.mode {
                 MapMode::Trinary => {
-                    if lightness >= occupied_thresh {
+                    if lightness >= metadata.occupied_thresh {
                         OCCUPIED
-                    } else if lightness <= free_thresh {
+                    } else if lightness <= metadata.free_thresh {
                         FREE
                     } else {
                         UNKNOWN
@@ -112,12 +128,13 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
                 MapMode::Scale => {
                     if alpha < 1.0 {
                         UNKNOWN
-                    } else if lightness >= occupied_thresh {
+                    } else if lightness >= metadata.occupied_thresh {
                         OCCUPIED
-                    } else if lightness <= free_thresh {
+                    } else if lightness <= metadata.free_thresh {
                         FREE
                     } else {
-                        let ratio = (lightness - free_thresh) / (occupied_thresh - free_thresh);
+                        let ratio = (lightness - metadata.free_thresh)
+                            / (metadata.occupied_thresh - metadata.free_thresh);
                         let occupancy = (ratio * 100.0).round();
                         occupancy.clamp(0.0, 100.0) as i8
                     }
