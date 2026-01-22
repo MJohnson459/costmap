@@ -27,3 +27,7 @@ criterion = "0.5"
 [[bench]]
 name = "load_warehouse"
 harness = false
+
+[[bench]]
+name = "raycast"
+harness = false

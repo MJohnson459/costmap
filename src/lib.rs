@@ -1,5 +1,6 @@
 pub mod grid;
 pub mod loaders;
+pub mod raycast;
 pub mod types;
 pub mod visualization;
 
