@@ -6,6 +6,17 @@ edition = "2024"
 [dependencies]
 glam = "0.30"
 image = "0.25"
+pixels = { version = "0.15", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 thiserror = "2.0"
+winit = { version = "0.30", optional = true }
+
+[features]
+default = []
+viewer = ["pixels", "winit"]
+
+[[bin]]
+name = "viewer"
+path = "src/bin/viewer.rs"
+required-features = ["viewer"]

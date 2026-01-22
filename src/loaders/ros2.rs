@@ -109,17 +109,15 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
         for x in 0..width {
             let pixel = rgba.get_pixel(x, y);
             let [r, g, b, a] = pixel.0;
-            let mut lightness = (r as f32 + g as f32 + b as f32) / (3.0 * 255.0);
-            if negate {
-                lightness = 1.0 - lightness;
-            }
+            let shade = (r as f32 + g as f32 + b as f32) / (3.0 * 255.0);
+            let occ = if negate { shade } else { 1.0 - shade };
             let alpha = a as f32 / 255.0;
 
             let value = match metadata.mode {
                 MapMode::Trinary => {
-                    if lightness >= metadata.occupied_thresh {
+                    if occ >= metadata.occupied_thresh {
                         OCCUPIED
-                    } else if lightness <= metadata.free_thresh {
+                    } else if occ <= metadata.free_thresh {
                         FREE
                     } else {
                         UNKNOWN
@@ -128,20 +126,20 @@ pub fn load_occupancy_grid(yaml_path: impl AsRef<Path>) -> Result<OccupancyGrid,
                 MapMode::Scale => {
                     if alpha < 1.0 {
                         UNKNOWN
-                    } else if lightness >= metadata.occupied_thresh {
+                    } else if occ >= metadata.occupied_thresh {
                         OCCUPIED
-                    } else if lightness <= metadata.free_thresh {
+                    } else if occ <= metadata.free_thresh {
                         FREE
                     } else {
-                        let ratio = (lightness - metadata.free_thresh)
+                        let ratio = (occ - metadata.free_thresh)
                             / (metadata.occupied_thresh - metadata.free_thresh);
                         let occupancy = (ratio * 100.0).round();
                         occupancy.clamp(0.0, 100.0) as i8
                     }
                 }
                 MapMode::Raw => {
-                    let occupancy = (lightness * 100.0).round();
-                    if occupancy <= 100.0 {
+                    let occupancy = (shade * 255.0).round();
+                    if (0.0..=100.0).contains(&occupancy) {
                         occupancy as i8
                     } else {
                         UNKNOWN
