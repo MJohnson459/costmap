@@ -1,9 +1,9 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
 use voxel_grid::raycast::dda::raycast_dda;
 use voxel_grid::raycast::grid_step::raycast_grid_step;
-use voxel_grid::types::{MapInfo, FREE, OCCUPIED};
+use voxel_grid::types::{FREE, MapInfo, OCCUPIED};
 
 fn bench_raycast(c: &mut Criterion) {
     let grid = build_grid(256, 256, 0.05);

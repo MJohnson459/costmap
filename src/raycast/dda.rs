@@ -46,12 +46,10 @@ pub fn raycast_dda(grid: &OccupancyGrid, origin: Vec2, dir: Vec2, max_t: f32) ->
         }
 
         if t > max_t_grid {
-            eprintln!("t > max_t_grid: {}", t);
             return None;
         }
 
         if cell.x < 0 || cell.y < 0 || cell.x >= info.width as i32 || cell.y >= info.height as i32 {
-            eprintln!("cell out of bounds: {:?}", cell);
             return None;
         }
 

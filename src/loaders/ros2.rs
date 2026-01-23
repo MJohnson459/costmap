@@ -279,9 +279,10 @@ where
     for y in 0..height {
         let grid_row = (height - 1 - y) * width;
         let src_row = y * width * 4;
-        for x in 0..width {
-            let base = src_row + x * 4;
-            data[grid_row + x] = f(raw[base], raw[base + 1], raw[base + 2], raw[base + 3]);
+        let dest = &mut data[grid_row..grid_row + width];
+        let src = &raw[src_row..src_row + width * 4];
+        for (dest_cell, rgba) in dest.iter_mut().zip(src.chunks_exact(4)) {
+            *dest_cell = f(rgba[0], rgba[1], rgba[2], rgba[3]);
         }
     }
 }
@@ -293,9 +294,10 @@ where
     for y in 0..height {
         let grid_row = (height - 1 - y) * width;
         let src_row = y * width * 3;
-        for x in 0..width {
-            let base = src_row + x * 3;
-            data[grid_row + x] = f(raw[base], raw[base + 1], raw[base + 2]);
+        let dest = &mut data[grid_row..grid_row + width];
+        let src = &raw[src_row..src_row + width * 3];
+        for (dest_cell, rgb) in dest.iter_mut().zip(src.chunks_exact(3)) {
+            *dest_cell = f(rgb[0], rgb[1], rgb[2]);
         }
     }
 }
