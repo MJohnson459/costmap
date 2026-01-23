@@ -5,35 +5,23 @@ use crate::raycast::RayHit2D;
 use crate::types::OCCUPIED;
 
 /// Fast voxel traversal (Amanatides & Woo) that returns the first occupied cell hit.
-pub fn raycast_dda(
-    grid: &OccupancyGrid,
-    origin: Vec2,
-    dir: Vec2,
-    max_t: f32,
-) -> Option<RayHit2D> {
+pub fn raycast_dda(grid: &OccupancyGrid, origin: Vec2, dir: Vec2, max_t: f32) -> Option<RayHit2D> {
     if dir.length_squared() == 0.0 {
         return None;
     }
 
     let info = grid.info();
-    let grid_origin = Vec2::new(info.origin.x, info.origin.y);
     let resolution = info.resolution;
     let max_t_grid = max_t / resolution;
     let dir = dir.normalize();
 
-    let start = (origin - grid_origin) / resolution;
-    if start.x < 0.0
-        || start.y < 0.0
-        || start.x >= info.width as f32
-        || start.y >= info.height as f32
-    {
-        return None;
-    }
+    let start = grid.world_to_map(origin)?;
 
+    // We use ivecs internally as the steps can be negative.
     let mut cell = start.floor().as_ivec2();
     if is_occupied(grid, cell) {
         return Some(RayHit2D {
-            cell,
+            cell: cell.as_uvec2(),
             hit_distance: 0.0,
         });
     }
@@ -58,16 +46,18 @@ pub fn raycast_dda(
         }
 
         if t > max_t_grid {
+            eprintln!("t > max_t_grid: {}", t);
             return None;
         }
 
         if cell.x < 0 || cell.y < 0 || cell.x >= info.width as i32 || cell.y >= info.height as i32 {
+            eprintln!("cell out of bounds: {:?}", cell);
             return None;
         }
 
         if is_occupied(grid, cell) {
             return Some(RayHit2D {
-                cell,
+                cell: cell.as_uvec2(),
                 hit_distance: t * resolution,
             });
         }
@@ -101,10 +91,12 @@ fn is_occupied(grid: &OccupancyGrid, cell: IVec2) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use glam::UVec2;
+
     use super::*;
     use crate::types::{FREE, OCCUPIED};
 
-    fn test_grid(occupied: Option<IVec2>, resolution: f32, origin: Vec2) -> OccupancyGrid {
+    fn test_grid(occupied: Option<UVec2>, resolution: f32, origin: Vec2) -> OccupancyGrid {
         let width = 5;
         let height = 5;
         let mut data = vec![FREE; width * height];
@@ -117,7 +109,7 @@ mod tests {
             width: width as u32,
             height: height as u32,
             resolution,
-            origin: glam::Vec3::new(origin.x, origin.y, 0.0),
+            origin: origin.extend(0.0),
         };
 
         OccupancyGrid::new(info, data).expect("grid should build")
@@ -125,9 +117,9 @@ mod tests {
 
     #[test]
     fn hit_positive() {
-        let goal = IVec2::new(4, 1);
+        let goal = UVec2::new(4, 1);
         let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
-        let dir = Vec2::new(4.0, 1.0).normalize();
+        let dir = goal.as_vec2().normalize();
 
         let hit = raycast_dda(&grid, Vec2::ZERO, dir, 30.0).expect("hit expected");
         assert_eq!(hit.cell, goal);
@@ -144,7 +136,7 @@ mod tests {
 
     #[test]
     fn hit_negative_x() {
-        let goal = IVec2::new(0, 1);
+        let goal = UVec2::new(0, 1);
         let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
         let dir = Vec2::new(-3.9, 1.0).normalize();
         let hit = raycast_dda(&grid, Vec2::new(4.0, 0.0), dir, 30.0).expect("hit expected");
@@ -154,7 +146,7 @@ mod tests {
 
     #[test]
     fn resolution_with_offset() {
-        let goal = IVec2::new(2, 4);
+        let goal = UVec2::new(2, 4);
         let grid = test_grid(Some(goal), 0.05, Vec2::new(-0.18, 0.0));
         let dir = Vec2::new(-1.0, 2.0).normalize();
         let hit = raycast_dda(&grid, Vec2::new(0.04, 0.0), dir, 30.0).expect("hit expected");

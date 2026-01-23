@@ -103,15 +103,8 @@ pub fn load_occupancy_grid(path: impl AsRef<Path>) -> Result<OccupancyGrid, Voxe
         ));
     }
 
-    let negate = metadata.negate.is_negated();
     let image = image::open(&metadata.image)?;
-    let (data, width, height) = map_image_to_data(
-        image,
-        metadata.mode,
-        metadata.occupied_thresh,
-        metadata.free_thresh,
-        negate,
-    )?;
+    let (data, width, height) = map_image_to_data(image, &metadata)?;
 
     let info = MapInfo {
         width,
@@ -120,6 +113,26 @@ pub fn load_occupancy_grid(path: impl AsRef<Path>) -> Result<OccupancyGrid, Voxe
         origin: Vec3::new(metadata.origin[0], metadata.origin[1], metadata.origin[2]),
     };
 
+    OccupancyGrid::new(info, data)
+}
+
+pub fn load_occupancy_grid_from_image(
+    image: image::DynamicImage,
+    resolution: f32,
+    origin: Vec3,
+) -> Result<OccupancyGrid, VoxelError> {
+    let metadata = RosMapMetadata {
+        resolution,
+        origin: origin.into(),
+        ..Default::default()
+    };
+    let (data, width, height) = map_image_to_data(image, &metadata)?;
+    let info = MapInfo {
+        width,
+        height,
+        resolution,
+        origin,
+    };
     OccupancyGrid::new(info, data)
 }
 
@@ -143,12 +156,11 @@ fn resolve_image_path(yaml_path: &Path, image_ref: &Path) -> PathBuf {
 
 fn map_image_to_data(
     image: image::DynamicImage,
-    mode: MapMode,
-    occupied_thresh: f32,
-    free_thresh: f32,
-    negate: bool,
+    metadata: &RosMapMetadata,
 ) -> Result<(Vec<i8>, u32, u32), VoxelError> {
-    if matches!(mode, MapMode::Trinary | MapMode::Scale) && occupied_thresh <= free_thresh {
+    if matches!(metadata.mode, MapMode::Trinary | MapMode::Scale)
+        && metadata.occupied_thresh <= metadata.free_thresh
+    {
         return Err(VoxelError::InvalidMetadata(
             "occupied_thresh must be greater than free_thresh".to_string(),
         ));
@@ -160,18 +172,28 @@ fn map_image_to_data(
     let width_usize = width as usize;
     let height_usize = height as usize;
 
-    match mode {
+    match metadata.mode {
         MapMode::Scale => {
             let rgba = image.into_rgba8();
             let raw = rgba.as_raw();
             fill_from_rgba(&mut data, raw, width_usize, height_usize, |r, g, b, a| {
                 let shade = shade_rgb(r, g, b);
-                let occ = if negate { shade } else { 1.0 - shade };
-                value_from_occ(mode, occ, a, occupied_thresh, free_thresh)
+                let occ = if metadata.negate.is_negated() {
+                    shade
+                } else {
+                    1.0 - shade
+                };
+                value_from_occ(
+                    metadata.mode,
+                    occ,
+                    a,
+                    metadata.occupied_thresh,
+                    metadata.free_thresh,
+                )
             });
         }
         MapMode::Trinary | MapMode::Raw => {
-            if has_alpha && matches!(mode, MapMode::Trinary) {
+            if has_alpha && matches!(metadata.mode, MapMode::Trinary) {
                 // NOTE: ROS2 averages inverted alpha in Trinary mode when alpha is present.
                 // We intentionally ignore alpha here for speed and log a warning instead.
                 eprintln!("ros2 loader: alpha channel present; Trinary mode ignores alpha");
@@ -180,8 +202,18 @@ fn map_image_to_data(
             let raw = rgb.as_raw();
             fill_from_rgb(&mut data, raw, width_usize, height_usize, |r, g, b| {
                 let shade = shade_rgb(r, g, b);
-                let occ = if negate { shade } else { 1.0 - shade };
-                value_from_occ(mode, occ, 255, occupied_thresh, free_thresh)
+                let occ = if metadata.negate.is_negated() {
+                    shade
+                } else {
+                    1.0 - shade
+                };
+                value_from_occ(
+                    metadata.mode,
+                    occ,
+                    255,
+                    metadata.occupied_thresh,
+                    metadata.free_thresh,
+                )
             });
         }
     }
