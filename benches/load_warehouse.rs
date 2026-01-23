@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_load_warehouse(c: &mut Criterion) {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -8,7 +8,7 @@ fn bench_load_warehouse(c: &mut Criterion) {
 
     c.bench_function("load_ros2_warehouse_map", |b| {
         b.iter(|| {
-            let _grid = voxel_grid::load_occupancy_grid(&yaml_path)
+            let _grid = voxel_grid::RosMapLoader::load_from_yaml(&yaml_path)
                 .expect("warehouse map should load");
         });
     });

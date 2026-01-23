@@ -8,7 +8,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowAttributes};
 
-use voxel_grid::load_occupancy_grid;
+use voxel_grid::RosMapLoader;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args();
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let grid = load_occupancy_grid(&yaml_path)?;
+    let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
     let event_loop = EventLoop::new()?;
     let mut app = ViewerApp::new(grid);
     event_loop.run_app(&mut app)?;

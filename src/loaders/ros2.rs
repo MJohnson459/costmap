@@ -9,18 +9,38 @@ use crate::types::{
     DEFAULT_FREE_THRESH, DEFAULT_OCCUPIED_THRESH, FREE, MapInfo, OCCUPIED, UNKNOWN, VoxelError,
 };
 
+pub struct RosMapLoader;
+
+impl RosMapLoader {
+    pub fn load_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
+        load_occupancy_grid_from_yaml(path)
+    }
+
+    pub fn load_from_image(metadata: &RosMapMetadata) -> Result<OccupancyGrid, VoxelError> {
+        load_occupancy_grid_from_image(metadata)
+    }
+
+    pub fn load_from_memory(
+        image: image::DynamicImage,
+        metadata: &RosMapMetadata,
+    ) -> Result<OccupancyGrid, VoxelError> {
+        load_occupancy_grid_from_memory(image, metadata)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
-struct RosMapMetadata {
-    image: PathBuf,
-    resolution: f32,
-    origin: [f32; 3],
+pub struct RosMapMetadata {
+    pub image: PathBuf,
+    pub resolution: f32,
+    #[serde(deserialize_with = "deserialize_origin")]
+    pub origin: Vec3,
     #[serde(deserialize_with = "deserialize_threshold")]
-    occupied_thresh: f32,
+    pub occupied_thresh: f32,
     #[serde(deserialize_with = "deserialize_threshold")]
-    free_thresh: f32,
-    negate: Negate,
-    mode: MapMode,
+    pub free_thresh: f32,
+    pub negate: Negate,
+    pub mode: MapMode,
 }
 
 impl Default for RosMapMetadata {
@@ -28,7 +48,7 @@ impl Default for RosMapMetadata {
         Self {
             image: PathBuf::new(),
             resolution: 0.05,
-            origin: [0.0, 0.0, 0.0],
+            origin: Vec3::new(0.0, 0.0, 0.0),
             occupied_thresh: DEFAULT_OCCUPIED_THRESH,
             free_thresh: DEFAULT_FREE_THRESH,
             negate: Negate::Bool(false),
@@ -39,7 +59,7 @@ impl Default for RosMapMetadata {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-enum Negate {
+pub enum Negate {
     Bool(bool),
     Int(i32),
 }
@@ -55,11 +75,20 @@ impl Negate {
 
 #[derive(Debug, Copy, Clone, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-enum MapMode {
+pub enum MapMode {
     #[default]
     Trinary,
     Scale,
     Raw,
+}
+
+fn deserialize_origin<'de, D>(deserializer: D) -> Result<Vec3, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let [x, y, z]: [f32; 3] = Deserialize::deserialize(deserializer)?;
+    let value = Vec3::new(x, y, z);
+    Ok(value)
 }
 
 fn deserialize_threshold<'de, D>(deserializer: D) -> Result<f32, D::Error>
@@ -76,25 +105,18 @@ where
     }
 }
 
-/// Loads an occupancy grid from a YAML or image file.
-///
-/// If loading an image file, the values of the metadata assume the ROS2 default
-/// values with the map origin at [0,0].
-pub fn load_occupancy_grid(path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
+/// Loads an occupancy grid from a YAML.
+fn load_occupancy_grid_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
     let path = path.as_ref();
-    let metadata = if is_yaml(path) {
-        let yaml_str = std::fs::read_to_string(path)?;
-        let mut metadata: RosMapMetadata = serde_yaml::from_str(&yaml_str)?;
-        metadata.image = resolve_image_path(path, &metadata.image);
-        metadata
-    } else {
-        let image_path = PathBuf::from(path);
-        RosMapMetadata {
-            image: image_path.clone(),
-            ..Default::default()
-        }
-    };
+    let yaml_str = std::fs::read_to_string(path)?;
+    let mut metadata: RosMapMetadata = serde_yaml::from_str(&yaml_str)?;
+    metadata.image = resolve_image_path(path, &metadata.image);
 
+    load_occupancy_grid_from_image(&metadata)
+}
+
+/// Loads an occupancy grid from an image file.
+fn load_occupancy_grid_from_image(metadata: &RosMapMetadata) -> Result<OccupancyGrid, VoxelError> {
     if matches!(metadata.mode, MapMode::Trinary | MapMode::Scale)
         && metadata.occupied_thresh <= metadata.free_thresh
     {
@@ -104,43 +126,21 @@ pub fn load_occupancy_grid(path: impl AsRef<Path>) -> Result<OccupancyGrid, Voxe
     }
 
     let image = image::open(&metadata.image)?;
-    let (data, width, height) = map_image_to_data(image, &metadata)?;
+    load_occupancy_grid_from_memory(image, metadata)
+}
 
+fn load_occupancy_grid_from_memory(
+    image: image::DynamicImage,
+    metadata: &RosMapMetadata,
+) -> Result<OccupancyGrid, VoxelError> {
+    let (data, width, height) = map_image_to_data(image, &metadata)?;
     let info = MapInfo {
         width,
         height,
         resolution: metadata.resolution,
-        origin: Vec3::new(metadata.origin[0], metadata.origin[1], metadata.origin[2]),
-    };
-
-    OccupancyGrid::new(info, data)
-}
-
-pub fn load_occupancy_grid_from_image(
-    image: image::DynamicImage,
-    resolution: f32,
-    origin: Vec3,
-) -> Result<OccupancyGrid, VoxelError> {
-    let metadata = RosMapMetadata {
-        resolution,
-        origin: origin.into(),
-        ..Default::default()
-    };
-    let (data, width, height) = map_image_to_data(image, &metadata)?;
-    let info = MapInfo {
-        width,
-        height,
-        resolution,
-        origin,
+        origin: metadata.origin,
     };
     OccupancyGrid::new(info, data)
-}
-
-fn is_yaml(path: &Path) -> bool {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("yaml") | Some("yml") => true,
-        _ => false,
-    }
 }
 
 fn resolve_image_path(yaml_path: &Path, image_ref: &Path) -> PathBuf {
@@ -323,7 +323,7 @@ mod tests {
 
         assert_eq!(metadata.image, PathBuf::from("simple.pgm"));
         assert_eq!(metadata.resolution, 1.0);
-        assert_eq!(metadata.origin, [0.0, 0.0, 0.0]);
+        assert_eq!(metadata.origin, Vec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
         assert_eq!(metadata.negate.is_negated(), false);
@@ -343,7 +343,7 @@ mod tests {
 
         assert_eq!(metadata.image, PathBuf::from("simple.pgm"));
         assert_eq!(metadata.resolution, 0.05);
-        assert_eq!(metadata.origin, [0.0, 0.0, 0.0]);
+        assert_eq!(metadata.origin, Vec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
         assert_eq!(metadata.negate.is_negated(), false);
