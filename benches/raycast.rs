@@ -13,7 +13,7 @@ fn bench_raycast(c: &mut Criterion) {
         b.iter(|| {
             let mut hits = 0usize;
             for (origin, dir, max_t) in &rays {
-                if raycast_dda(&grid, *origin, *dir, *max_t).is_some() {
+                if raycast_dda(&grid, origin, dir, *max_t).is_some() {
                     hits += 1;
                 }
             }
@@ -25,7 +25,7 @@ fn bench_raycast(c: &mut Criterion) {
         b.iter(|| {
             let mut hits = 0usize;
             for (origin, dir, max_t) in &rays {
-                if raycast_grid_step(&grid, *origin, *dir, *max_t).is_some() {
+                if raycast_grid_step(&grid, origin, dir, *max_t).is_some() {
                     hits += 1;
                 }
             }

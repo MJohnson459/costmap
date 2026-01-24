@@ -59,14 +59,14 @@ impl OccupancyGrid {
         (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
     }
 
-    pub fn map_to_world(&self, pos: Vec2) -> Vec2 {
+    pub fn map_to_world(&self, pos: &Vec2) -> Vec2 {
         Vec2::new(
             self.info.origin.x + pos.x * self.info.resolution,
             self.info.origin.y + pos.y * self.info.resolution,
         )
     }
 
-    pub fn world_to_map(&self, pos: Vec2) -> Option<Vec2> {
+    pub fn world_to_map(&self, pos: &Vec2) -> Option<Vec2> {
         let mx = (pos.x - self.info.origin.x) / self.info.resolution;
         let my = (pos.y - self.info.origin.y) / self.info.resolution;
         if mx < 0.0 || my < 0.0 || mx >= self.info.width as f32 || my >= self.info.height as f32 {
@@ -99,8 +99,8 @@ mod tests {
     use super::*;
 
     fn world_to_map_to_world(grid: &OccupancyGrid, pos: Vec2) -> Vec2 {
-        let map_pos = grid.world_to_map(pos).unwrap();
-        grid.map_to_world(map_pos)
+        let map_pos = grid.world_to_map(&pos).unwrap();
+        grid.map_to_world(&map_pos)
     }
 
     #[test]

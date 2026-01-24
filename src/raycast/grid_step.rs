@@ -7,8 +7,8 @@ use crate::types::OCCUPIED;
 /// Grid-step traversal (Bresenham-style) over all crossed cells until hit.
 pub fn raycast_grid_step(
     grid: &OccupancyGrid,
-    origin: Vec2,
-    dir: Vec2,
+    origin: &Vec2,
+    dir: &Vec2,
     max_t: f32,
 ) -> Option<RayHit2D> {
     if dir.length_squared() == 0.0 {
@@ -19,7 +19,7 @@ pub fn raycast_grid_step(
     let resolution = info.resolution;
     let dir = dir.normalize();
 
-    let start = grid.world_to_map(origin)?;
+    let start = grid.world_to_map(&origin)?;
     let end = start + dir * (max_t / resolution);
 
     let mut x0 = start.floor().x as i32;
@@ -36,7 +36,7 @@ pub fn raycast_grid_step(
     loop {
         let cell = IVec2::new(x0, y0);
         if in_bounds(cell, info.width as i32, info.height as i32) && is_occupied(grid, cell) {
-            let center = grid.map_to_world(cell.as_vec2());
+            let center = grid.map_to_world(&cell.as_vec2());
             let hit_distance = (center - origin).dot(dir).max(0.0);
             return Some(RayHit2D {
                 cell: cell.as_uvec2(),
@@ -107,7 +107,7 @@ mod tests {
         let grid = test_grid(Some(goal));
         let dir = Vec2::new(4.0, 1.0).normalize();
 
-        let hit = raycast_grid_step(&grid, Vec2::ZERO, dir, 30.0).expect("hit expected");
+        let hit = raycast_grid_step(&grid, &Vec2::ZERO, &dir, 30.0).expect("hit expected");
         assert_eq!(hit.cell, goal);
     }
 
@@ -115,7 +115,7 @@ mod tests {
     fn miss() {
         let grid = test_grid(None);
         let dir = Vec2::new(6.0, 1.0).normalize();
-        let hit = raycast_grid_step(&grid, Vec2::ZERO, dir, 30.0);
+        let hit = raycast_grid_step(&grid, &Vec2::ZERO, &dir, 30.0);
         assert!(hit.is_none());
     }
 }

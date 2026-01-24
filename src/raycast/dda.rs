@@ -5,7 +5,12 @@ use crate::raycast::RayHit2D;
 use crate::types::OCCUPIED;
 
 /// Fast voxel traversal (Amanatides & Woo) that returns the first occupied cell hit.
-pub fn raycast_dda(grid: &OccupancyGrid, origin: Vec2, dir: Vec2, max_t: f32) -> Option<RayHit2D> {
+pub fn raycast_dda(
+    grid: &OccupancyGrid,
+    origin: &Vec2,
+    dir: &Vec2,
+    max_t: f32,
+) -> Option<RayHit2D> {
     if dir.length_squared() == 0.0 {
         return None;
     }
@@ -15,7 +20,7 @@ pub fn raycast_dda(grid: &OccupancyGrid, origin: Vec2, dir: Vec2, max_t: f32) ->
     let max_t_grid = max_t / resolution;
     let dir = dir.normalize();
 
-    let start = grid.world_to_map(origin)?;
+    let start = grid.world_to_map(&origin)?;
 
     // We use ivecs internally as the steps can be negative.
     let mut cell = start.floor().as_ivec2();
@@ -120,7 +125,7 @@ mod tests {
         let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
         let dir = goal.as_vec2().normalize();
 
-        let hit = raycast_dda(&grid, Vec2::ZERO, dir, 30.0).expect("hit expected");
+        let hit = raycast_dda(&grid, &Vec2::ZERO, &dir, 30.0).expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert!((hit.hit_distance - 4.1231055).abs() < 1e-4);
     }
@@ -129,7 +134,7 @@ mod tests {
     fn miss() {
         let grid = test_grid(None, 1.0, Vec2::ZERO);
         let dir = Vec2::new(6.0, 1.0).normalize();
-        let hit = raycast_dda(&grid, Vec2::ZERO, dir, 30.0);
+        let hit = raycast_dda(&grid, &Vec2::ZERO, &dir, 30.0);
         assert!(hit.is_none());
     }
 
@@ -138,7 +143,7 @@ mod tests {
         let goal = UVec2::new(0, 1);
         let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
         let dir = Vec2::new(-3.9, 1.0).normalize();
-        let hit = raycast_dda(&grid, Vec2::new(4.0, 0.0), dir, 30.0).expect("hit expected");
+        let hit = raycast_dda(&grid, &Vec2::new(4.0, 0.0), &dir, 30.0).expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert!((hit.hit_distance - 4.026176).abs() < 1e-4);
     }
@@ -148,7 +153,7 @@ mod tests {
         let goal = UVec2::new(2, 4);
         let grid = test_grid(Some(goal), 0.05, Vec2::new(-0.18, 0.0));
         let dir = Vec2::new(-1.0, 2.0).normalize();
-        let hit = raycast_dda(&grid, Vec2::new(0.04, 0.0), dir, 30.0).expect("hit expected");
+        let hit = raycast_dda(&grid, &Vec2::new(0.04, 0.0), &dir, 30.0).expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert!((hit.hit_distance - 0.2236068).abs() < 1e-4);
     }
