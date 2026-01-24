@@ -3,16 +3,19 @@ use glam::UVec3;
 use crate::grid::Grid;
 use crate::types::VoxelError;
 
+/// Optional metadata describing a layer's origin or purpose.
 #[derive(Debug, Clone, Default)]
 pub struct LayerMeta {
     pub name: Option<String>,
     pub source: Option<String>,
 }
 
+/// Aggregates per-layer values into a single result.
 pub trait AggregatePolicy<Value> {
     fn combine(&self, values: &[Value]) -> Value;
 }
 
+/// Aggregation policy that prioritizes OCCUPIED, then FREE, then UNKNOWN.
 #[derive(Debug, Clone, Copy)]
 pub struct OccupiedDominant;
 
@@ -95,11 +98,11 @@ where
     G: Grid,
     P: AggregatePolicy<G::Cell>,
 {
-    /// Creates a new layered grid and validates that all layers share identical metadata.
     pub fn new(layers: Vec<G>, policy: P) -> Result<Self, VoxelError> {
         Self::new_with_meta(layers, policy, Vec::new())
     }
 
+    /// Creates a layered grid with explicit layer metadata.
     pub fn new_with_meta(
         layers: Vec<G>,
         policy: P,
@@ -145,6 +148,7 @@ where
         self.layers.get_mut(layer)
     }
 
+    /// Aggregates values across all layers at a position.
     pub fn aggregate_at(&self, pos: &UVec3) -> Option<G::Cell> {
         let mut values = Vec::with_capacity(self.layers.len());
         for layer in &self.layers {

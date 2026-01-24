@@ -2,6 +2,7 @@ use glam::UVec3;
 
 use crate::types::{MapInfo, VoxelError};
 
+/// Shared grid interface for 2D and 3D backends.
 pub trait Grid {
     type Cell: Copy;
 
@@ -16,6 +17,8 @@ pub trait Grid {
         self.info().depth
     }
 
+    /// Get the cell with bounds checking.
     fn get(&self, pos: &UVec3) -> Option<Self::Cell>;
+    /// Set the cell with bounds checking.
     fn set(&mut self, pos: &UVec3, value: Self::Cell) -> Result<(), VoxelError>;
 }
