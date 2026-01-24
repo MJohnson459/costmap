@@ -1,5 +1,6 @@
-use glam::Vec2;
+use glam::{UVec2, UVec3, Vec2};
 
+use crate::grid::Grid;
 use crate::types::{MapInfo, VoxelError};
 
 #[derive(Debug, Clone)]
@@ -34,16 +35,28 @@ impl OccupancyGrid {
         self.info.height
     }
 
-    pub fn get(&self, x: u32, y: u32) -> Option<i8> {
-        if x >= self.info.width || y >= self.info.height {
+    pub fn get(&self, pos: &UVec2) -> Option<i8> {
+        if pos.x >= self.info.width || pos.y >= self.info.height {
             return None;
         }
-        let idx = self.index(x, y);
+        let idx = self.index(pos);
         Some(self.data[idx])
     }
 
-    fn index(&self, x: u32, y: u32) -> usize {
-        (y as usize) * (self.info.width as usize) + (x as usize)
+    pub fn set(&mut self, pos: &UVec2, value: i8) -> Result<(), VoxelError> {
+        if pos.x >= self.info.width || pos.y >= self.info.height {
+            return Err(VoxelError::OutOfBounds(format!(
+                "cell ({}, {}) out of bounds for map {}x{}",
+                pos.x, pos.y, self.info.width, self.info.height
+            )));
+        }
+        let idx = self.index(pos);
+        self.data[idx] = value;
+        Ok(())
+    }
+
+    fn index(&self, pos: &UVec2) -> usize {
+        (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
     }
 
     pub fn map_to_world(&self, pos: Vec2) -> Vec2 {
@@ -60,6 +73,22 @@ impl OccupancyGrid {
             return None;
         }
         Some(Vec2::new(mx, my))
+    }
+}
+
+impl Grid for OccupancyGrid {
+    type Cell = i8;
+
+    fn info(&self) -> &MapInfo {
+        self.info()
+    }
+
+    fn get(&self, pos: &UVec3) -> Option<Self::Cell> {
+        self.get(&pos.truncate())
+    }
+
+    fn set(&mut self, pos: &UVec3, value: Self::Cell) -> Result<(), VoxelError> {
+        self.set(&pos.truncate(), value)
     }
 }
 
@@ -80,6 +109,7 @@ mod tests {
             MapInfo {
                 width: 10,
                 height: 10,
+                depth: 1,
                 resolution: 1.0,
                 origin: Vec3::new(0.0, 0.0, 0.0),
             },

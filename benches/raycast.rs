@@ -46,6 +46,7 @@ fn build_grid(width: usize, height: usize, resolution: f32) -> voxel_grid::Occup
     let info = MapInfo {
         width: width as u32,
         height: height as u32,
+        depth: 1,
         resolution,
         origin: glam::Vec3::new(0.0, 0.0, 0.0),
     };

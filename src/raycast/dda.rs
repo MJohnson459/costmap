@@ -83,7 +83,7 @@ fn is_occupied(grid: &OccupancyGrid, cell: IVec2) -> bool {
     if cell.x < 0 || cell.y < 0 {
         return false;
     }
-    let value = grid.get(cell.x as u32, cell.y as u32).unwrap_or(0);
+    let value = grid.get(&cell.as_uvec2()).unwrap_or(0);
     value >= OCCUPIED
 }
 
@@ -106,6 +106,7 @@ mod tests {
         let info = crate::types::MapInfo {
             width: width as u32,
             height: height as u32,
+            depth: 1,
             resolution,
             origin: origin.extend(0.0),
         };

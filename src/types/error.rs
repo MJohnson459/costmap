@@ -8,6 +8,8 @@ pub enum VoxelError {
     Yaml(#[from] serde_yaml::Error),
     #[error("image error: {0}")]
     Image(#[from] image::ImageError),
+    #[error("out of bounds: {0}")]
+    OutOfBounds(String),
     #[error("invalid metadata: {0}")]
     InvalidMetadata(String),
 }

@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use glam::UVec2;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -160,7 +161,7 @@ fn build_base_frame(grid: &voxel_grid::OccupancyGrid) -> Vec<u8> {
     for img_y in 0..height {
         for x in 0..width {
             let grid_y = height - img_y - 1;
-            let value = grid.get(x, grid_y).unwrap_or(-1);
+            let value = grid.get(&UVec2::new(x, grid_y)).unwrap_or(-1);
             let [r, g, b, a] = map_occupancy_color(value);
 
             let idx = ((img_y * width + x) as usize) * 4;
@@ -188,7 +189,7 @@ fn build_base_frame_scaled(
         let grid_y = grid_height - 1 - (img_y * grid_height / buffer_height);
         for img_x in 0..buffer_width {
             let grid_x = img_x * grid_width / buffer_width;
-            let value = grid.get(grid_x, grid_y).unwrap_or(-1);
+            let value = grid.get(&UVec2::new(grid_x, grid_y)).unwrap_or(-1);
             let [r, g, b, a] = map_occupancy_color(value);
 
             let idx = ((img_y * buffer_width + img_x) as usize) * 4;

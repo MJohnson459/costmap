@@ -137,6 +137,7 @@ fn load_occupancy_grid_from_memory(
     let info = MapInfo {
         width,
         height,
+        depth: 1,
         resolution: metadata.resolution,
         origin: metadata.origin,
     };
