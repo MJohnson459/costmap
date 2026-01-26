@@ -22,48 +22,48 @@ pub fn raycast_grid_step(
     let start = grid.world_to_map(&origin)?;
     let end = start + dir * (max_t / resolution);
 
-    let mut x0 = start.floor().x as i32;
-    let mut y0 = start.floor().y as i32;
-    let x1 = end.floor().x as i32;
-    let y1 = end.floor().y as i32;
+    let mut current = start.floor().as_ivec2();
+    let end_cell = end.floor().as_ivec2();
+    let step = IVec2::new(
+        if current.x < end_cell.x { 1 } else { -1 },
+        if current.y < end_cell.y { 1 } else { -1 },
+    );
 
-    let dx = (x1 - x0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let dy = -(y1 - y0).abs();
-    let sy = if y0 < y1 { 1 } else { -1 };
+    let dx = (end_cell.x - current.x).abs();
+    let dy = -(end_cell.y - current.y).abs();
     let mut err = dx + dy;
+    let bounds = IVec2::new(info.width as i32, info.height as i32);
 
     loop {
-        let cell = IVec2::new(x0, y0);
-        if in_bounds(cell, info.width as i32, info.height as i32) && is_occupied(grid, cell) {
-            let center = grid.map_to_world(&cell.as_vec2());
+        if in_bounds(current, bounds) && is_occupied(grid, current) {
+            let center = grid.map_to_world(&current.as_vec2());
             let hit_distance = (center - origin).dot(dir).max(0.0);
             return Some(RayHit2D {
-                cell: cell.as_uvec2(),
+                cell: current.as_uvec2(),
                 hit_distance,
             });
         }
 
-        if x0 == x1 && y0 == y1 {
+        if current == end_cell {
             break;
         }
 
         let e2 = 2 * err;
         if e2 >= dy {
             err += dy;
-            x0 += sx;
+            current.x += step.x;
         }
         if e2 <= dx {
             err += dx;
-            y0 += sy;
+            current.y += step.y;
         }
     }
 
     None
 }
 
-fn in_bounds(cell: IVec2, width: i32, height: i32) -> bool {
-    cell.x >= 0 && cell.y >= 0 && cell.x < width && cell.y < height
+fn in_bounds(cell: IVec2, bounds: IVec2) -> bool {
+    cell.x >= 0 && cell.y >= 0 && cell.x < bounds.x && cell.y < bounds.y
 }
 
 fn is_occupied(grid: &OccupancyGrid, cell: IVec2) -> bool {
