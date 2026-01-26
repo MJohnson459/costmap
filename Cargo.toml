@@ -12,6 +12,10 @@ serde_yaml = "0.9"
 thiserror = "2.0"
 winit = { version = "0.30", optional = true }
 
+[dev-dependencies]
+criterion = "0.5"
+approx = { version = "0.5.1", default-features = false }
+
 [features]
 default = []
 viewer = ["pixels", "winit"]
@@ -21,13 +25,14 @@ name = "viewer"
 path = "src/bin/viewer.rs"
 required-features = ["viewer"]
 
-[dev-dependencies]
-criterion = "0.5"
-
 [[bench]]
 name = "load_warehouse"
 harness = false
 
 [[bench]]
 name = "raycast"
+harness = false
+
+[[bench]]
+name = "line_iterator"
 harness = false
