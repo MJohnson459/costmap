@@ -4,7 +4,7 @@ use glam::Vec3;
 use image::GenericImageView;
 use serde::Deserialize;
 
-use crate::grid::OccupancyGrid;
+use crate::OccupancyGrid;
 use crate::types::{
     DEFAULT_FREE_THRESH, DEFAULT_OCCUPIED_THRESH, FREE, MapInfo, OCCUPIED, UNKNOWN, VoxelError,
 };
@@ -176,8 +176,8 @@ fn map_image_to_data(
     match metadata.mode {
         MapMode::Scale => {
             let rgba = image.into_rgba8();
-            let raw = rgba.as_raw();
-            fill_from_rgba(&mut data, raw, width_usize, height_usize, |r, g, b, a| {
+            let raw = rgba.into_raw();
+            fill_from_rgba(&mut data, &raw, width_usize, height_usize, |r, g, b, a| {
                 let shade = shade_rgb(r, g, b);
                 let occ = if metadata.negate.is_negated() {
                     shade
@@ -200,8 +200,8 @@ fn map_image_to_data(
                 eprintln!("ros2 loader: alpha channel present; Trinary mode ignores alpha");
             }
             let rgb = image.into_rgb8();
-            let raw = rgb.as_raw();
-            fill_from_rgb(&mut data, raw, width_usize, height_usize, |r, g, b| {
+            let raw = rgb.into_raw();
+            fill_from_rgb(&mut data, &raw, width_usize, height_usize, |r, g, b| {
                 let shade = shade_rgb(r, g, b);
                 let occ = if metadata.negate.is_negated() {
                     shade

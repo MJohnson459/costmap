@@ -4,13 +4,13 @@ use crate::grid::Grid;
 use crate::types::{MapInfo, VoxelError};
 
 #[derive(Debug, Clone)]
-pub struct OccupancyGrid {
+pub struct Grid2d<T> {
     info: MapInfo,
-    data: Vec<i8>,
+    data: Vec<T>,
 }
 
-impl OccupancyGrid {
-    pub fn new(info: MapInfo, data: Vec<i8>) -> Result<Self, VoxelError> {
+impl<T: Clone> Grid2d<T> {
+    pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError> {
         let expected_len = (info.width as usize) * (info.height as usize);
         if data.len() != expected_len {
             return Err(VoxelError::InvalidMetadata(format!(
@@ -35,15 +35,19 @@ impl OccupancyGrid {
         self.info.height
     }
 
-    pub fn get(&self, pos: &UVec2) -> Option<i8> {
+    pub fn get_ref(&self, pos: &UVec2) -> Option<&T> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return None;
         }
         let idx = self.index(pos);
-        Some(self.data[idx])
+        Some(&self.data[idx])
     }
 
-    pub fn set(&mut self, pos: &UVec2, value: i8) -> Result<(), VoxelError> {
+    pub fn get(&self, pos: &UVec2) -> Option<T> {
+        self.get_ref(pos).map(|v| v.clone())
+    }
+
+    pub fn set(&mut self, pos: &UVec2, value: T) -> Result<(), VoxelError> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return Err(VoxelError::OutOfBounds(format!(
                 "cell ({}, {}) out of bounds for map {}x{}",
@@ -76,8 +80,8 @@ impl OccupancyGrid {
     }
 }
 
-impl Grid for OccupancyGrid {
-    type Cell = i8;
+impl<T: Clone> Grid for Grid2d<T> {
+    type Cell = T;
 
     fn info(&self) -> &MapInfo {
         self.info()
@@ -98,14 +102,14 @@ mod tests {
 
     use super::*;
 
-    fn world_to_map_to_world(grid: &OccupancyGrid, pos: Vec2) -> Vec2 {
+    fn world_to_map_to_world(grid: &Grid2d<i8>, pos: Vec2) -> Vec2 {
         let map_pos = grid.world_to_map(&pos).unwrap();
         grid.map_to_world(&map_pos)
     }
 
     #[test]
     fn test_world_to_map_to_world() {
-        let grid = OccupancyGrid::new(
+        let grid = Grid2d::<i8>::new(
             MapInfo {
                 width: 10,
                 height: 10,

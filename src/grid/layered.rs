@@ -163,7 +163,7 @@ mod tests {
     use glam::{UVec2, Vec3};
 
     use super::*;
-    use crate::grid::OccupancyGrid;
+    use crate::grid::Grid2d;
     use crate::types::{FREE, MapInfo, OCCUPIED, UNKNOWN};
 
     #[test]
@@ -180,8 +180,8 @@ mod tests {
             ..info.clone()
         };
 
-        let layer_a = OccupancyGrid::new(info, vec![FREE; 4]).unwrap();
-        let layer_b = OccupancyGrid::new(mismatched, vec![FREE; 6]).unwrap();
+        let layer_a = Grid2d::new(info, vec![FREE; 4]).unwrap();
+        let layer_b = Grid2d::new(mismatched, vec![FREE; 6]).unwrap();
 
         let result = LayeredGrid::new(vec![layer_a, layer_b], OccupiedDominant);
         assert!(result.is_err());
@@ -197,8 +197,8 @@ mod tests {
             origin: Vec3::new(0.0, 0.0, 0.0),
         };
 
-        let layer_a = OccupancyGrid::new(info.clone(), vec![FREE; 4]).unwrap();
-        let mut layer_b = OccupancyGrid::new(info, vec![FREE; 4]).unwrap();
+        let layer_a = Grid2d::new(info.clone(), vec![FREE; 4]).unwrap();
+        let mut layer_b = Grid2d::new(info, vec![FREE; 4]).unwrap();
 
         layer_b.set(&UVec2::new(1, 1), OCCUPIED).unwrap();
         layer_b.set(&UVec2::new(0, 0), UNKNOWN).unwrap();

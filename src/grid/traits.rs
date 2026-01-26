@@ -4,7 +4,7 @@ use crate::types::{MapInfo, VoxelError};
 
 /// Shared grid interface for 2D and 3D backends.
 pub trait Grid {
-    type Cell: Copy;
+    type Cell: Clone;
 
     fn info(&self) -> &MapInfo;
     fn width(&self) -> u32 {

@@ -1,65 +1,62 @@
 use glam::{IVec2, Vec2};
 
-use crate::grid::OccupancyGrid;
+use crate::OccupancyGrid;
 use crate::raycast::RayHit2D;
 use crate::types::OCCUPIED;
 
-/// Grid-step traversal (Bresenham-style) over all crossed cells until hit.
-pub fn raycast_grid_step(
-    grid: &OccupancyGrid,
-    origin: &Vec2,
-    dir: &Vec2,
-    max_t: f32,
-) -> Option<RayHit2D> {
-    if dir.length_squared() == 0.0 {
-        return None;
+impl OccupancyGrid {
+    /// Grid-step traversal (Bresenham-style) over all crossed cells until hit.
+    pub fn raycast_grid_step(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<RayHit2D> {
+        if dir.length_squared() == 0.0 {
+            return None;
+        }
+
+        let info = self.info();
+        let resolution = info.resolution;
+        let dir = dir.normalize();
+
+        let start = self.world_to_map(&origin)?;
+        let end = start + dir * (max_t / resolution);
+
+        let mut current = start.floor().as_ivec2();
+        let end_cell = end.floor().as_ivec2();
+        let step = IVec2::new(
+            if current.x < end_cell.x { 1 } else { -1 },
+            if current.y < end_cell.y { 1 } else { -1 },
+        );
+
+        let dx = (end_cell.x - current.x).abs();
+        let dy = -(end_cell.y - current.y).abs();
+        let mut err = dx + dy;
+        let bounds = IVec2::new(info.width as i32, info.height as i32);
+
+        loop {
+            if in_bounds(current, bounds) && is_occupied(self, current) {
+                let center = self.map_to_world(&current.as_vec2());
+                let hit_distance = (center - origin).dot(dir).max(0.0);
+                return Some(RayHit2D {
+                    cell: current.as_uvec2(),
+                    hit_distance,
+                });
+            }
+
+            if current == end_cell {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                current.x += step.x;
+            }
+            if e2 <= dx {
+                err += dx;
+                current.y += step.y;
+            }
+        }
+
+        None
     }
-
-    let info = grid.info();
-    let resolution = info.resolution;
-    let dir = dir.normalize();
-
-    let start = grid.world_to_map(&origin)?;
-    let end = start + dir * (max_t / resolution);
-
-    let mut current = start.floor().as_ivec2();
-    let end_cell = end.floor().as_ivec2();
-    let step = IVec2::new(
-        if current.x < end_cell.x { 1 } else { -1 },
-        if current.y < end_cell.y { 1 } else { -1 },
-    );
-
-    let dx = (end_cell.x - current.x).abs();
-    let dy = -(end_cell.y - current.y).abs();
-    let mut err = dx + dy;
-    let bounds = IVec2::new(info.width as i32, info.height as i32);
-
-    loop {
-        if in_bounds(current, bounds) && is_occupied(grid, current) {
-            let center = grid.map_to_world(&current.as_vec2());
-            let hit_distance = (center - origin).dot(dir).max(0.0);
-            return Some(RayHit2D {
-                cell: current.as_uvec2(),
-                hit_distance,
-            });
-        }
-
-        if current == end_cell {
-            break;
-        }
-
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            current.x += step.x;
-        }
-        if e2 <= dx {
-            err += dx;
-            current.y += step.y;
-        }
-    }
-
-    None
 }
 
 fn in_bounds(cell: IVec2, bounds: IVec2) -> bool {
@@ -107,7 +104,9 @@ mod tests {
         let grid = test_grid(Some(goal));
         let dir = Vec2::new(4.0, 1.0).normalize();
 
-        let hit = raycast_grid_step(&grid, &Vec2::ZERO, &dir, 30.0).expect("hit expected");
+        let hit = grid
+            .raycast_grid_step(&Vec2::ZERO, &dir, 30.0)
+            .expect("hit expected");
         assert_eq!(hit.cell, goal);
     }
 
@@ -115,7 +114,7 @@ mod tests {
     fn miss() {
         let grid = test_grid(None);
         let dir = Vec2::new(6.0, 1.0).normalize();
-        let hit = raycast_grid_step(&grid, &Vec2::ZERO, &dir, 30.0);
+        let hit = grid.raycast_grid_step(&Vec2::ZERO, &dir, 30.0);
         assert!(hit.is_none());
     }
 }

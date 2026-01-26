@@ -1,8 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
-use voxel_grid::raycast::dda::raycast_dda;
-use voxel_grid::raycast::grid_step::raycast_grid_step;
 use voxel_grid::types::{FREE, MapInfo, OCCUPIED};
 
 fn bench_raycast(c: &mut Criterion) {
@@ -13,7 +11,7 @@ fn bench_raycast(c: &mut Criterion) {
         b.iter(|| {
             let mut hits = 0usize;
             for (origin, dir, max_t) in &rays {
-                if raycast_dda(&grid, origin, dir, *max_t).is_some() {
+                if grid.raycast_dda(origin, dir, *max_t).is_some() {
                     hits += 1;
                 }
             }
@@ -25,7 +23,7 @@ fn bench_raycast(c: &mut Criterion) {
         b.iter(|| {
             let mut hits = 0usize;
             for (origin, dir, max_t) in &rays {
-                if raycast_grid_step(&grid, origin, dir, *max_t).is_some() {
+                if grid.raycast_grid_step(origin, dir, *max_t).is_some() {
                     hits += 1;
                 }
             }
@@ -51,7 +49,7 @@ fn build_grid(width: usize, height: usize, resolution: f32) -> voxel_grid::Occup
         origin: glam::Vec3::new(0.0, 0.0, 0.0),
     };
 
-    voxel_grid::OccupancyGrid::new(info, data).expect("grid should build")
+    voxel_grid::Grid2d::new(info, data).expect("grid should build")
 }
 
 fn build_rays() -> Vec<(Vec2, Vec2, f32)> {
