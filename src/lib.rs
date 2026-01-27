@@ -1,6 +1,7 @@
 pub mod grid;
 pub mod iterators;
 pub mod loaders;
+pub mod nav2_compat;
 pub mod raycast;
 pub mod types;
 

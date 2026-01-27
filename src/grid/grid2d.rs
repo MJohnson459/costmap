@@ -9,6 +9,16 @@ pub struct Grid2d<T> {
     data: Vec<T>,
 }
 
+impl<T: Default + Clone> Grid2d<T> {
+    pub fn empty(info: MapInfo) -> Self {
+        let expected_len = (info.width as usize) * (info.height as usize);
+        Self {
+            info,
+            data: vec![T::default(); expected_len],
+        }
+    }
+}
+
 impl<T> Grid2d<T> {
     pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError> {
         let expected_len = (info.width as usize) * (info.height as usize);
