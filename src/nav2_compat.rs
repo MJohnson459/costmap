@@ -6,9 +6,9 @@
 
 use std::time::Duration;
 
-use glam::Vec2;
+use glam::{UVec2, Vec2, Vec3};
 
-use crate::{Grid2d, types::VoxelError};
+use crate::{Grid2d, MapInfo, types::VoxelError};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pose2D {
@@ -100,7 +100,9 @@ pub trait Layer {
 /// - Unknown should be encoded by a configurable sentinel (often 255 or 253 in ROS2).
 /// - World coordinates are in meters (f32), map coordinates are integer cell indices.
 #[derive(Debug)]
-pub struct Costmap2D;
+pub struct Costmap2D {
+    grid: Grid2d<u8>,
+}
 
 impl Costmap2D {
     /// Construct a new costmap with size in cells, resolution in meters, and origin in meters.
@@ -111,14 +113,16 @@ impl Costmap2D {
     ///
     /// C++: `Costmap2D(unsigned int size_x, unsigned int size_y, double resolution,`
     /// `double origin_x, double origin_y, unsigned char default_value = 0);`
-    pub fn new(
-        _size_x: u32,
-        _size_y: u32,
-        _resolution: f32,
-        _origin_x: f32,
-        _origin_y: f32,
-    ) -> Self {
-        todo!("new not implemented");
+    pub fn new(size_x: u32, size_y: u32, resolution: f32, origin_x: f32, origin_y: f32) -> Self {
+        Self {
+            grid: Grid2d::empty(MapInfo {
+                width: size_x,
+                height: size_y,
+                depth: 1,
+                resolution: resolution,
+                origin: Vec2::new(origin_x, origin_y).extend(0.0),
+            }),
+        }
     }
 
     /// Return the cost at a cell coordinate.
@@ -127,8 +131,8 @@ impl Costmap2D {
     /// - Out-of-bounds access should return a lethal or unknown cost via caller checks.
     ///
     /// C++: `unsigned char getCost(unsigned int mx, unsigned int my) const;`
-    pub fn get_cost(&self, _mx: u32, _my: u32) -> u8 {
-        todo!("get_cost not implemented");
+    pub fn get_cost(&self, mx: u32, my: u32) -> u8 {
+        self.grid.get(&UVec2::new(mx, my)).copied().unwrap_or(0)
     }
 
     /// Set the cost at a cell coordinate.
@@ -137,8 +141,9 @@ impl Costmap2D {
     /// - Out-of-bounds writes should be ignored or error via caller checks.
     ///
     /// C++: `void setCost(unsigned int mx, unsigned int my, unsigned char cost);`
-    pub fn set_cost(&mut self, _mx: u32, _my: u32, _cost: u8) {
-        todo!("set_cost not implemented");
+    pub fn set_cost(&mut self, mx: u32, my: u32, cost: u8) {
+        // Explicitly (and silently) ignore any out of bound errors
+        let _ = self.grid.set(&UVec2::new(mx, my), cost);
     }
 
     /// Convert map coordinates to world coordinates at cell center.
@@ -147,8 +152,10 @@ impl Costmap2D {
     /// - Returns the center of the specified cell, not the lower-left corner.
     ///
     /// C++: `void mapToWorld(unsigned int mx, unsigned int my, double & wx, double & wy) const;`
-    pub fn map_to_world(&self, _mx: u32, _my: u32) -> (f32, f32) {
-        todo!("map_to_world not implemented");
+    pub fn map_to_world(&self, mx: u32, my: u32) -> (f32, f32) {
+        let pos = self.grid.map_to_world(&Vec2::new(mx as f32, my as f32))
+            + 0.5 * self.grid.info().resolution;
+        (pos.x, pos.y)
     }
 
     /// Convert world coordinates to map coordinates with bounds checking.
@@ -157,8 +164,10 @@ impl Costmap2D {
     /// - Returns `None` if the world coordinate lies outside the map bounds.
     ///
     /// C++: `bool worldToMap(double wx, double wy, unsigned int & mx, unsigned int & my) const;`
-    pub fn world_to_map(&self, _wx: f32, _wy: f32) -> Option<(u32, u32)> {
-        todo!("world_to_map not implemented");
+    pub fn world_to_map(&self, wx: f32, wy: f32) -> Option<(u32, u32)> {
+        let pos = Vec2::new(wx, wy);
+        let map_pos = self.grid.world_to_map(&pos)?;
+        Some((map_pos.x as u32, map_pos.y as u32))
     }
 
     /// Convert world coordinates to continuous map coordinates without snapping.
@@ -167,32 +176,35 @@ impl Costmap2D {
     /// - Values are in cell coordinates (0..size) and can be fractional.
     ///
     /// C++: `bool worldToMapContinuous(double wx, double wy, float & mx, float & my) const;`
-    pub fn world_to_map_continuous(&self, _wx: f32, _wy: f32) -> Option<(f32, f32)> {
-        todo!("world_to_map_continuous not implemented");
+    pub fn world_to_map_continuous(&self, wx: f32, wy: f32) -> Option<(f32, f32)> {
+        let pos = Vec2::new(wx, wy);
+        let map_pos = self.grid.world_to_map(&pos)?;
+        Some((map_pos.x, map_pos.y))
     }
 
     /// Return the map size in cells along X.
     /// C++: `unsigned int getSizeInCellsX() const;`
     pub fn get_size_in_cells_x(&self) -> u32 {
-        todo!("get_size_in_cells_x not implemented");
+        self.grid.width()
     }
 
     /// Return the map size in cells along Y.
     /// C++: `unsigned int getSizeInCellsY() const;`
     pub fn get_size_in_cells_y(&self) -> u32 {
-        todo!("get_size_in_cells_y not implemented");
+        self.grid.height()
     }
 
     /// Return the map resolution in meters per cell.
     /// C++: `double getResolution() const;`
     pub fn get_resolution(&self) -> f32 {
-        todo!("get_resolution not implemented");
+        self.grid.info().resolution
     }
 
     /// Return the map origin (x, y) in meters.
     /// C++: `double getOriginX() const;` and `double getOriginY() const;`
     pub fn get_origin(&self) -> (f32, f32) {
-        todo!("get_origin not implemented");
+        let origin = self.grid.info().origin;
+        (origin.x, origin.y)
     }
 
     /// Update the map origin in world coordinates.
@@ -201,8 +213,9 @@ impl Costmap2D {
     /// - When rolling, attempt to preserve overlapping regions of the previous map.
     ///
     /// C++: `virtual void updateOrigin(double new_origin_x, double new_origin_y);`
-    pub fn update_origin(&mut self, _origin_x: f32, _origin_y: f32) {
-        todo!("update_origin not implemented");
+    pub fn update_origin(&mut self, origin_x: f32, origin_y: f32) {
+        self.grid
+            .update_origin(&Vec3::new(origin_x, origin_y, self.grid.info().origin.z));
     }
 
     /// Resize the map and update resolution/origin.
@@ -214,13 +227,17 @@ impl Costmap2D {
     /// `double origin_x, double origin_y);`
     pub fn resize_map(
         &mut self,
-        _size_x: u32,
-        _size_y: u32,
-        _resolution: f32,
-        _origin_x: f32,
-        _origin_y: f32,
+        size_x: u32,
+        size_y: u32,
+        resolution: f32,
+        origin_x: f32,
+        origin_y: f32,
     ) {
-        todo!("resize_map not implemented");
+        self.grid.resize_map(
+            UVec2::new(size_x, size_y),
+            resolution,
+            &Vec3::new(origin_x, origin_y, self.grid.info().origin.z),
+        );
     }
 
     /// Reset a rectangular region to default value.

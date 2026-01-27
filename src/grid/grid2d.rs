@@ -1,4 +1,4 @@
-use glam::{UVec2, UVec3, Vec2};
+use glam::{IVec2, UVec2, UVec3, Vec2, Vec3};
 
 use crate::grid::Grid;
 use crate::types::{MapInfo, VoxelError};
@@ -16,6 +16,17 @@ impl<T: Default + Clone> Grid2d<T> {
             info,
             data: vec![T::default(); expected_len],
         }
+    }
+
+    /// Resize the map and update resolution/origin.
+    ///
+    /// This method clears the data to the default value.
+    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec3) {
+        self.info.width = size.x;
+        self.info.height = size.y;
+        self.info.resolution = resolution;
+        self.info.origin = *origin;
+        self.data = vec![T::default(); size.x as usize * size.y as usize];
     }
 }
 
@@ -65,6 +76,76 @@ impl<T> Grid2d<T> {
         Ok(())
     }
 
+    pub fn update_origin(&mut self, origin: &Vec3)
+    where
+        T: Default + Clone,
+    {
+        let resolution = self.info.resolution;
+        if resolution <= 0.0 {
+            self.info.origin = *origin;
+            self.data = vec![T::default(); self.data.len()];
+            return;
+        }
+
+        let old_origin = self.info.origin;
+        let cell_offset = ((origin - &old_origin) / resolution)
+            .truncate()
+            .floor()
+            .as_ivec2();
+        let grid_size = IVec2::new(self.info.width as i32, self.info.height as i32);
+
+        self.data = self.copy_overlapping_region(grid_size, grid_size, cell_offset);
+
+        self.info.origin = Vec3::new(
+            old_origin.x + cell_offset.x as f32 * resolution,
+            old_origin.y + cell_offset.y as f32 * resolution,
+            old_origin.z,
+        );
+    }
+
+    fn copy_overlapping_region(
+        &self,
+        old_size: IVec2,
+        new_size: IVec2,
+        cell_offset: IVec2,
+    ) -> Vec<T>
+    where
+        T: Default + Clone,
+    {
+        let overlap_min = cell_offset.clamp(IVec2::ZERO, old_size);
+        let overlap_max = (cell_offset + new_size).clamp(IVec2::ZERO, old_size);
+        let overlap_size = (overlap_max - overlap_min).max(IVec2::ZERO);
+
+        let cell_size_x = overlap_size.x as usize;
+        let cell_size_y = overlap_size.y as usize;
+
+        let mut local = vec![T::default(); cell_size_x * cell_size_y];
+        if cell_size_x > 0 && cell_size_y > 0 {
+            for y in 0..cell_size_y {
+                let src_start =
+                    (overlap_min.y as usize + y) * (old_size.x as usize) + overlap_min.x as usize;
+                let src_end = src_start + cell_size_x;
+                let dst_start = y * cell_size_x;
+                local[dst_start..dst_start + cell_size_x]
+                    .clone_from_slice(&self.data[src_start..src_end]);
+            }
+        }
+
+        let mut new_data = vec![T::default(); new_size.x as usize * new_size.y as usize];
+        let start = overlap_min - cell_offset;
+        if cell_size_x > 0 && cell_size_y > 0 {
+            for y in 0..cell_size_y {
+                let dst_start = (start.y as usize + y) * (new_size.x as usize) + start.x as usize;
+                let dst_end = dst_start + cell_size_x;
+                let src_start = y * cell_size_x;
+                let src_end = src_start + cell_size_x;
+                new_data[dst_start..dst_end].clone_from_slice(&local[src_start..src_end]);
+            }
+        }
+
+        new_data
+    }
+
     fn index(&self, pos: &UVec2) -> usize {
         (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
     }
@@ -98,11 +179,11 @@ impl<T> Grid for Grid2d<T> {
     }
 
     fn get(&self, pos: &UVec3) -> Option<&Self::Cell> {
-        self.get(&pos.truncate())
+        Grid2d::get(self, &pos.truncate())
     }
 
     fn set(&mut self, pos: &UVec3, value: Self::Cell) -> Result<(), VoxelError> {
-        self.set(&pos.truncate(), value)
+        Grid2d::set(self, &pos.truncate(), value)
     }
 }
 
@@ -163,5 +244,46 @@ mod tests {
             world_to_map_to_world(&grid, Vec2::new(1.5, 1.5)),
             Vec2::new(1.5, 1.5)
         );
+    }
+
+    #[test]
+    fn test_update_origin_shifts_data() {
+        let mut grid = Grid2d::<i8>::new(
+            MapInfo {
+                width: 4,
+                height: 4,
+                depth: 1,
+                resolution: 1.0,
+                origin: Vec3::new(0.0, 0.0, 0.0),
+            },
+            vec![0; 16],
+        )
+        .unwrap();
+
+        grid.set(&UVec2::new(1, 1), 7).unwrap();
+        grid.update_origin(&Vec3::new(1.0, 0.0, 0.0));
+
+        assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&7));
+        assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
+    }
+
+    #[test]
+    fn test_resize_map_clears_data() {
+        let mut grid = Grid2d::<i8>::new(
+            MapInfo {
+                width: 4,
+                height: 4,
+                depth: 1,
+                resolution: 1.0,
+                origin: Vec3::new(0.0, 0.0, 0.0),
+            },
+            vec![0; 16],
+        )
+        .unwrap();
+
+        grid.set(&UVec2::new(1, 1), 9).unwrap();
+        grid.resize_map(UVec2::new(6, 6), 1.0, &Vec3::new(1.0, 0.0, 0.0));
+
+        assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
     }
 }

@@ -36,3 +36,11 @@ harness = false
 [[bench]]
 name = "line_iterator"
 harness = false
+
+[[bench]]
+name = "resize_map"
+harness = false
+
+[[bench]]
+name = "update_origin"
+harness = false
