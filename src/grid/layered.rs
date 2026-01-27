@@ -12,7 +12,7 @@ pub struct LayerMeta {
 
 /// Aggregates per-layer values into a single result.
 pub trait AggregatePolicy<Value> {
-    fn combine(&self, values: &[Value]) -> Value;
+    fn combine(&self, values: &[&Value]) -> Value;
 }
 
 /// Aggregation policy that prioritizes OCCUPIED, then FREE, then UNKNOWN.
@@ -20,7 +20,7 @@ pub trait AggregatePolicy<Value> {
 pub struct OccupiedDominant;
 
 impl AggregatePolicy<i8> for OccupiedDominant {
-    fn combine(&self, values: &[i8]) -> i8 {
+    fn combine(&self, values: &[&i8]) -> i8 {
         if values.is_empty() {
             return crate::types::UNKNOWN;
         }
@@ -28,9 +28,9 @@ impl AggregatePolicy<i8> for OccupiedDominant {
         let mut saw_occupied = false;
 
         for value in values {
-            if *value == crate::types::OCCUPIED {
+            if *value == &crate::types::OCCUPIED {
                 saw_occupied = true;
-            } else if *value == crate::types::FREE {
+            } else if *value == &crate::types::FREE {
                 saw_free = true;
             }
         }

@@ -9,7 +9,7 @@ pub struct Grid2d<T> {
     data: Vec<T>,
 }
 
-impl<T: Clone> Grid2d<T> {
+impl<T> Grid2d<T> {
     pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError> {
         let expected_len = (info.width as usize) * (info.height as usize);
         if data.len() != expected_len {
@@ -35,16 +35,12 @@ impl<T: Clone> Grid2d<T> {
         self.info.height
     }
 
-    pub fn get_ref(&self, pos: &UVec2) -> Option<&T> {
+    pub fn get(&self, pos: &UVec2) -> Option<&T> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return None;
         }
         let idx = self.index(pos);
         Some(&self.data[idx])
-    }
-
-    pub fn get(&self, pos: &UVec2) -> Option<T> {
-        self.get_ref(pos).map(|v| v.clone())
     }
 
     pub fn set(&mut self, pos: &UVec2, value: T) -> Result<(), VoxelError> {
@@ -78,16 +74,20 @@ impl<T: Clone> Grid2d<T> {
         }
         Some(Vec2::new(mx, my))
     }
+
+    pub fn data(&self) -> &[T] {
+        &self.data
+    }
 }
 
-impl<T: Clone> Grid for Grid2d<T> {
+impl<T> Grid for Grid2d<T> {
     type Cell = T;
 
     fn info(&self) -> &MapInfo {
         self.info()
     }
 
-    fn get(&self, pos: &UVec3) -> Option<Self::Cell> {
+    fn get(&self, pos: &UVec3) -> Option<&Self::Cell> {
         self.get(&pos.truncate())
     }
 

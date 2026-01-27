@@ -1,100 +1,31 @@
-use glam::{IVec2, Vec2};
+use glam::Vec2;
 
-use crate::OccupancyGrid;
-use crate::raycast::RayHit2D;
 use crate::types::OCCUPIED;
+use crate::{OccupancyGrid, iterators::line::LineIterator};
+use crate::{raycast::RayHit2D, types::FREE};
 
 impl OccupancyGrid {
     /// Fast voxel traversal (Amanatides & Woo) that returns the first occupied cell hit.
     pub fn raycast_dda(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<RayHit2D> {
-        if dir.length_squared() == 0.0 {
-            return None;
-        }
+        let iter = LineIterator::new(self, origin, dir, max_t)?;
 
-        let info = self.info();
-        let resolution = info.resolution;
-        let max_t_grid = max_t / resolution;
-        let dir = dir.normalize();
-
-        let start = self.world_to_map(&origin)?;
-
-        // We use ivecs internally as the steps can be negative.
-        let mut cell = start.floor().as_ivec2();
-        if is_occupied(self, cell) {
-            return Some(RayHit2D {
-                cell: cell.as_uvec2(),
-                hit_distance: 0.0,
-            });
-        }
-
-        let step = IVec2::new(dir.x.signum() as i32, dir.y.signum() as i32);
-        let (t_delta_x, t_max_x) = axis_params(start.x, dir.x);
-        let (t_delta_y, t_max_y) = axis_params(start.y, dir.y);
-
-        let mut t_max = Vec2::new(t_max_x, t_max_y);
-        let t_delta = Vec2::new(t_delta_x, t_delta_y);
-
-        loop {
-            let t;
-            if t_max.x < t_max.y {
-                t = t_max.x;
-                t_max.x += t_delta.x;
-                cell.x += step.x;
-            } else {
-                t = t_max.y;
-                t_max.y += t_delta.y;
-                cell.y += step.y;
-            }
-
-            if t > max_t_grid {
-                return None;
-            }
-
-            if cell.x < 0
-                || cell.y < 0
-                || cell.x >= info.width as i32
-                || cell.y >= info.height as i32
-            {
-                return None;
-            }
-
-            if is_occupied(self, cell) {
+        let resolution = self.info().resolution;
+        for step in iter {
+            let value = self.get(&step.cell).unwrap_or(&FREE);
+            if value >= &OCCUPIED {
                 return Some(RayHit2D {
-                    cell: cell.as_uvec2(),
-                    hit_distance: t * resolution,
+                    cell: step.cell,
+                    hit_distance: step.t * resolution,
                 });
             }
         }
+        None
     }
-}
-
-fn axis_params(start: f32, dir: f32) -> (f32, f32) {
-    if dir == 0.0 {
-        return (f32::INFINITY, f32::INFINITY);
-    }
-
-    let step = dir.signum();
-    let dist_to_boundary = if step > 0.0 {
-        1.0 - start.fract()
-    } else {
-        start.fract()
-    };
-
-    let t_delta = (1.0 / dir).abs();
-    let t_max = dist_to_boundary * t_delta;
-    (t_delta, t_max)
-}
-
-fn is_occupied(grid: &OccupancyGrid, cell: IVec2) -> bool {
-    if cell.x < 0 || cell.y < 0 {
-        return false;
-    }
-    let value = grid.get(&cell.as_uvec2()).unwrap_or(0);
-    value >= OCCUPIED
 }
 
 #[cfg(test)]
 mod tests {
+    use approx::assert_relative_eq;
     use glam::UVec2;
 
     use super::*;
@@ -130,7 +61,7 @@ mod tests {
             .raycast_dda(&Vec2::ZERO, &dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
-        assert!((hit.hit_distance - 4.1231055).abs() < 1e-4);
+        assert_relative_eq!(hit.hit_distance, 4.1231055, epsilon = 1e-4);
     }
 
     #[test]
@@ -150,7 +81,7 @@ mod tests {
             .raycast_dda(&Vec2::new(4.0, 0.0), &dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
-        assert!((hit.hit_distance - 4.026176).abs() < 1e-4);
+        assert_relative_eq!(hit.hit_distance, 4.026176, epsilon = 1e-4);
     }
 
     #[test]
@@ -162,6 +93,6 @@ mod tests {
             .raycast_dda(&Vec2::new(0.04, 0.0), &dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
-        assert!((hit.hit_distance - 0.2236068).abs() < 1e-4);
+        assert_relative_eq!(hit.hit_distance, 0.2236068, epsilon = 1e-4);
     }
 }

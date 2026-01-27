@@ -14,5 +14,9 @@ fn bench_load_warehouse(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_load_warehouse);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().sample_size(10);
+    targets = bench_load_warehouse
+);
 criterion_main!(benches);

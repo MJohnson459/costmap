@@ -9,7 +9,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowAttributes};
 
-use voxel_grid::RosMapLoader;
+use voxel_grid::{RosMapLoader, types::UNKNOWN};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args();
@@ -161,8 +161,8 @@ fn build_base_frame(grid: &voxel_grid::OccupancyGrid) -> Vec<u8> {
     for img_y in 0..height {
         for x in 0..width {
             let grid_y = height - img_y - 1;
-            let value = grid.get(&UVec2::new(x, grid_y)).unwrap_or(-1);
-            let [r, g, b, a] = map_occupancy_color(value);
+            let value = grid.get(&UVec2::new(x, grid_y)).unwrap_or(&UNKNOWN);
+            let [r, g, b, a] = map_occupancy_color(*value);
 
             let idx = ((img_y * width + x) as usize) * 4;
             frame[idx] = r;
@@ -189,8 +189,8 @@ fn build_base_frame_scaled(
         let grid_y = grid_height - 1 - (img_y * grid_height / buffer_height);
         for img_x in 0..buffer_width {
             let grid_x = img_x * grid_width / buffer_width;
-            let value = grid.get(&UVec2::new(grid_x, grid_y)).unwrap_or(-1);
-            let [r, g, b, a] = map_occupancy_color(value);
+            let value = grid.get(&UVec2::new(grid_x, grid_y)).unwrap_or(&UNKNOWN);
+            let [r, g, b, a] = map_occupancy_color(*value);
 
             let idx = ((img_y * buffer_width + img_x) as usize) * 4;
             if idx + 3 >= frame_len {

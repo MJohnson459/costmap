@@ -4,7 +4,7 @@ use crate::types::{MapInfo, VoxelError};
 
 /// Shared grid interface for 2D and 3D backends.
 pub trait Grid {
-    type Cell: Clone;
+    type Cell;
 
     fn info(&self) -> &MapInfo;
     fn width(&self) -> u32 {
@@ -18,7 +18,7 @@ pub trait Grid {
     }
 
     /// Get the cell with bounds checking.
-    fn get(&self, pos: &UVec3) -> Option<Self::Cell>;
+    fn get(&self, pos: &UVec3) -> Option<&Self::Cell>;
     /// Set the cell with bounds checking.
     fn set(&mut self, pos: &UVec3, value: Self::Cell) -> Result<(), VoxelError>;
 }

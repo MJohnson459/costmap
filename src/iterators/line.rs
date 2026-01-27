@@ -3,18 +3,24 @@ use glam::{IVec2, UVec2, Vec2};
 use crate::Grid2d;
 
 pub struct LineIterator<'a, T> {
-    grid: &'a Grid2d<T>,
+    /// TODO: We don't actually need the grid, but removing this makes the
+    /// `next()` method 50% slower.
+    _grid: &'a Grid2d<T>,
     max_t_grid: f32,
+    /// Normalised step direction along each axis.
     step: IVec2,
     t_max: Vec2,
+    /// Distance to the next cell boundary along each axis.
     t_delta: Vec2,
+    /// Current cell being processed.
     cell: IVec2,
     emit_start: bool,
 
-    width: i32,
-    height: i32,
+    width: u32,
+    height: u32,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LineStep {
     pub cell: UVec2,
     pub t: f32,
@@ -44,15 +50,15 @@ impl<'a, T> LineIterator<'a, T> {
         let t_max = Vec2::new(t_max_x, t_max_y);
         let t_delta = Vec2::new(t_delta_x, t_delta_y);
         Some(Self {
-            grid,
             max_t_grid,
             step,
             t_max,
             t_delta,
             cell,
             emit_start: true,
-            width: info.width as i32,
-            height: info.height as i32,
+            width: info.width,
+            height: info.height,
+            _grid: grid,
         })
     }
 }
@@ -84,11 +90,8 @@ impl<'a, T> Iterator for LineIterator<'a, T> {
             return None;
         }
 
-        if self.cell.x < 0
-            || self.cell.y < 0
-            || self.cell.x >= self.width
-            || self.cell.y >= self.height
-        {
+        // equivalent to (x >= 0 && x < width) for signed x
+        if (self.cell.x as u32) >= self.width || (self.cell.y as u32) >= self.height {
             return None;
         }
 

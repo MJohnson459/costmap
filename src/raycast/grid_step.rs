@@ -1,8 +1,9 @@
-use glam::{IVec2, Vec2};
+use glam::{IVec2, UVec2, Vec2};
 
 use crate::OccupancyGrid;
 use crate::raycast::RayHit2D;
-use crate::types::OCCUPIED;
+
+use super::utils;
 
 impl OccupancyGrid {
     /// Grid-step traversal (Bresenham-style) over all crossed cells until hit.
@@ -28,10 +29,10 @@ impl OccupancyGrid {
         let dx = (end_cell.x - current.x).abs();
         let dy = -(end_cell.y - current.y).abs();
         let mut err = dx + dy;
-        let bounds = IVec2::new(info.width as i32, info.height as i32);
+        let bounds = UVec2::new(info.width, info.height);
 
         loop {
-            if in_bounds(current, bounds) && is_occupied(self, current) {
+            if utils::in_bounds(&current, &bounds) && utils::is_occupied(self, &current) {
                 let center = self.map_to_world(&current.as_vec2());
                 let hit_distance = (center - origin).dot(dir).max(0.0);
                 return Some(RayHit2D {
@@ -57,18 +58,6 @@ impl OccupancyGrid {
 
         None
     }
-}
-
-fn in_bounds(cell: IVec2, bounds: IVec2) -> bool {
-    cell.x >= 0 && cell.y >= 0 && cell.x < bounds.x && cell.y < bounds.y
-}
-
-fn is_occupied(grid: &OccupancyGrid, cell: IVec2) -> bool {
-    if cell.x < 0 || cell.y < 0 {
-        return false;
-    }
-    let value = grid.get(&cell.as_uvec2()).unwrap_or(0);
-    value >= OCCUPIED
 }
 
 #[cfg(test)]
