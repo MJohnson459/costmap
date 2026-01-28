@@ -246,8 +246,8 @@ impl Costmap2D {
     /// - Bounds are inclusive on start and exclusive on end indices.
     ///
     /// C++: `void resetMap(unsigned int x0, unsigned int y0, unsigned int xn, unsigned int yn);`
-    pub fn reset_map(&mut self, _x0: u32, _y0: u32, _xn: u32, _yn: u32) {
-        todo!("reset_map not implemented");
+    pub fn reset_map(&mut self, x0: u32, y0: u32, xn: u32, yn: u32) {
+        self.grid.reset_map(UVec2::new(x0, y0), UVec2::new(xn, yn));
     }
 
     /// Compute footprint collision cost at a pose (LETHAL if collision).

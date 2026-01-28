@@ -28,6 +28,29 @@ impl<T: Default + Clone> Grid2d<T> {
         self.info.origin = *origin;
         self.data = vec![T::default(); size.x as usize * size.y as usize];
     }
+
+    pub fn reset_map(&mut self, lower: UVec2, upper: UVec2) {
+        let width = self.info.width;
+        let height = self.info.height;
+        let start_x = lower.x.min(width);
+        let end_x = upper.x.min(width);
+        let start_y = lower.y.min(height);
+        let end_y = upper.y.min(height);
+
+        if start_x >= end_x || start_y >= end_y {
+            return;
+        }
+
+        let row_width = (end_x - start_x) as usize;
+        let fill = T::default();
+        let stride = width as usize;
+
+        for y in start_y..end_y {
+            let row_start = (y as usize) * stride + start_x as usize;
+            let row_end = row_start + row_width;
+            self.data[row_start..row_end].fill(fill.clone());
+        }
+    }
 }
 
 impl<T> Grid2d<T> {
