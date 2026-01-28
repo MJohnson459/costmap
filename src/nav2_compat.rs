@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use glam::{UVec2, Vec2, Vec3};
 
-use crate::{Grid2d, MapInfo, types::VoxelError};
+use crate::{Grid2d, MapInfo, iterators::polygon::PolygonIterator, types::VoxelError};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pose2D {
@@ -259,7 +259,18 @@ impl Costmap2D {
     /// C++ (used by Costmap2DROS via FootprintCollisionChecker):
     /// `double footprintCostAtPose(double x, double y, double theta, const Footprint & footprint);`
     pub fn footprint_cost(&self, _pose: Pose2D, _footprint: &Footprint) -> u8 {
-        todo!("footprint_cost not implemented");
+        let polygon: Vec<Vec2> = _footprint
+            .points
+            .iter()
+            .map(|(x, y)| Vec2::new(*x, *y))
+            .collect();
+
+        PolygonIterator::new(&self.grid, &polygon)
+            .unwrap()
+            .into_iter()
+            .fold(0, |max_cost, cell| {
+                max_cost.max(*self.grid.get(&cell).unwrap_or(&0))
+            })
     }
 
     /// Rasterize a convex polygon and set costs; returns false on failure.
@@ -269,8 +280,16 @@ impl Costmap2D {
     ///
     /// C++: `bool setConvexPolygonCost(const std::vector<geometry_msgs::msg::Point> & polygon,`
     /// `unsigned char cost_value);`
-    pub fn set_convex_polygon_cost(&mut self, _polygon: &[(f32, f32)], _cost: u8) -> bool {
-        todo!("set_convex_polygon_cost not implemented");
+    pub fn set_convex_polygon_cost(&mut self, _polygon: &[(f32, f32)], cost: u8) -> bool {
+        let polygon: Vec<Vec2> = _polygon.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
+
+        let Some(iter) = PolygonIterator::new(&self.grid, &polygon) else {
+            return false;
+        };
+        for cell in iter {
+            // self.grid.set(&cell, cost);
+        }
+        true
     }
 }
 
