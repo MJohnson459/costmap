@@ -1,0 +1,38 @@
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use glam::Vec2;
+
+use voxel_grid::Grid2d;
+use voxel_grid::iterators::polygon::PolygonIterator;
+use voxel_grid::types::MapInfo;
+
+fn bench_polygon_iter(c: &mut Criterion) {
+    let info = MapInfo {
+        width: 256,
+        height: 256,
+        depth: 1,
+        resolution: 1.0,
+        origin: glam::Vec3::new(0.0, 0.0, 0.0),
+    };
+    let grid = Grid2d::<u8>::empty(info);
+
+    let points = vec![
+        Vec2::new(10.0, 10.0),
+        Vec2::new(110.0, 10.0),
+        Vec2::new(110.0, 110.0),
+        Vec2::new(10.0, 110.0),
+    ];
+
+    c.bench_function("polygon_iter_rectangle_100x100", |b| {
+        b.iter_batched(
+            || points.clone(),
+            |pts| {
+                let count = PolygonIterator::new(&grid, &pts).unwrap().count();
+                black_box(count);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+}
+
+criterion_group!(benches, bench_polygon_iter);
+criterion_main!(benches);

@@ -9,50 +9,6 @@ pub struct Grid2d<T> {
     data: Vec<T>,
 }
 
-impl<T: Default + Clone> Grid2d<T> {
-    pub fn empty(info: MapInfo) -> Self {
-        let expected_len = (info.width as usize) * (info.height as usize);
-        Self {
-            info,
-            data: vec![T::default(); expected_len],
-        }
-    }
-
-    /// Resize the map and update resolution/origin.
-    ///
-    /// This method clears the data to the default value.
-    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec3) {
-        self.info.width = size.x;
-        self.info.height = size.y;
-        self.info.resolution = resolution;
-        self.info.origin = *origin;
-        self.data = vec![T::default(); size.x as usize * size.y as usize];
-    }
-
-    pub fn reset_map(&mut self, lower: UVec2, upper: UVec2) {
-        let width = self.info.width;
-        let height = self.info.height;
-        let start_x = lower.x.min(width);
-        let end_x = upper.x.min(width);
-        let start_y = lower.y.min(height);
-        let end_y = upper.y.min(height);
-
-        if start_x >= end_x || start_y >= end_y {
-            return;
-        }
-
-        let row_width = (end_x - start_x) as usize;
-        let fill = T::default();
-        let stride = width as usize;
-
-        for y in start_y..end_y {
-            let row_start = (y as usize) * stride + start_x as usize;
-            let row_end = row_start + row_width;
-            self.data[row_start..row_end].fill(fill.clone());
-        }
-    }
-}
-
 impl<T> Grid2d<T> {
     pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError> {
         let expected_len = (info.width as usize) * (info.height as usize);
@@ -97,6 +53,77 @@ impl<T> Grid2d<T> {
         let idx = self.index(pos);
         self.data[idx] = value;
         Ok(())
+    }
+
+    pub fn map_to_world(&self, pos: &Vec2) -> Vec2 {
+        Vec2::new(
+            self.info.origin.x + pos.x * self.info.resolution,
+            self.info.origin.y + pos.y * self.info.resolution,
+        )
+    }
+
+    pub fn world_to_map(&self, pos: &Vec2) -> Option<Vec2> {
+        let mx = (pos.x - self.info.origin.x) / self.info.resolution;
+        let my = (pos.y - self.info.origin.y) / self.info.resolution;
+        if mx < 0.0 || my < 0.0 || mx >= self.info.width as f32 || my >= self.info.height as f32 {
+            return None;
+        }
+        Some(Vec2::new(mx, my))
+    }
+
+    pub fn data(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn empty(info: MapInfo) -> Self
+    where
+        T: Default + Clone,
+    {
+        let expected_len = (info.width as usize) * (info.height as usize);
+        Self {
+            info,
+            data: vec![T::default(); expected_len],
+        }
+    }
+
+    /// Resize the map and update resolution/origin.
+    ///
+    /// This method clears the data to the default value.
+    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec3)
+    where
+        T: Default + Clone,
+    {
+        self.info.width = size.x;
+        self.info.height = size.y;
+        self.info.resolution = resolution;
+        self.info.origin = *origin;
+        self.data = vec![T::default(); size.x as usize * size.y as usize];
+    }
+
+    pub fn reset_map(&mut self, lower: UVec2, upper: UVec2)
+    where
+        T: Default + Clone,
+    {
+        let width = self.info.width;
+        let height = self.info.height;
+        let start_x = lower.x.min(width);
+        let end_x = upper.x.min(width);
+        let start_y = lower.y.min(height);
+        let end_y = upper.y.min(height);
+
+        if start_x >= end_x || start_y >= end_y {
+            return;
+        }
+
+        let row_width = (end_x - start_x) as usize;
+        let fill = T::default();
+        let stride = width as usize;
+
+        for y in start_y..end_y {
+            let row_start = (y as usize) * stride + start_x as usize;
+            let row_end = row_start + row_width;
+            self.data[row_start..row_end].fill(fill.clone());
+        }
     }
 
     pub fn update_origin(&mut self, origin: &Vec3)
@@ -171,26 +198,6 @@ impl<T> Grid2d<T> {
 
     fn index(&self, pos: &UVec2) -> usize {
         (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
-    }
-
-    pub fn map_to_world(&self, pos: &Vec2) -> Vec2 {
-        Vec2::new(
-            self.info.origin.x + pos.x * self.info.resolution,
-            self.info.origin.y + pos.y * self.info.resolution,
-        )
-    }
-
-    pub fn world_to_map(&self, pos: &Vec2) -> Option<Vec2> {
-        let mx = (pos.x - self.info.origin.x) / self.info.resolution;
-        let my = (pos.y - self.info.origin.y) / self.info.resolution;
-        if mx < 0.0 || my < 0.0 || mx >= self.info.width as f32 || my >= self.info.height as f32 {
-            return None;
-        }
-        Some(Vec2::new(mx, my))
-    }
-
-    pub fn data(&self) -> &[T] {
-        &self.data
     }
 }
 
