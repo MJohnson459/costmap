@@ -5,7 +5,7 @@ use crate::Grid2d;
 /// Iterator over all grid cells inside a convex polygon.
 ///
 /// Points are expected in world coordinates (meters).
-pub struct PolygonIterator<'a, T> {
+pub struct PolygonIterator {
     points: Vec<Vec2>,
     y: i32,
     y_max: i32,
@@ -13,11 +13,12 @@ pub struct PolygonIterator<'a, T> {
     has_span: bool,
     grid_size: IVec2,
     cell: IVec2,
-    _grid: &'a Grid2d<T>,
+    poly_min_y: f32,
+    poly_max_y: f32,
 }
 
-impl<'a, T> PolygonIterator<'a, T> {
-    pub fn new(grid: &'a Grid2d<T>, points: &[Vec2]) -> Option<Self> {
+impl PolygonIterator {
+    pub fn new<T>(grid: &Grid2d<T>, points: &[Vec2]) -> Option<Self> {
         if points.len() < 3 {
             return None;
         }
@@ -25,10 +26,10 @@ impl<'a, T> PolygonIterator<'a, T> {
         let resolution = info.resolution;
         let origin = info.origin.truncate();
         let map_points = points.iter().map(|p| (*p - origin) / resolution).collect();
-        Some(Self::new_map(grid, map_points, info.width, info.height))
+        Some(Self::new_map(map_points, info.width, info.height))
     }
 
-    fn new_map(grid: &'a Grid2d<T>, points: Vec<Vec2>, width: u32, height: u32) -> Self {
+    fn new_map(points: Vec<Vec2>, width: u32, height: u32) -> Self {
         let (min_y, max_y) = points
             .iter()
             .fold((f32::INFINITY, f32::NEG_INFINITY), |(min_y, max_y), p| {
@@ -46,13 +47,17 @@ impl<'a, T> PolygonIterator<'a, T> {
             has_span: false,
             grid_size,
             cell: IVec2::ZERO,
-            _grid: grid,
+            poly_min_y: min_y,
+            poly_max_y: max_y,
         }
     }
 
     fn advance_row(&mut self) -> bool {
         while self.y <= self.y_max {
-            let y_scan = self.y as f32 + 0.5;
+            let mut y_scan = self.y as f32 + 0.5;
+            // Clamp y_scan to be within the polygon's y range to handle boundary cases
+            // The +0.5 scans at the center of each row to avoid horizontal edge issues
+            y_scan = y_scan.max(self.poly_min_y).min(self.poly_max_y);
             let mut xs = Vec::with_capacity(self.points.len());
 
             for i in 0..self.points.len() {
@@ -62,7 +67,7 @@ impl<'a, T> PolygonIterator<'a, T> {
                     continue;
                 }
                 let (ymin, ymax) = if p0.y < p1.y { (p0, p1) } else { (p1, p0) };
-                if y_scan >= ymin.y && y_scan < ymax.y {
+                if y_scan >= ymin.y && y_scan <= ymax.y {
                     let t = (y_scan - p0.y) / (p1.y - p0.y);
                     let x = p0.x + t * (p1.x - p0.x);
                     xs.push(x);
@@ -96,7 +101,7 @@ impl<'a, T> PolygonIterator<'a, T> {
     }
 }
 
-impl<'a, T> Iterator for PolygonIterator<'a, T> {
+impl Iterator for PolygonIterator {
     type Item = UVec2;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -116,11 +121,57 @@ impl<'a, T> Iterator for PolygonIterator<'a, T> {
     }
 }
 
+pub struct PolygonValueIterator<'a, T> {
+    grid: &'a Grid2d<T>,
+    iter: PolygonIterator,
+}
+
+impl<'a, T> PolygonValueIterator<'a, T> {
+    pub fn new(grid: &'a Grid2d<T>, points: &[Vec2]) -> Option<Self> {
+        Some(Self {
+            iter: PolygonIterator::new(grid, points)?,
+            grid,
+        })
+    }
+}
+
+impl<'a, T> Iterator for PolygonValueIterator<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|cell| self.grid.get(&cell).unwrap())
+    }
+}
+
+pub struct PolygonValueMutIterator<'a, T> {
+    grid: &'a mut Grid2d<T>,
+    iter: PolygonIterator,
+}
+
+impl<'a, T> PolygonValueMutIterator<'a, T> {
+    pub fn new(grid: &'a mut Grid2d<T>, points: &[Vec2]) -> Option<Self> {
+        let iter = PolygonIterator::new(grid, points)?;
+        Some(Self { iter, grid })
+    }
+}
+
+impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: We need to use unsafe here because the compiler doesn't know
+        // that the PolygonIterator will never repeat cells.
+        self.iter
+            .next()
+            .map(|cell| unsafe { &mut *(self.grid.get_mut(&cell) as *mut T) })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use glam::{UVec2, Vec2};
 
-    use super::PolygonIterator;
+    use super::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator};
     use crate::Grid2d;
     use crate::types::MapInfo;
 
@@ -144,5 +195,60 @@ mod tests {
         assert!(!cells.is_empty());
         assert!(cells.iter().any(|c| c == &glam::UVec2::new(1, 1)));
         assert!(cells.iter().any(|c| c == &glam::UVec2::new(3, 2)));
+    }
+
+    #[test]
+    fn polygon_value_iterator_reads_values() {
+        let info = MapInfo {
+            width: 8,
+            height: 8,
+            depth: 1,
+            resolution: 1.0,
+            origin: glam::Vec3::new(0.0, 0.0, 0.0),
+        };
+        let mut grid = Grid2d::<u8>::empty(info);
+        grid.set(&UVec2::new(2, 2), 100).unwrap();
+
+        let points = vec![
+            Vec2::new(1.0, 1.0),
+            Vec2::new(4.0, 1.0),
+            Vec2::new(4.0, 3.0),
+            Vec2::new(1.0, 3.0),
+        ];
+        let values: Vec<u8> = PolygonValueIterator::new(&grid, &points)
+            .unwrap()
+            .copied()
+            .collect();
+
+        assert!(values.contains(&100));
+        assert!(!values.is_empty());
+    }
+
+    #[test]
+    fn polygon_value_mut_iterator_writes_values() {
+        let info = MapInfo {
+            width: 8,
+            height: 8,
+            depth: 1,
+            resolution: 1.0,
+            origin: glam::Vec3::new(0.0, 0.0, 0.0),
+        };
+        let mut grid = Grid2d::<u8>::empty(info);
+        let points = vec![
+            Vec2::new(1.0, 1.0),
+            Vec2::new(4.0, 1.0),
+            Vec2::new(4.0, 3.0),
+            Vec2::new(1.0, 3.0),
+        ];
+
+        for value in PolygonValueMutIterator::new(&mut grid, &points).unwrap() {
+            *value = 50;
+        }
+
+        // Check that all cells in the polygon were set
+        let cells: Vec<UVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
+        for cell in cells {
+            assert_eq!(grid.get(&cell), Some(&50));
+        }
     }
 }

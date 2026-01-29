@@ -66,7 +66,11 @@ fn layered_costmap_plugin_update_flow() {
     let base = Costmap2D::new(5, 5, 0.2, 0.0, 0.0);
     let mut layered = LayeredCostmap::new(base, true);
     layered.add_plugin(Box::new(DummyLayer));
-    layered.update_map(Pose2D { x: 0.0, y: 0.0, yaw: 0.0 });
+    layered.update_map(Pose2D {
+        x: 0.0,
+        y: 0.0,
+        yaw: 0.0,
+    });
     assert!(layered.is_current());
 }
 
@@ -90,8 +94,11 @@ fn costmap_ros_update_and_queries() {
     ros.update_map();
 
     let pose = ros.get_robot_pose().expect("pose");
-    let _ = ros.transform_pose_to_global_frame(&pose).expect("transform");
-    ros.wait_until_current(Duration::from_millis(100)).expect("current");
+    let _ = ros
+        .transform_pose_to_global_frame(&pose)
+        .expect("transform");
+    ros.wait_until_current(Duration::from_millis(100))
+        .expect("current");
 }
 
 #[test]
@@ -100,15 +107,29 @@ fn footprint_collision_cost() {
     let footprint = Footprint {
         points: vec![(0.2, 0.2), (-0.2, 0.2), (-0.2, -0.2), (0.2, -0.2)],
     };
-    let cost = map.footprint_cost(Pose2D { x: 1.0, y: 2.0, yaw: 0.0 }, &footprint);
+    let cost = map.footprint_cost(
+        Pose2D {
+            x: 1.0,
+            y: 2.0,
+            yaw: 0.0,
+        },
+        &footprint,
+    );
     assert!(cost <= 254);
 }
 
 #[test]
 fn polygon_cost_setting() {
     let mut map = Costmap2D::new(10, 10, 0.1, 0.0, 0.0);
-    let polygon = vec![(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)];
+    // With resolution 0.1 and origin (0.0, 0.0), world coordinates (0.1, 0.1) to (0.2, 0.2)
+    // should cover map cells (1,1) to (2,2)
+    let polygon = vec![(0.1, 0.1), (0.2, 0.1), (0.2, 0.2), (0.1, 0.2)];
     assert!(map.set_convex_polygon_cost(&polygon, 200));
+
+    assert_eq!(map.get_cost(1, 1), 200);
+    assert_eq!(map.get_cost(2, 1), 200);
+    assert_eq!(map.get_cost(2, 2), 200);
+    assert_eq!(map.get_cost(1, 2), 200);
 }
 
 #[test]

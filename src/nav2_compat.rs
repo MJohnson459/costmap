@@ -265,29 +265,29 @@ impl Costmap2D {
             .map(|(x, y)| Vec2::new(*x, *y))
             .collect();
 
-        PolygonIterator::new(&self.grid, &polygon)
-            .unwrap()
-            .into_iter()
-            .fold(0, |max_cost, cell| {
-                max_cost.max(*self.grid.get(&cell).unwrap_or(&0))
-            })
+        let Some(iter) = self.grid.polygon_value(&polygon) else {
+            return 0;
+        };
+        iter.into_iter()
+            .fold(0, |max_cost, cell| max_cost.max(*cell))
     }
 
     /// Rasterize a convex polygon and set costs; returns false on failure.
     ///
     /// Expectations:
-    /// - Polygon is in map coordinates (cells) unless explicitly stated otherwise.
+    /// - Polygon points are in world coordinates (meters), matching Nav2's API.
+    /// - The polygon is converted to map coordinates internally, similar to Nav2's worldToMap.
     ///
     /// C++: `bool setConvexPolygonCost(const std::vector<geometry_msgs::msg::Point> & polygon,`
     /// `unsigned char cost_value);`
     pub fn set_convex_polygon_cost(&mut self, _polygon: &[(f32, f32)], cost: u8) -> bool {
         let polygon: Vec<Vec2> = _polygon.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
 
-        let Some(iter) = PolygonIterator::new(&self.grid, &polygon) else {
+        let Some(iter) = self.grid.polygon_value_mut(&polygon) else {
             return false;
         };
         for cell in iter {
-            // self.grid.set(&cell, cost);
+            *cell = cost;
         }
         true
     }

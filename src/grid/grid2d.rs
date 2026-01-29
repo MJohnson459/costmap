@@ -2,7 +2,10 @@ use glam::{IVec2, UVec2, UVec3, Vec2, Vec3};
 
 use crate::{
     grid::Grid,
-    iterators::line::{LineIterator, LineValueIterator},
+    iterators::{
+        line::{LineIterator, LineValueIterator},
+        polygon::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator},
+    },
 };
 use crate::{
     iterators::line::LineValueMutIterator,
@@ -184,6 +187,21 @@ impl<T> Grid2d<T> {
         max_t: f32,
     ) -> Option<LineValueMutIterator<'a, T>> {
         LineValueMutIterator::new(self, origin, dir, max_t)
+    }
+
+    pub fn polygon<'a>(&'a self, points: &[Vec2]) -> Option<PolygonIterator> {
+        PolygonIterator::new(self, points)
+    }
+
+    pub fn polygon_value<'a>(&'a self, points: &[Vec2]) -> Option<PolygonValueIterator<'a, T>> {
+        PolygonValueIterator::new(self, points)
+    }
+
+    pub fn polygon_value_mut<'a>(
+        &'a mut self,
+        points: &[Vec2],
+    ) -> Option<PolygonValueMutIterator<'a, T>> {
+        PolygonValueMutIterator::new(self, points)
     }
 
     fn copy_overlapping_region(
