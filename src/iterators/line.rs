@@ -2,10 +2,7 @@ use glam::{IVec2, UVec2, Vec2};
 
 use crate::Grid2d;
 
-pub struct LineIterator<'a, T> {
-    /// TODO: We don't actually need the grid, but removing this makes the
-    /// `next()` method 50% slower.
-    _grid: &'a Grid2d<T>,
+pub struct LineIterator {
     max_t_grid: f32,
     /// Normalised step direction along each axis.
     step: IVec2,
@@ -26,8 +23,8 @@ pub struct LineStep {
     pub t: f32,
 }
 
-impl<'a, T> LineIterator<'a, T> {
-    pub fn new(grid: &'a Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
+impl LineIterator {
+    pub fn new<T>(grid: &Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
         if dir.length_squared() == 0.0 {
             return None;
         }
@@ -58,12 +55,11 @@ impl<'a, T> LineIterator<'a, T> {
             emit_start: true,
             width: info.width,
             height: info.height,
-            _grid: grid,
         })
     }
 }
 
-impl<'a, T> Iterator for LineIterator<'a, T> {
+impl Iterator for LineIterator {
     type Item = LineStep;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -99,6 +95,60 @@ impl<'a, T> Iterator for LineIterator<'a, T> {
             cell: self.cell.as_uvec2(),
             t,
         })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.max_t_grid as usize))
+    }
+}
+
+pub struct LineValueIterator<'a, T> {
+    grid: &'a Grid2d<T>,
+    iter: LineIterator,
+}
+
+impl<'a, T> LineValueIterator<'a, T> {
+    pub fn new(grid: &'a Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
+        Some(Self {
+            iter: LineIterator::new(grid, origin, dir, max_t)?,
+            grid,
+        })
+    }
+}
+
+impl<'a, T> Iterator for LineValueIterator<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|step| self.grid.get(&step.cell).unwrap())
+    }
+}
+
+pub struct LineValueMutIterator<'a, T> {
+    grid: &'a mut Grid2d<T>,
+    iter: LineIterator,
+}
+
+impl<'a, T> LineValueMutIterator<'a, T> {
+    pub fn new(grid: &'a mut Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
+        Some(Self {
+            iter: LineIterator::new(grid, origin, dir, max_t)?,
+            grid,
+        })
+    }
+}
+
+impl<'a, T> Iterator for LineValueMutIterator<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: We need to use unsafe here because the compiler doesn't know
+        // that the LineIterator will never repeat cells.
+        self.iter
+            .next()
+            .map(|step| unsafe { &mut *(self.grid.get_mut(&step.cell) as *mut T) })
     }
 }
 
@@ -190,5 +240,34 @@ mod tests {
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 0.2236068, epsilon = 1e-4);
+    }
+
+    #[test]
+    fn line_value_iterator_reads_values() {
+        let mut grid = test_grid(None, 1.0, Vec2::ZERO);
+        grid.set(&UVec2::new(2, 0), OCCUPIED).unwrap();
+
+        let dir = Vec2::new(1.0, 0.0);
+        let values: Vec<i8> = LineValueIterator::new(&grid, &Vec2::ZERO, &dir, 4.0)
+            .unwrap()
+            .copied()
+            .collect();
+
+        assert!(values.contains(&OCCUPIED));
+        assert_eq!(values.len(), 5);
+    }
+
+    #[test]
+    fn line_value_mut_iterator_writes_values() {
+        let mut grid = test_grid(None, 1.0, Vec2::ZERO);
+        let dir = Vec2::new(1.0, 0.0);
+
+        for value in LineValueMutIterator::new(&mut grid, &Vec2::ZERO, &dir, 4.0).unwrap() {
+            *value = OCCUPIED;
+        }
+
+        for x in 0..5 {
+            assert_eq!(grid.get(&UVec2::new(x, 0)), Some(&OCCUPIED));
+        }
     }
 }

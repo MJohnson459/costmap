@@ -1,23 +1,54 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
-use voxel_grid::iterators::line::LineIterator;
+use voxel_grid::iterators::line::{LineIterator, LineValueIterator, LineValueMutIterator};
 use voxel_grid::types::{FREE, MapInfo};
 
 fn bench_line_iterator(c: &mut Criterion) {
-    let grid = build_empty_grid(256, 256, 0.05);
+    let mut grid = build_empty_grid(256, 256, 0.05);
     let rays = build_rays();
 
     c.bench_function("line_iterator_steps_only", |b| {
         b.iter(|| {
             let mut steps = 0usize;
             for (origin, dir, max_t) in &rays {
-                if let Some(iter) = LineIterator::new(&grid, origin, dir, *max_t) {
+                if let Some(iter) = LineIterator::new(&mut grid, origin, dir, *max_t) {
                     steps += iter.count();
                 }
             }
             black_box(steps);
         });
+    });
+
+    c.bench_function("line_value_iterator_read", |b| {
+        b.iter(|| {
+            let mut sum = 0i32;
+            for (origin, dir, max_t) in &rays {
+                if let Some(iter) = LineValueIterator::new(&grid, origin, dir, *max_t) {
+                    for value in iter {
+                        sum += *value as i32;
+                    }
+                }
+            }
+            black_box(sum);
+        });
+    });
+
+    c.bench_function("line_value_mut_iterator_write", |b| {
+        b.iter_batched(
+            || build_empty_grid(256, 256, 0.05),
+            |mut grid| {
+                for (origin, dir, max_t) in &rays {
+                    if let Some(iter) = LineValueMutIterator::new(&mut grid, origin, dir, *max_t) {
+                        for value in iter {
+                            *value = FREE;
+                        }
+                    }
+                }
+                black_box(grid);
+            },
+            BatchSize::SmallInput,
+        );
     });
 }
 

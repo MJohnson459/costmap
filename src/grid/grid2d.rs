@@ -1,7 +1,13 @@
 use glam::{IVec2, UVec2, UVec3, Vec2, Vec3};
 
-use crate::grid::Grid;
-use crate::types::{MapInfo, VoxelError};
+use crate::{
+    grid::Grid,
+    iterators::line::{LineIterator, LineValueIterator},
+};
+use crate::{
+    iterators::line::LineValueMutIterator,
+    types::{MapInfo, VoxelError},
+};
 
 #[derive(Debug, Clone)]
 pub struct Grid2d<T> {
@@ -41,6 +47,11 @@ impl<T> Grid2d<T> {
         }
         let idx = self.index(pos);
         Some(&self.data[idx])
+    }
+
+    pub fn get_mut(&mut self, pos: &UVec2) -> &mut T {
+        let idx = self.index(pos);
+        &mut self.data[idx]
     }
 
     pub fn set(&mut self, pos: &UVec2, value: T) -> Result<(), VoxelError> {
@@ -151,6 +162,28 @@ impl<T> Grid2d<T> {
             old_origin.y + cell_offset.y as f32 * resolution,
             old_origin.z,
         );
+    }
+
+    pub fn line(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<LineIterator> {
+        LineIterator::new(self, origin, dir, max_t)
+    }
+
+    pub fn line_value<'a>(
+        &'a self,
+        origin: &Vec2,
+        dir: &Vec2,
+        max_t: f32,
+    ) -> Option<LineValueIterator<'a, T>> {
+        LineValueIterator::new(self, origin, dir, max_t)
+    }
+
+    pub fn line_value_mut<'a>(
+        &'a mut self,
+        origin: &Vec2,
+        dir: &Vec2,
+        max_t: f32,
+    ) -> Option<LineValueMutIterator<'a, T>> {
+        LineValueMutIterator::new(self, origin, dir, max_t)
     }
 
     fn copy_overlapping_region(
