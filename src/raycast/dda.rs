@@ -6,6 +6,16 @@ use crate::{raycast::RayHit2D, types::FREE};
 
 impl OccupancyGrid {
     /// Fast voxel traversal (Amanatides & Woo) that returns the first occupied cell hit.
+    ///
+    /// # Arguments
+    ///
+    /// * `origin` - The origin of the ray in world coordinates.
+    /// * `dir` - The direction of the ray in world coordinates.
+    /// * `max_t` - The maximum distance of the ray in world coordinates.
+    ///
+    /// # Returns
+    ///
+    /// A `RayHit2D` struct containing the cell and hit distance.
     pub fn raycast_dda(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<RayHit2D> {
         let iter = LineIterator::new(self, origin, dir, max_t)?;
 
