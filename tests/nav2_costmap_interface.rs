@@ -1,3 +1,5 @@
+#![cfg(feature = "nav2_compat")]
+
 use std::time::Duration;
 
 use voxel_grid::nav2_compat::*;

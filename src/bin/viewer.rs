@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use glam::UVec2;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -9,7 +8,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowAttributes};
 
-use voxel_grid::{RosMapLoader, types::UNKNOWN};
+use voxel_grid::{RosMapLoader, visualization::occupancy_grid_to_image};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args();
@@ -154,25 +153,14 @@ impl ApplicationHandler for ViewerApp {
 }
 
 fn build_base_frame(grid: &voxel_grid::OccupancyGrid) -> Vec<u8> {
-    let width = grid.width();
-    let height = grid.height();
-    let mut frame = vec![0u8; (width as usize) * (height as usize) * 4];
-
-    for img_y in 0..height {
-        for x in 0..width {
-            let grid_y = height - img_y - 1;
-            let value = grid.get(&UVec2::new(x, grid_y)).unwrap_or(&UNKNOWN);
-            let [r, g, b, a] = map_occupancy_color(*value);
-
-            let idx = ((img_y * width + x) as usize) * 4;
-            frame[idx] = r;
-            frame[idx + 1] = g;
-            frame[idx + 2] = b;
-            frame[idx + 3] = a;
-        }
-    }
-
-    frame
+    let gray = occupancy_grid_to_image(grid);
+    // For the initial (unscaled) frame, use the exact tight RGBA size.
+    gray_to_rgba_scaled(
+        &gray,
+        gray.width(),
+        gray.height(),
+        (gray.width() as usize) * (gray.height() as usize) * 4,
+    )
 }
 
 fn build_base_frame_scaled(
@@ -181,19 +169,38 @@ fn build_base_frame_scaled(
     buffer_height: u32,
     frame_len: usize,
 ) -> Vec<u8> {
-    let grid_width = grid.width();
-    let grid_height = grid.height();
+    let gray = occupancy_grid_to_image(grid);
+    // IMPORTANT: Pixels may allocate a frame with padding/alignment; always honor `frame_len`
+    // so `copy_from_slice` is safe.
+    gray_to_rgba_scaled(&gray, buffer_width, buffer_height, frame_len)
+}
+
+fn gray_to_rgba_scaled(
+    gray: &image::GrayImage,
+    out_width: u32,
+    out_height: u32,
+    frame_len: usize,
+) -> Vec<u8> {
+    let src_w = gray.width().max(1);
+    let src_h = gray.height().max(1);
     let mut frame = vec![0u8; frame_len];
 
-    for img_y in 0..buffer_height {
-        let grid_y = grid_height - 1 - (img_y * grid_height / buffer_height);
-        for img_x in 0..buffer_width {
-            let grid_x = img_x * grid_width / buffer_width;
-            let value = grid.get(&UVec2::new(grid_x, grid_y)).unwrap_or(&UNKNOWN);
-            let [r, g, b, a] = map_occupancy_color(*value);
+    for y in 0..out_height {
+        let src_y = y * src_h / out_height.max(1);
+        for x in 0..out_width {
+            let src_x = x * src_w / out_width.max(1);
+            let px = gray.get_pixel(src_x, src_y).0[0];
 
-            let idx = ((img_y * buffer_width + img_x) as usize) * 4;
-            if idx + 3 >= frame_len {
+            // Preserve the viewer's previous UNKNOWN tint by keying off the
+            // visualization module's unknown grayscale value.
+            let [r, g, b, a] = if px == 205 {
+                [112, 137, 134, 255]
+            } else {
+                [px, px, px, 255]
+            };
+
+            let idx = ((y * out_width + x) as usize) * 4;
+            if idx + 3 >= frame.len() {
                 continue;
             }
             frame[idx] = r;
@@ -204,14 +211,4 @@ fn build_base_frame_scaled(
     }
 
     frame
-}
-
-fn map_occupancy_color(value: i8) -> [u8; 4] {
-    if value < 0 {
-        return [112, 137, 134, 255];
-    }
-
-    let clamped = (value as i32).clamp(0, 100) as f32;
-    let shade = (255.0 - (clamped * 255.0) / 100.0) as u8;
-    [shade, shade, shade, 255]
 }

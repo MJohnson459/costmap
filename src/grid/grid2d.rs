@@ -89,6 +89,30 @@ impl<T> Grid2d<T> {
         &self.data
     }
 
+    /// Iterate over all cells in row-major order, yielding `(cell, value)`.
+    ///
+    /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
+    pub fn iter_cells(&self) -> impl Iterator<Item = (UVec2, &T)> {
+        let width = self.info.width as usize;
+        self.data.iter().enumerate().map(move |(idx, v)| {
+            let x = (idx % width) as u32;
+            let y = (idx / width) as u32;
+            (UVec2::new(x, y), v)
+        })
+    }
+
+    /// Iterate over all cells in row-major order, yielding `(cell, value)` mutably.
+    ///
+    /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
+    pub fn iter_cells_mut(&mut self) -> impl Iterator<Item = (UVec2, &mut T)> {
+        let width = self.info.width as usize;
+        self.data.iter_mut().enumerate().map(move |(idx, v)| {
+            let x = (idx % width) as u32;
+            let y = (idx / width) as u32;
+            (UVec2::new(x, y), v)
+        })
+    }
+
     pub fn empty(info: MapInfo) -> Self
     where
         T: Default + Clone,
@@ -366,5 +390,57 @@ mod tests {
         grid.resize_map(UVec2::new(6, 6), 1.0, &Vec3::new(1.0, 0.0, 0.0));
 
         assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
+    }
+
+    #[test]
+    fn iter_cells_row_major_order() {
+        let grid = Grid2d::<u8>::new(
+            MapInfo {
+                width: 3,
+                height: 2,
+                depth: 1,
+                resolution: 1.0,
+                origin: Vec3::ZERO,
+            },
+            vec![10, 11, 12, 20, 21, 22],
+        )
+        .unwrap();
+
+        let cells: Vec<(UVec2, u8)> = grid.iter_cells().map(|(p, v)| (p, *v)).collect();
+        assert_eq!(
+            cells,
+            vec![
+                (UVec2::new(0, 0), 10),
+                (UVec2::new(1, 0), 11),
+                (UVec2::new(2, 0), 12),
+                (UVec2::new(0, 1), 20),
+                (UVec2::new(1, 1), 21),
+                (UVec2::new(2, 1), 22),
+            ]
+        );
+    }
+
+    #[test]
+    fn iter_cells_mut_writes_values() {
+        let mut grid = Grid2d::<u8>::new(
+            MapInfo {
+                width: 2,
+                height: 2,
+                depth: 1,
+                resolution: 1.0,
+                origin: Vec3::ZERO,
+            },
+            vec![0, 1, 2, 3],
+        )
+        .unwrap();
+
+        for (pos, v) in grid.iter_cells_mut() {
+            *v = (pos.x + 10 * pos.y) as u8;
+        }
+
+        assert_eq!(grid.get(&UVec2::new(0, 0)), Some(&0));
+        assert_eq!(grid.get(&UVec2::new(1, 0)), Some(&1));
+        assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&10));
+        assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&11));
     }
 }

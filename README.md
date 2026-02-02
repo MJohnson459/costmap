@@ -10,10 +10,10 @@ Primarily aimed at use within Robotics.
 Load a ROS2 occupancy grid (YAML + image) and render a grayscale preview:
 
 ```rust
-use voxel_grid::{load_occupancy_grid, visualization::occupancy_grid_to_image};
+use voxel_grid::{RosMapLoader, visualization::occupancy_grid_to_image};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let grid = load_occupancy_grid("map.yaml")?;
+    let grid = RosMapLoader::load_from_yaml("map.yaml")?;
     let image = occupancy_grid_to_image(&grid);
     image.save("map_preview.png")?;
     Ok(())
@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## TODO (Operations)
 
 ### Core
+
 - [x] Core grid storage for 2D occupancy
 - [x] Bounds-checked get/set helpers
 - [ ] Grid iterators: row-major cells, column iter, layer iter
@@ -34,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Resolution changes (resample)
 
 ### Layers
+
 - [x] Layered grid wrapper + metadata
 - [x] Aggregation policy trait + default policy
 - [ ] Per-layer updates: set/get by layer index
@@ -44,12 +46,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Occupancy semantics: unknown handling policies
 
 ### Raycasting
+
 - [x] Grid-step raycast (2D)
 - [x] DDA raycast (2D)
 - [ ] 3D raycast variants
 - [ ] Configurable hit rules (thresholds)
 
 ### Grid map (grid_map-style)
+
 - [ ] Layered numeric fields (elevation, variance, semantics)
 - [ ] Interpolation: bilinear/nearest sampling
 - [ ] Gradient/slope computation from elevation
@@ -59,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Map fusion: merge/overwrite layers by policy
 
 ### Costmap
+
 - [ ] Layer lifecycle: initialize, reset, clear by bounds
 - [ ] Obstacle marking: add points, add rays (clear free space)
 - [ ] Obstacle clearing: clear by raytrace and by footprint
@@ -68,6 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Cost queries: cost at cell, cost at pose, cost bounds
 
 ### IO
+
 - [x] ROS2 map loader (YAML + image)
 - [ ] ROS2 map writer
 - [ ] Other formats (e.g., PGM/PNG with metadata)

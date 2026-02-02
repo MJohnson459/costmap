@@ -1,13 +1,14 @@
 pub mod grid;
 pub mod iterators;
 pub mod loaders;
-pub mod nav2_compat;
 pub mod raycast;
 pub mod types;
+pub mod visualization;
 
-pub use grid::{
-    AggregatePolicy, Grid, Grid2d, LayerMeta, LayeredGrid, OccupiedDominant, VoxelGrid,
-};
+#[cfg(feature = "nav2_compat")]
+pub mod nav2_compat;
+
+pub use grid::{AggregatePolicy, Grid, Grid2d, LayerMeta, LayeredGrid, OccupiedDominant};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use types::{MapInfo, VoxelError};
 

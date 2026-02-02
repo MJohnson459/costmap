@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use glam::{UVec2, Vec2, Vec3};
 
-use crate::{Grid2d, MapInfo, iterators::polygon::PolygonIterator, types::VoxelError};
+use crate::{Grid2d, MapInfo, types::VoxelError};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pose2D {
