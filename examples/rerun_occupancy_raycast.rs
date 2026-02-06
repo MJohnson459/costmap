@@ -2,12 +2,11 @@ use std::error::Error;
 
 use std::f32::consts::TAU;
 use std::time::Duration;
-use voxel_grid::rerun_viz::{log_line3d, log_point3d};
+use voxel_grid::rerun_viz::{log_line3d, log_occupancy_grid, log_point3d};
 
 use glam::{Vec2, Vec3};
 use voxel_grid::RosMapLoader;
 use voxel_grid::raycast::RayHit2D;
-use voxel_grid::rerun_viz::{log_textured_plane_mesh3d, occupancy_to_rgb_bytes};
 
 // --- Styling ---
 const Z_RAY: f32 = 0.10;
@@ -39,29 +38,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let rec = rerun::RecordingStreamBuilder::new("voxel_grid_rerun_occupancy_raycast").spawn()?;
 
-    // Build an RGB texture from the crate’s grayscale visualization.
-    // (Mesh3D albedo textures currently support only sRGB(A).)
-    let (width, height, rgb_bytes) = occupancy_to_rgb_bytes(&grid);
-
-    // Place the map as a textured plane in world coordinates.
-    let width_world = width as f32 * info.resolution;
-    let height_world = height as f32 * info.resolution;
-    let origin_xy_world = info.origin.truncate();
-
-    log_textured_plane_mesh3d(
-        &rec,
-        "world/map",
-        origin_xy_world,
-        width_world,
-        height_world,
-        0.0,
-        width,
-        height,
-        rgb_bytes,
-    )?;
+    log_occupancy_grid(&rec, "world/map", &grid, 0.0)?;
 
     // Debug: log the map center in world coordinates.
-    let center = origin_xy_world + Vec2::new(0.5 * width_world, 0.5 * height_world);
+    let center = info.world_center();
     log_point3d(
         &rec,
         "world/map_center",
@@ -91,7 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let phase = (frame_idx.rem_euclid(frames_per_rev) as f32 / frames_per_rev as f32) * TAU;
         // Cast rays from a fixed origin in the map.
         let origin_world = ray_origin_world;
-        let dir = Vec2::new(phase.cos(), phase.sin()).normalize_or_zero();
+        let dir = Vec2::new(phase.cos(), phase.sin());
 
         // Raycasting must happen in *world* coordinates.
         let hit: Option<RayHit2D> = grid.raycast_dda(&origin_world, &dir, max_range_m);

@@ -4,8 +4,8 @@ use glam::{Vec2, Vec3};
 
 use crate::{Grid2d, OccupancyGrid, visualization::occupancy_grid_to_image};
 
-pub const COST_LETHAL: u8 = 254;
-pub const COST_UNKNOWN: u8 = 255;
+// Re-export cost constants so existing `use voxel_grid::rerun_viz::COST_LETHAL` still works.
+pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
 
 pub fn occupancy_to_rgb_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
     let gray = occupancy_grid_to_image(grid);
@@ -136,6 +136,56 @@ fn cost_to_rgb(cost: u8) -> [u8; 3] {
     let t = (cost as f32 / COST_LETHAL as f32).clamp(0.0, 1.0);
     let g = (255.0 * (1.0 - t)) as u8;
     [255, g, g]
+}
+
+/// Log a `Grid2d<u8>` costmap as a textured 3D plane in Rerun.
+///
+/// Converts the costmap to an RGB texture using the standard costmap colour
+/// palette and places it at the grid's world-space origin at the given z height.
+pub fn log_costmap(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    costmap: &Grid2d<u8>,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    let info = costmap.info();
+    let (width, height, rgb_bytes) = costmap_to_rgb_bytes(costmap);
+    log_textured_plane_mesh3d(
+        rec,
+        entity_path,
+        info.origin_xy(),
+        info.world_width(),
+        info.world_height(),
+        z_world,
+        width,
+        height,
+        rgb_bytes,
+    )
+}
+
+/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a textured 3D plane in Rerun.
+///
+/// Converts the occupancy grid to a greyscale RGB texture and places it at the
+/// grid's world-space origin at the given z height.
+pub fn log_occupancy_grid(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    grid: &OccupancyGrid,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    let info = grid.info();
+    let (width, height, rgb_bytes) = occupancy_to_rgb_bytes(grid);
+    log_textured_plane_mesh3d(
+        rec,
+        entity_path,
+        info.origin_xy(),
+        info.world_width(),
+        info.world_height(),
+        z_world,
+        width,
+        height,
+        rgb_bytes,
+    )
 }
 
 #[cfg(test)]

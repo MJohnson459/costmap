@@ -4,8 +4,7 @@ use glam::{UVec2, Vec2, Vec3};
 use std::f32::consts::TAU;
 use std::time::Duration;
 use voxel_grid::raycast::RayHit2D;
-use voxel_grid::rerun_viz::{COST_LETHAL, costmap_to_rgb_bytes, log_textured_plane_mesh3d};
-use voxel_grid::rerun_viz::{log_point3d, occupancy_to_rgb_bytes};
+use voxel_grid::rerun_viz::{COST_FREE, COST_LETHAL, log_costmap, log_occupancy_grid, log_point3d};
 use voxel_grid::{Grid2d, MapInfo, RosMapLoader};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
@@ -32,40 +31,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
     let info = grid.info().clone();
 
-    let map_width_m = info.width as f32 * info.resolution;
-    let map_height_m = info.height as f32 * info.resolution;
-    let map_center = info.origin.truncate() + Vec2::new(0.5 * map_width_m, 0.5 * map_height_m);
-
     let rec = rerun::RecordingStreamBuilder::new("voxel_grid_rerun_local_costmap_lidar").spawn()?;
 
-    let (global_width, global_height, global_rgb) = occupancy_to_rgb_bytes(&grid);
-    log_textured_plane_mesh3d(
-        &rec,
-        "world/global_map",
-        info.origin.truncate(),
-        map_width_m,
-        map_height_m,
-        Z_GLOBAL,
-        global_width,
-        global_height,
-        global_rgb,
-    )?;
+    log_occupancy_grid(&rec, "world/global_map", &grid, Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
 
-    let mut waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
-    if waypoints.len() < 2 {
-        let half_span = 0.2 * map_width_m.min(map_height_m);
-        waypoints = vec![
-            map_center + Vec2::new(-half_span, -half_span),
-            map_center + Vec2::new(half_span, -half_span),
-            map_center + Vec2::new(half_span, half_span),
-            map_center + Vec2::new(-half_span, half_span),
-        ];
-    }
+    let waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
 
     let local_size_m = LOCAL_SIZE_CELLS as f32 * info.resolution;
-    let initial_origin = map_center - Vec2::splat(0.5 * local_size_m);
+    let initial_origin = info.world_center() - Vec2::splat(0.5 * local_size_m);
     let local_info = MapInfo {
         width: LOCAL_SIZE_CELLS,
         height: LOCAL_SIZE_CELLS,
@@ -97,18 +72,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         for beam_idx in 0..N_BEAMS {
             let angle = heading + beam_step * beam_idx as f32;
-            let dir = Vec2::new(angle.cos(), angle.sin()).normalize_or_zero();
+            let dir = Vec2::new(angle.cos(), angle.sin());
 
             let hit: Option<RayHit2D> = grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
             let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
             let end_world = robot_pos + dir * t;
 
+            // Clear cells along the ray (free space observed by the lidar).
             if let Some(mut iter) = local_costmap.line_value_mut(&robot_pos, &dir, t) {
                 for cell in &mut iter {
-                    *cell = 0;
+                    *cell = COST_FREE;
                 }
             }
 
+            // Mark the hit cell as lethal (obstacle observed by the lidar).
             if let Some(hit) = hit {
                 let hit_world =
                     grid.map_to_world(&hit.cell.as_vec2()) + Vec2::splat(0.5 * info.resolution);
@@ -159,36 +136,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn log_costmap(
-    rec: &rerun::RecordingStream,
-    entity_path: &str,
-    costmap: &Grid2d<u8>,
-    z_world: f32,
-) -> Result<(), Box<dyn Error>> {
-    let info = costmap.info();
-    let width_world = info.width as f32 * info.resolution;
-    let height_world = info.height as f32 * info.resolution;
-    let origin_xy_world = info.origin.truncate();
-
-    let (width, height, rgb_bytes) = costmap_to_rgb_bytes(costmap);
-    log_textured_plane_mesh3d(
-        rec,
-        entity_path,
-        origin_xy_world,
-        width_world,
-        height_world,
-        z_world,
-        width,
-        height,
-        rgb_bytes,
-    )?;
-
-    Ok(())
-}
-
 fn inflate_costmap(local: &Grid2d<u8>, inflated: &mut Grid2d<u8>, inflation_radius_m: f32) {
     for (_, value) in inflated.iter_cells_mut() {
-        *value = 0;
+        *value = COST_FREE;
     }
 
     let resolution = local.info().resolution;
@@ -230,7 +180,7 @@ fn inflate_costmap(local: &Grid2d<u8>, inflated: &mut Grid2d<u8>, inflation_radi
                 }
 
                 let inflated_cost = inflation_cost(dist, radius_cells_f);
-                let current = inflated.get(&pos).copied().unwrap_or(0);
+                let current = inflated.get(&pos).copied().unwrap_or(COST_FREE);
                 if inflated_cost > current {
                     let _ = inflated.set(&pos, inflated_cost);
                 }
