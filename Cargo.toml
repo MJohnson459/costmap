@@ -19,7 +19,7 @@ thiserror = "2.0"
 winit = { version = "0.30", optional = true }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 approx = { version = "0.5.1", default-features = false }
 
 [features]
