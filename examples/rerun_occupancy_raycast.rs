@@ -1,3 +1,20 @@
+//! # Occupancy Grid Raycasting Example
+//!
+//! This example demonstrates 2D raycasting in an occupancy grid, a fundamental operation
+//! for robotics applications such as:
+//! - Laser range finder (lidar) simulation
+//! - Line-of-sight checks for visibility
+//! - Collision detection along a ray
+//!
+//! ## Robotics Context
+//! In mobile robotics, raycasting is used to:
+//! - Simulate sensor measurements for testing without physical hardware
+//! - Check if paths are collision-free
+//! - Update costmaps by marking free space along sensor beams
+//!
+//! This example loads a static map and continuously rotates a ray 360 degrees,
+//! visualizing hits and misses using Rerun for real-time debugging.
+
 use std::error::Error;
 
 use std::f32::consts::TAU;
@@ -7,35 +24,38 @@ use voxel_grid::rerun_viz::{log_line3d, log_occupancy_grid, log_point3d};
 use glam::{Vec2, Vec3};
 use voxel_grid::RosMapLoader;
 
-// --- Styling ---
+const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
+
+// Animation parameters
+const FRAMES_PER_REV: i64 = 360;
+const DELAY_MS: u64 = 30;
+
+/// Position to cast rays from (in world frame, meters)
+const RAY_ORIGIN_WORLD: (f32, f32) = (214.0, 72.0);
+/// Maximum distance to check for obstacles (meters)
+const MAX_RANGE_M: f32 = 30.0;
+
+// Visualization Z-heights for layering elements in Rerun
 const Z_RAY: f32 = 0.10;
 const Z_ORIGIN: f32 = 0.12;
 const Z_HIT: f32 = 0.13;
 const Z_CENTER_MARKER: f32 = 0.15;
 const Z_ORIGIN_MARKER: f32 = 0.16;
 
-// --- Demo parameters (constants) ---
-const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
-const FRAMES_PER_REV: i64 = 360;
-const DELAY_MS: u64 = 30;
-const RAY_ORIGIN_WORLD: (f32, f32) = (214.0, 72.0);
-const MAX_RANGE_M: f32 = 30.0;
-
 fn main() -> Result<(), Box<dyn Error>> {
-    // Optional: allow overriding the yaml path via a single positional arg.
     let yaml_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| DEFAULT_YAML_PATH.to_string());
 
     let ray_origin_world = Vec2::new(RAY_ORIGIN_WORLD.0, RAY_ORIGIN_WORLD.1);
 
+    // Step 1: Load an occupancy grid from a ROS-format YAML file
     let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
 
+    // Step 2: Set up Rerun for visualization (optional - remove if not needed)
     let rec = rerun::RecordingStreamBuilder::new("voxel_grid_rerun_occupancy_raycast").spawn()?;
-
     log_occupancy_grid(&rec, "world/map", &grid, 0.0)?;
 
-    // Debug: log the map center in world coordinates.
     let center = grid.info().world_center();
     log_point3d(
         &rec,
@@ -45,8 +65,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(4.0),
     )?;
 
-    // Animate raycasts from poses around a circle, aiming toward the map center.
-    // Everything is logged in absolute world coordinates to avoid transform propagation issues.
     log_point3d(
         &rec,
         "world/ray_origin_marker",
@@ -55,15 +73,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(4.0),
     )?;
 
-    // Run continuously so you can watch the ray sweep.
+    // Step 3: Continuously raycast in different directions
     let mut frame_idx: i64 = 0;
 
     loop {
         rec.set_time_sequence("frame", frame_idx);
 
+        // Calculate direction vector for this iteration
         let phase = (frame_idx.rem_euclid(FRAMES_PER_REV) as f32 / FRAMES_PER_REV as f32) * TAU;
         let dir = Vec2::new(phase.cos(), phase.sin());
 
+        // Core API: raycast_dda(origin, direction, max_range)
+        // Returns Some(RaycastHit) if an occupied cell is hit, None otherwise
         let hit = grid.raycast_dda(&ray_origin_world, &dir, MAX_RANGE_M);
         let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
         let end_world = ray_origin_world + dir * t;
@@ -86,6 +107,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
+// Helper function for Rerun visualization - not essential to understanding the library
 fn log_raycast_frame(
     rec: &rerun::RecordingStream,
     origin: glam::Vec2,
@@ -95,7 +117,6 @@ fn log_raycast_frame(
     z_origin: f32,
     z_hit: f32,
 ) -> Result<(), Box<dyn Error>> {
-    // Ray line.
     log_line3d(
         rec,
         "world/ray",
@@ -105,7 +126,6 @@ fn log_raycast_frame(
         Some(1.0),
     )?;
 
-    // Sensor origin point.
     log_point3d(
         rec,
         "world/ray_origin",
@@ -114,7 +134,6 @@ fn log_raycast_frame(
         Some(3.0),
     )?;
 
-    // Hit point (if any).
     if hit {
         log_point3d(
             rec,
@@ -124,11 +143,8 @@ fn log_raycast_frame(
             Some(3.0),
         )?;
     } else {
-        // Clear hit when no hit is present this frame.
         rec.log("world/ray_hit", &rerun::Points3D::clear_fields())?;
     }
 
     Ok(())
 }
-
-// (AABB clipping intentionally removed — we use a lidar-like fixed max range instead.)
