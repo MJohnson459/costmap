@@ -497,8 +497,8 @@ pub fn raytrace_line_2d(
 ///
 /// C++ (nav2_costmap_2d/costmap_math.hpp):
 /// `unsigned char computeCost(double distance, double inscribed_radius, double cost_scaling_factor);`
-pub fn inflate_cost(_distance: f32, _inscribed_radius: f32, _cost_scaling_factor: f32) -> u8 {
-    todo!("inflate_cost not implemented");
+pub fn inflate_cost(distance: f32, inscribed_radius: f32, cost_scaling_factor: f32) -> u8 {
+    crate::inflation::inscribed_inflation_cost(distance, inscribed_radius, cost_scaling_factor)
 }
 
 /// Convert inflation radius in meters to a cell count.
@@ -507,6 +507,6 @@ pub fn inflate_cost(_distance: f32, _inscribed_radius: f32, _cost_scaling_factor
 /// - Typically `ceil(radius / resolution)`.
 ///
 /// C++: `unsigned int cellDistance(double world_dist);`
-pub fn inflation_radius_to_cells(_inflation_radius: f32, _resolution: f32) -> u32 {
-    todo!("inflation_radius_to_cells not implemented");
+pub fn inflation_radius_to_cells(inflation_radius: f32, resolution: f32) -> u32 {
+    crate::inflation::inflation_radius_to_cells(inflation_radius, resolution)
 }

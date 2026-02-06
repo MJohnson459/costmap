@@ -1,10 +1,13 @@
 use std::error::Error;
 
-use glam::{UVec2, Vec2, Vec3};
+use glam::{Vec2, Vec3};
 use std::f32::consts::TAU;
 use std::time::Duration;
+use voxel_grid::inflation;
 use voxel_grid::raycast::RayHit2D;
-use voxel_grid::rerun_viz::{COST_FREE, COST_LETHAL, log_costmap, log_occupancy_grid, log_point3d};
+use voxel_grid::rerun_viz::{
+    COST_FREE, COST_LETHAL, COST_UNKNOWN, log_costmap, log_occupancy_grid, log_point3d,
+};
 use voxel_grid::{Grid2d, MapInfo, RosMapLoader};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
@@ -49,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         origin: initial_origin.extend(0.0),
     };
 
-    let mut local_costmap = Grid2d::<u8>::empty(local_info.clone());
+    let mut local_costmap = Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN);
     let mut inflated_costmap = Grid2d::<u8>::empty(local_info);
 
     let (segment_lengths, total_length) = build_segments(&waypoints);
@@ -118,7 +121,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(5.0),
         )?;
 
-        inflate_costmap(&local_costmap, &mut inflated_costmap, INFLATION_RADIUS_M);
+        inflation::inflate(
+            &local_costmap,
+            &mut inflated_costmap,
+            INFLATION_RADIUS_M,
+            inflation::linear_inflation_cost,
+        );
 
         log_costmap(&rec, "world/local_costmap", &local_costmap, Z_LOCAL)?;
         log_costmap(
@@ -134,68 +142,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         frame_idx = frame_idx.wrapping_add(1);
     }
-}
-
-fn inflate_costmap(local: &Grid2d<u8>, inflated: &mut Grid2d<u8>, inflation_radius_m: f32) {
-    for (_, value) in inflated.iter_cells_mut() {
-        *value = COST_FREE;
-    }
-
-    let resolution = local.info().resolution;
-    if resolution <= 0.0 {
-        return;
-    }
-
-    let radius_cells = (inflation_radius_m / resolution).ceil() as i32;
-    if radius_cells <= 0 {
-        return;
-    }
-
-    let radius_cells_f = radius_cells as f32;
-
-    for (cell, cost) in local.iter_cells() {
-        if *cost < COST_LETHAL {
-            continue;
-        }
-
-        let cx = cell.x as i32;
-        let cy = cell.y as i32;
-
-        for dy in -radius_cells..=radius_cells {
-            for dx in -radius_cells..=radius_cells {
-                let dist = ((dx * dx + dy * dy) as f32).sqrt();
-                if dist > radius_cells_f {
-                    continue;
-                }
-
-                let nx = cx + dx;
-                let ny = cy + dy;
-                if nx < 0 || ny < 0 {
-                    continue;
-                }
-
-                let pos = UVec2::new(nx as u32, ny as u32);
-                if pos.x >= inflated.width() || pos.y >= inflated.height() {
-                    continue;
-                }
-
-                let inflated_cost = inflation_cost(dist, radius_cells_f);
-                let current = inflated.get(&pos).copied().unwrap_or(COST_FREE);
-                if inflated_cost > current {
-                    let _ = inflated.set(&pos, inflated_cost);
-                }
-            }
-        }
-    }
-}
-
-fn inflation_cost(dist_cells: f32, radius_cells: f32) -> u8 {
-    if dist_cells <= 0.0 {
-        return COST_LETHAL;
-    }
-
-    let t = (1.0 - dist_cells / radius_cells).clamp(0.0, 1.0);
-    (COST_LETHAL as f32 * t).round() as u8
 }
 
 fn build_segments(waypoints: &[Vec2]) -> (Vec<f32>, f32) {

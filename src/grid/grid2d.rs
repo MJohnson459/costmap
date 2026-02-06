@@ -16,10 +16,15 @@ use crate::{
 pub struct Grid2d<T> {
     info: MapInfo,
     data: Vec<T>,
+    fill_value: T,
 }
 
 impl<T> Grid2d<T> {
-    pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError> {
+    /// Create a grid from existing data, using `T::default()` as the fill value.
+    pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
+    where
+        T: Default,
+    {
         let expected_len = (info.width as usize) * (info.height as usize);
         if data.len() != expected_len {
             return Err(VoxelError::InvalidMetadata(format!(
@@ -29,7 +34,33 @@ impl<T> Grid2d<T> {
             )));
         }
 
-        Ok(Self { info, data })
+        Ok(Self {
+            info,
+            data,
+            fill_value: T::default(),
+        })
+    }
+
+    /// Create a grid from existing data with an explicit fill value.
+    ///
+    /// The fill value is used by [`clear`](Self::clear), [`update_origin`](Self::update_origin),
+    /// [`resize_map`](Self::resize_map), and [`reset_map`](Self::reset_map) when new or
+    /// reset cells need a value.
+    pub fn new_with_fill(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
+        let expected_len = (info.width as usize) * (info.height as usize);
+        if data.len() != expected_len {
+            return Err(VoxelError::InvalidMetadata(format!(
+                "data length {} does not match map size {}",
+                data.len(),
+                expected_len
+            )));
+        }
+
+        Ok(Self {
+            info,
+            data,
+            fill_value,
+        })
     }
 
     pub fn info(&self) -> &MapInfo {
@@ -113,6 +144,7 @@ impl<T> Grid2d<T> {
         })
     }
 
+    /// Create an empty grid filled with `T::default()`.
     pub fn empty(info: MapInfo) -> Self
     where
         T: Default + Clone,
@@ -121,26 +153,57 @@ impl<T> Grid2d<T> {
         Self {
             info,
             data: vec![T::default(); expected_len],
+            fill_value: T::default(),
         }
+    }
+
+    /// Create a grid where every cell is initialised to `fill_value`.
+    ///
+    /// The same value is used by [`clear`](Self::clear),
+    /// [`update_origin`](Self::update_origin), [`resize_map`](Self::resize_map),
+    /// and [`reset_map`](Self::reset_map) when new or reset cells need a value.
+    pub fn filled(info: MapInfo, fill_value: T) -> Self
+    where
+        T: Clone,
+    {
+        let expected_len = (info.width as usize) * (info.height as usize);
+        Self {
+            data: vec![fill_value.clone(); expected_len],
+            info,
+            fill_value,
+        }
+    }
+
+    /// Reset all cells to the grid's fill value.
+    pub fn clear(&mut self)
+    where
+        T: Clone,
+    {
+        self.data.fill(self.fill_value.clone());
+    }
+
+    /// Return the fill value used for new / reset cells.
+    pub fn fill_value(&self) -> &T {
+        &self.fill_value
     }
 
     /// Resize the map and update resolution/origin.
     ///
-    /// This method clears the data to the default value.
+    /// This method clears the data to the fill value.
     pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec3)
     where
-        T: Default + Clone,
+        T: Clone,
     {
         self.info.width = size.x;
         self.info.height = size.y;
         self.info.resolution = resolution;
         self.info.origin = *origin;
-        self.data = vec![T::default(); size.x as usize * size.y as usize];
+        self.data = vec![self.fill_value.clone(); size.x as usize * size.y as usize];
     }
 
     pub fn reset_map(&mut self, lower: UVec2, upper: UVec2)
     where
-        T: Default + Clone,
+        T: Clone,
     {
         let width = self.info.width;
         let height = self.info.height;
@@ -154,7 +217,7 @@ impl<T> Grid2d<T> {
         }
 
         let row_width = (end_x - start_x) as usize;
-        let fill = T::default();
+        let fill = self.fill_value.clone();
         let stride = width as usize;
 
         for y in start_y..end_y {
@@ -166,12 +229,12 @@ impl<T> Grid2d<T> {
 
     pub fn update_origin(&mut self, origin: &Vec3)
     where
-        T: Default + Clone,
+        T: Clone,
     {
         let resolution = self.info.resolution;
         if resolution <= 0.0 {
             self.info.origin = *origin;
-            self.data = vec![T::default(); self.data.len()];
+            self.data = vec![self.fill_value.clone(); self.data.len()];
             return;
         }
 
@@ -235,7 +298,7 @@ impl<T> Grid2d<T> {
         cell_offset: IVec2,
     ) -> Vec<T>
     where
-        T: Default + Clone,
+        T: Clone,
     {
         let overlap_min = cell_offset.clamp(IVec2::ZERO, old_size);
         let overlap_max = (cell_offset + new_size).clamp(IVec2::ZERO, old_size);
@@ -244,7 +307,7 @@ impl<T> Grid2d<T> {
         let cell_size_x = overlap_size.x as usize;
         let cell_size_y = overlap_size.y as usize;
 
-        let mut local = vec![T::default(); cell_size_x * cell_size_y];
+        let mut local = vec![self.fill_value.clone(); cell_size_x * cell_size_y];
         if cell_size_x > 0 && cell_size_y > 0 {
             for y in 0..cell_size_y {
                 let src_start =
@@ -256,7 +319,7 @@ impl<T> Grid2d<T> {
             }
         }
 
-        let mut new_data = vec![T::default(); new_size.x as usize * new_size.y as usize];
+        let mut new_data = vec![self.fill_value.clone(); new_size.x as usize * new_size.y as usize];
         let start = overlap_min - cell_offset;
         if cell_size_x > 0 && cell_size_y > 0 {
             for y in 0..cell_size_y {

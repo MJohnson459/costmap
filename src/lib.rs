@@ -1,4 +1,5 @@
 pub mod grid;
+pub mod inflation;
 pub mod iterators;
 pub mod loaders;
 pub mod raycast;
