@@ -75,7 +75,10 @@ fn bench_raycast(c: &mut Criterion) {
         b.iter(|| {
             let mut hits = 0usize;
             for (origin, dir, max_t) in &rays_positive_x {
-                if early_hit_grid.raycast_grid_step(origin, dir, *max_t).is_some() {
+                if early_hit_grid
+                    .raycast_grid_step(origin, dir, *max_t)
+                    .is_some()
+                {
                     hits += 1;
                 }
             }
@@ -99,7 +102,10 @@ fn bench_raycast(c: &mut Criterion) {
         b.iter(|| {
             let mut hits = 0usize;
             for (origin, dir, max_t) in &rays_positive_x {
-                if late_hit_grid.raycast_grid_step(origin, dir, *max_t).is_some() {
+                if late_hit_grid
+                    .raycast_grid_step(origin, dir, *max_t)
+                    .is_some()
+                {
                     hits += 1;
                 }
             }

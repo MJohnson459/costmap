@@ -1,7 +1,7 @@
 use image::{GrayImage, Luma};
 
-use crate::types::UNKNOWN;
 use crate::OccupancyGrid;
+use crate::types::UNKNOWN;
 
 /// Convert an occupancy grid to a grayscale image preview.
 ///
@@ -52,8 +52,8 @@ mod tests {
     use glam::{UVec2, Vec3};
 
     use super::*;
-    use crate::types::{FREE, OCCUPIED};
     use crate::MapInfo;
+    use crate::types::{FREE, OCCUPIED};
 
     #[test]
     fn occupancy_grid_to_image_maps_values_and_flips_y() {
@@ -90,4 +90,3 @@ mod tests {
         assert!(free_px > occ_px);
     }
 }
-

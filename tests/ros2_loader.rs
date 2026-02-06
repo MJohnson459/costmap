@@ -1,8 +1,8 @@
+use costmap::types::{FREE, OCCUPIED, UNKNOWN};
+use costmap::{RosMapLoader, loaders::ros2::RosMapMetadata};
 use glam::UVec2;
 use image::GenericImageView;
 use std::path::Path;
-use costmap::types::{FREE, OCCUPIED, UNKNOWN};
-use costmap::{RosMapLoader, loaders::ros2::RosMapMetadata};
 
 #[test]
 fn loads_trinary_ros2_map() {

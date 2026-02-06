@@ -128,10 +128,10 @@ fn gray_to_rgb(gray: &[u8]) -> Vec<u8> {
 /// Map a costmap cost value to an RGB colour matching the RViz costmap palette.
 fn cost_to_rgb(cost: u8) -> [u8; 3] {
     match cost {
-        COST_UNKNOWN => [0, 97, 127],       // teal-grey (no information)
-        COST_LETHAL => [0, 255, 255],        // cyan (lethal obstacle)
-        COST_INSCRIBED => [128, 0, 255],     // purple (inscribed)
-        0 => [0, 172, 230],                  // light blue (free space)
+        COST_UNKNOWN => [0, 97, 127],    // teal-grey (no information)
+        COST_LETHAL => [0, 255, 255],    // cyan (lethal obstacle)
+        COST_INSCRIBED => [128, 0, 255], // purple (inscribed)
+        0 => [0, 172, 230],              // light blue (free space)
         c => {
             // Gradient: low cost (blue-ish) → high cost (red-ish), matching RViz.
             let t = c as f32 / (COST_INSCRIBED - 1) as f32;
@@ -246,10 +246,10 @@ mod tests {
         let r = (255.0 * t) as u8;
         let b = (255.0 * (1.0 - t)) as u8;
         let expected = [
-            [0, 255, 255],   // y=1, x=0 (lethal → cyan)
-            [0, 97, 127],    // y=1, x=1 (unknown → teal-grey)
-            [0, 172, 230],   // y=0, x=0 (free → light blue)
-            [r, 0, b],       // y=0, x=1 (low cost → blue-ish)
+            [0, 255, 255], // y=1, x=0 (lethal → cyan)
+            [0, 97, 127],  // y=1, x=1 (unknown → teal-grey)
+            [0, 172, 230], // y=0, x=0 (free → light blue)
+            [r, 0, b],     // y=0, x=1 (low cost → blue-ish)
         ];
 
         for (idx, rgb_triplet) in expected.iter().enumerate() {

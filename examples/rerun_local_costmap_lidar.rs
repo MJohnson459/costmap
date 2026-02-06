@@ -18,14 +18,14 @@
 
 use std::error::Error;
 
-use glam::{Vec2, Vec3};
-use std::f32::consts::TAU;
-use std::time::Duration;
 use costmap::inflation;
 use costmap::rerun_viz::{
     COST_FREE, COST_LETHAL, COST_UNKNOWN, log_costmap, log_occupancy_grid, log_point3d,
 };
 use costmap::{Grid2d, MapInfo, RosMapLoader};
+use glam::{Vec2, Vec3};
+use std::f32::consts::TAU;
+use std::time::Duration;
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 

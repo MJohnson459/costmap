@@ -17,12 +17,12 @@
 
 use std::error::Error;
 
+use costmap::rerun_viz::{log_line3d, log_occupancy_grid, log_point3d};
 use std::f32::consts::TAU;
 use std::time::Duration;
-use costmap::rerun_viz::{log_line3d, log_occupancy_grid, log_point3d};
 
-use glam::{Vec2, Vec3};
 use costmap::RosMapLoader;
+use glam::{Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
