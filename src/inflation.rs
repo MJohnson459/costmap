@@ -252,7 +252,7 @@ mod tests {
         let source = make_grid(5, 5, data);
 
         let mut dest = Grid2d::<u8>::empty(source.info().clone());
-        inflate(&source, &mut dest, 1.0, linear_inflation_cost);
+        inflate(&source, &mut dest, 1.2, linear_inflation_cost);
 
         // Unknown cells far from any lethal should remain unknown.
         assert_eq!(dest.get(&UVec2::new(0, 0)).copied(), Some(COST_UNKNOWN));
