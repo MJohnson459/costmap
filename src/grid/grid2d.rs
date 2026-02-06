@@ -1,3 +1,20 @@
+//! 2D occupancy and costmap grid.
+//!
+//! ## Coordinate frames
+//!
+//! - **Map coordinates**: Cell indices (UVec2) or continuous (Vec2) in the grid.
+//! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
+//!   gives the world coordinate of the lower-left corner of cell (0, 0).
+//!
+//! ## Map ↔ world conversion (four variants)
+//!
+//! | Direction   | In (map/world) | Out (world/map) | Function                    |
+//! |-------------|----------------|-----------------|-----------------------------|
+//! | map→world   | UVec2          | Vec2            | [`map_to_world`]            |
+//! | map→world   | Vec2           | Vec2            | [`map_to_world_continuous`] |
+//! | world→map   | Vec2           | UVec2           | [`world_to_map`]            |
+//! | world→map   | Vec2           | Vec2            | [`world_to_map_continuous`] |
+
 use glam::{IVec2, UVec2, UVec3, Vec2, Vec3};
 
 use crate::{
@@ -100,23 +117,27 @@ impl<T> Grid2d<T> {
         Ok(())
     }
 
-    pub fn map_to_world(&self, pos: &Vec2) -> Vec2 {
+    /// Map (cell indices) → world. Returns the cell center.
+    pub fn map_to_world(&self, cell: &UVec2) -> Vec2 {
+        self.map_to_world_continuous(&cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
+    }
+
+    /// Map (continuous) → world. For integer coords, returns the cell's lower-left corner.
+    pub fn map_to_world_continuous(&self, pos: &Vec2) -> Vec2 {
         Vec2::new(
             self.info.origin.x + pos.x * self.info.resolution,
             self.info.origin.y + pos.y * self.info.resolution,
         )
     }
 
-    /// Return the world-space center of the given cell.
-    ///
-    /// This is the position of the cell's center, offset by half a cell from the
-    /// lower-left corner that [`map_to_world`](Self::map_to_world) returns for
-    /// integer coordinates.
-    pub fn cell_center_world(&self, cell: &UVec2) -> Vec2 {
-        self.map_to_world(&cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
+    /// World → map (cell indices). Returns `None` if out of bounds.
+    pub fn world_to_map(&self, pos: &Vec2) -> Option<UVec2> {
+        let mp = self.world_to_map_continuous(pos)?;
+        Some(UVec2::new(mp.x as u32, mp.y as u32))
     }
 
-    pub fn world_to_map(&self, pos: &Vec2) -> Option<Vec2> {
+    /// World → map (continuous). Returns `None` if out of bounds.
+    pub fn world_to_map_continuous(&self, pos: &Vec2) -> Option<Vec2> {
         let mx = (pos.x - self.info.origin.x) / self.info.resolution;
         let my = (pos.y - self.info.origin.y) / self.info.resolution;
         if mx < 0.0 || my < 0.0 || mx >= self.info.width as f32 || my >= self.info.height as f32 {
@@ -308,8 +329,7 @@ impl<T> Grid2d<T> {
 
         if let Some(endpoint) = endpoint_value {
             let end_world = *origin + *dir * distance;
-            if let Some(map_pos) = self.world_to_map(&end_world) {
-                let cell = map_pos.floor().as_uvec2();
+            if let Some(cell) = self.world_to_map(&end_world) {
                 let _ = self.set(&cell, endpoint);
             }
         }
@@ -401,8 +421,8 @@ mod tests {
     use super::*;
 
     fn world_to_map_to_world(grid: &Grid2d<i8>, pos: Vec2) -> Vec2 {
-        let map_pos = grid.world_to_map(&pos).unwrap();
-        grid.map_to_world(&map_pos)
+        let map_pos = grid.world_to_map_continuous(&pos).unwrap();
+        grid.map_to_world_continuous(&map_pos)
     }
 
     #[test]

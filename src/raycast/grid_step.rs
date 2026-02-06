@@ -16,7 +16,7 @@ impl OccupancyGrid {
         let resolution = info.resolution;
         let dir = dir.normalize();
 
-        let start = self.world_to_map(&origin)?;
+        let start = self.world_to_map_continuous(&origin)?;
         let end = start + dir * (max_t / resolution);
 
         let mut current = start.floor().as_ivec2();
@@ -33,7 +33,7 @@ impl OccupancyGrid {
 
         loop {
             if utils::in_bounds(&current, &bounds) && utils::is_occupied(self, &current) {
-                let center = self.map_to_world(&current.as_vec2());
+                let center = self.map_to_world(&current.as_uvec2());
                 let hit_distance = (center - origin).dot(dir).max(0.0);
                 return Some(RayHit2D {
                     cell: current.as_uvec2(),

@@ -35,7 +35,7 @@ impl LineIterator {
         let dir = dir.normalize();
 
         // TODO: Support starting outside of the grid.
-        let start = grid.world_to_map(origin)?;
+        let start = grid.world_to_map_continuous(origin)?;
 
         // We use ivecs internally as the steps can be negative.
         let cell = start.floor().as_ivec2();

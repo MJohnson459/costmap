@@ -148,13 +148,9 @@ impl Costmap2D {
 
     /// Convert map coordinates to world coordinates at cell center.
     ///
-    /// Expectations:
-    /// - Returns the center of the specified cell, not the lower-left corner.
-    ///
     /// C++: `void mapToWorld(unsigned int mx, unsigned int my, double & wx, double & wy) const;`
     pub fn map_to_world(&self, mx: u32, my: u32) -> (f32, f32) {
-        let pos = self.grid.map_to_world(&Vec2::new(mx as f32, my as f32))
-            + 0.5 * self.grid.info().resolution;
+        let pos = self.grid.map_to_world(&UVec2::new(mx, my));
         (pos.x, pos.y)
     }
 
@@ -166,8 +162,8 @@ impl Costmap2D {
     /// C++: `bool worldToMap(double wx, double wy, unsigned int & mx, unsigned int & my) const;`
     pub fn world_to_map(&self, wx: f32, wy: f32) -> Option<(u32, u32)> {
         let pos = Vec2::new(wx, wy);
-        let map_pos = self.grid.world_to_map(&pos)?;
-        Some((map_pos.x as u32, map_pos.y as u32))
+        let cell = self.grid.world_to_map(&pos)?;
+        Some((cell.x, cell.y))
     }
 
     /// Convert world coordinates to continuous map coordinates without snapping.
@@ -178,7 +174,7 @@ impl Costmap2D {
     /// C++: `bool worldToMapContinuous(double wx, double wy, float & mx, float & my) const;`
     pub fn world_to_map_continuous(&self, wx: f32, wy: f32) -> Option<(f32, f32)> {
         let pos = Vec2::new(wx, wy);
-        let map_pos = self.grid.world_to_map(&pos)?;
+        let map_pos = self.grid.world_to_map_continuous(&pos)?;
         Some((map_pos.x, map_pos.y))
     }
 

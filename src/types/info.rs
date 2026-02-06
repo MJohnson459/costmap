@@ -1,3 +1,5 @@
+//! Map metadata.
+
 use glam::{Vec2, Vec3};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6,7 +8,7 @@ pub struct MapInfo {
     pub height: u32,
     pub depth: u32,
     pub resolution: f32,
-    /// (x, y, z) in world coordinates.
+    /// Origin of cell (0, 0) in world coordinates (meters).
     pub origin: Vec3,
 }
 

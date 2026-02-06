@@ -76,10 +76,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             let angle = heading + beam_step * beam_idx as f32;
             let dir = Vec2::new(angle.cos(), angle.sin());
 
+            // Simulated lidar raycast
             let hit = grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
+
+            // Clear cells along the ray (free space observed by the lidar).
             let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
             let endpoint = hit.map(|_| COST_LETHAL);
-
             local_costmap.clear_ray(&robot_pos, &dir, t, COST_FREE, endpoint);
 
             let end_world = robot_pos + dir * t;
