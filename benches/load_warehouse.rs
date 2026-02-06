@@ -8,7 +8,7 @@ fn bench_load_warehouse(c: &mut Criterion) {
 
     c.bench_function("load_ros2_warehouse_map", |b| {
         b.iter(|| {
-            let _grid = voxel_grid::RosMapLoader::load_from_yaml(&yaml_path)
+            let _grid = costmap::RosMapLoader::load_from_yaml(&yaml_path)
                 .expect("warehouse map should load");
         });
     });

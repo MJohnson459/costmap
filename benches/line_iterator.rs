@@ -1,8 +1,8 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
-use voxel_grid::iterators::line::{LineIterator, LineValueIterator, LineValueMutIterator};
-use voxel_grid::types::{FREE, MapInfo};
+use costmap::iterators::line::{LineIterator, LineValueIterator, LineValueMutIterator};
+use costmap::types::{FREE, MapInfo};
 
 fn bench_line_iterator(c: &mut Criterion) {
     let mut grid = build_empty_grid(256, 256, 0.05);
@@ -52,7 +52,7 @@ fn bench_line_iterator(c: &mut Criterion) {
     });
 }
 
-fn build_empty_grid(width: usize, height: usize, resolution: f32) -> voxel_grid::OccupancyGrid {
+fn build_empty_grid(width: usize, height: usize, resolution: f32) -> costmap::OccupancyGrid {
     let data = vec![FREE; width * height];
     let info = MapInfo {
         width: width as u32,
@@ -61,7 +61,7 @@ fn build_empty_grid(width: usize, height: usize, resolution: f32) -> voxel_grid:
         resolution,
         origin: glam::Vec3::new(0.0, 0.0, 0.0),
     };
-    voxel_grid::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::new(info, data).expect("grid should build")
 }
 
 fn build_rays() -> Vec<(Vec2, Vec2, f32)> {

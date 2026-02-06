@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use voxel_grid::nav2_compat::*;
+use costmap::nav2_compat::*;
 
 struct DummyLayer;
 

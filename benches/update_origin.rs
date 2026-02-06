@@ -1,8 +1,8 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec3;
 
-use voxel_grid::Grid2d;
-use voxel_grid::types::MapInfo;
+use costmap::Grid2d;
+use costmap::types::MapInfo;
 
 fn bench_update_origin(c: &mut Criterion) {
     let info = MapInfo {

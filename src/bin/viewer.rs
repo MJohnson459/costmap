@@ -8,7 +8,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowAttributes};
 
-use voxel_grid::{RosMapLoader, visualization::occupancy_grid_to_image};
+use costmap::{RosMapLoader, visualization::occupancy_grid_to_image};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args();
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 struct ViewerApp {
-    grid: voxel_grid::OccupancyGrid,
+    grid: costmap::OccupancyGrid,
     base_frame: Vec<u8>,
     buffer_width: u32,
     buffer_height: u32,
@@ -39,7 +39,7 @@ struct ViewerApp {
 }
 
 impl ViewerApp {
-    fn new(grid: voxel_grid::OccupancyGrid) -> Self {
+    fn new(grid: costmap::OccupancyGrid) -> Self {
         let base_frame = build_base_frame(&grid);
         Self {
             grid,
@@ -152,7 +152,7 @@ impl ApplicationHandler for ViewerApp {
     }
 }
 
-fn build_base_frame(grid: &voxel_grid::OccupancyGrid) -> Vec<u8> {
+fn build_base_frame(grid: &costmap::OccupancyGrid) -> Vec<u8> {
     let gray = occupancy_grid_to_image(grid);
     // For the initial (unscaled) frame, use the exact tight RGBA size.
     gray_to_rgba_scaled(
@@ -164,7 +164,7 @@ fn build_base_frame(grid: &voxel_grid::OccupancyGrid) -> Vec<u8> {
 }
 
 fn build_base_frame_scaled(
-    grid: &voxel_grid::OccupancyGrid,
+    grid: &costmap::OccupancyGrid,
     buffer_width: u32,
     buffer_height: u32,
     frame_len: usize,

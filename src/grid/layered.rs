@@ -50,9 +50,9 @@ impl AggregatePolicy<i8> for OccupiedDominant {
 /// # Example
 /// ```
 /// use glam::{UVec2, UVec3, Vec3};
-/// use voxel_grid::grid::{LayeredGrid, OccupiedDominant};
-/// use voxel_grid::types::{FREE, OCCUPIED, MapInfo};
-/// use voxel_grid::OccupancyGrid;
+/// use costmap::grid::{LayeredGrid, OccupiedDominant};
+/// use costmap::types::{FREE, OCCUPIED, MapInfo};
+/// use costmap::OccupancyGrid;
 ///
 /// let info = MapInfo {
 ///     width: 2,

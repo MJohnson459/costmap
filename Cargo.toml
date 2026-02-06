@@ -1,8 +1,12 @@
 [package]
-name = "voxel_grid"
+name = "costmap"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+description = "2D costmaps, occupancy grids, and raycasting for robotics navigation - a Nav2 alternative in pure Rust"
+repository = "https://github.com/MJohnson459/costmap"
+keywords = ["costmap", "occupancy-grid", "raycasting", "robotics", "nav2"]
+categories = ["science", "algorithms", "simulation"]
 
 [dependencies]
 glam = "0.30"

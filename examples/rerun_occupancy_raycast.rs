@@ -19,10 +19,10 @@ use std::error::Error;
 
 use std::f32::consts::TAU;
 use std::time::Duration;
-use voxel_grid::rerun_viz::{log_line3d, log_occupancy_grid, log_point3d};
+use costmap::rerun_viz::{log_line3d, log_occupancy_grid, log_point3d};
 
 use glam::{Vec2, Vec3};
-use voxel_grid::RosMapLoader;
+use costmap::RosMapLoader;
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
 
     // Step 2: Set up Rerun for visualization (optional - remove if not needed)
-    let rec = rerun::RecordingStreamBuilder::new("voxel_grid_rerun_occupancy_raycast").spawn()?;
+    let rec = rerun::RecordingStreamBuilder::new("costmap_rerun_occupancy_raycast").spawn()?;
     log_occupancy_grid(&rec, "world/map", &grid, 0.0)?;
 
     let center = grid.info().world_center();

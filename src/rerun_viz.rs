@@ -4,7 +4,7 @@ use glam::{Vec2, Vec3};
 
 use crate::{Grid2d, OccupancyGrid, visualization::occupancy_grid_to_image};
 
-// Re-export cost constants so existing `use voxel_grid::rerun_viz::COST_LETHAL` still works.
+// Re-export cost constants so existing `use costmap::rerun_viz::COST_LETHAL` still works.
 pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
 
 pub fn occupancy_to_rgb_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {

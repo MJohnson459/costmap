@@ -1,8 +1,8 @@
 use glam::UVec2;
 use image::GenericImageView;
 use std::path::Path;
-use voxel_grid::types::{FREE, OCCUPIED, UNKNOWN};
-use voxel_grid::{RosMapLoader, loaders::ros2::RosMapMetadata};
+use costmap::types::{FREE, OCCUPIED, UNKNOWN};
+use costmap::{RosMapLoader, loaders::ros2::RosMapMetadata};
 
 #[test]
 fn loads_trinary_ros2_map() {

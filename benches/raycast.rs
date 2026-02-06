@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
-use voxel_grid::types::{FREE, MapInfo, OCCUPIED};
+use costmap::types::{FREE, MapInfo, OCCUPIED};
 
 fn bench_raycast(c: &mut Criterion) {
     let grid = build_grid(256, 256, 0.05);
@@ -108,7 +108,7 @@ fn bench_raycast(c: &mut Criterion) {
     });
 }
 
-fn build_grid(width: usize, height: usize, resolution: f32) -> voxel_grid::OccupancyGrid {
+fn build_grid(width: usize, height: usize, resolution: f32) -> costmap::OccupancyGrid {
     let mut data = vec![FREE; width * height];
     for y in (0..height).step_by(16) {
         for x in (0..width).step_by(16) {
@@ -125,10 +125,10 @@ fn build_grid(width: usize, height: usize, resolution: f32) -> voxel_grid::Occup
         origin: glam::Vec3::new(0.0, 0.0, 0.0),
     };
 
-    voxel_grid::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::new(info, data).expect("grid should build")
 }
 
-fn build_empty_grid(width: usize, height: usize, resolution: f32) -> voxel_grid::OccupancyGrid {
+fn build_empty_grid(width: usize, height: usize, resolution: f32) -> costmap::OccupancyGrid {
     let data = vec![FREE; width * height];
     let info = MapInfo {
         width: width as u32,
@@ -137,7 +137,7 @@ fn build_empty_grid(width: usize, height: usize, resolution: f32) -> voxel_grid:
         resolution,
         origin: glam::Vec3::new(0.0, 0.0, 0.0),
     };
-    voxel_grid::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::new(info, data).expect("grid should build")
 }
 
 fn build_grid_with_occupied_column(
@@ -145,7 +145,7 @@ fn build_grid_with_occupied_column(
     height: usize,
     resolution: f32,
     column: usize,
-) -> voxel_grid::OccupancyGrid {
+) -> costmap::OccupancyGrid {
     let mut data = vec![FREE; width * height];
     let col = column.min(width.saturating_sub(1));
     for y in 0..height {
@@ -159,7 +159,7 @@ fn build_grid_with_occupied_column(
         resolution,
         origin: glam::Vec3::new(0.0, 0.0, 0.0),
     };
-    voxel_grid::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::new(info, data).expect("grid should build")
 }
 
 fn build_rays() -> Vec<(Vec2, Vec2, f32)> {

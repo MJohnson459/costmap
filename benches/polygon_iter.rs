@@ -1,9 +1,9 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
-use voxel_grid::Grid2d;
-use voxel_grid::iterators::polygon::PolygonIterator;
-use voxel_grid::types::MapInfo;
+use costmap::Grid2d;
+use costmap::iterators::polygon::PolygonIterator;
+use costmap::types::MapInfo;
 
 fn bench_polygon_iter(c: &mut Criterion) {
     let info = MapInfo {

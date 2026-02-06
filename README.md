@@ -1,6 +1,10 @@
-# voxel_grid
+# costmap
 
-A Rust library for obstacle grids, costmaps, and raycasting — aimed at robotics applications.
+[![Crates.io](https://img.shields.io/crates/v/costmap.svg)](https://crates.io/crates/costmap)
+[![Documentation](https://docs.rs/costmap/badge.svg)](https://docs.rs/costmap)
+[![License](https://img.shields.io/crates/l/costmap.svg)](https://github.com/MJohnson459/costmap#license)
+
+A Rust library for 2D costmaps, occupancy grids, and raycasting — aimed at robotics navigation.
 
 The goal is to provide a standalone, composable alternative to [costmap_2d](https://github.com/ros-navigation/navigation2/tree/main/nav2_costmap_2d) from Nav2, implemented as an independent Rust crate with no ROS dependency. The Rust robotics ecosystem needs more self-contained libraries that can be mixed and matched outside of any single framework.
 
@@ -40,10 +44,10 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-voxel_grid = "0.1.0"
+costmap = "0.1.0"
 
 # Optional features
-voxel_grid = { version = "0.1.0", features = ["rerun"] }
+costmap = { version = "0.1.0", features = ["rerun"] }
 ```
 
 ## Quick start
@@ -51,7 +55,7 @@ voxel_grid = { version = "0.1.0", features = ["rerun"] }
 Load a map and perform raycasting for obstacle detection:
 
 ```rust
-use voxel_grid::RosMapLoader;
+use costmap::RosMapLoader;
 use glam::Vec2;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

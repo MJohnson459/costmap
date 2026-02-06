@@ -21,11 +21,11 @@ use std::error::Error;
 use glam::{Vec2, Vec3};
 use std::f32::consts::TAU;
 use std::time::Duration;
-use voxel_grid::inflation;
-use voxel_grid::rerun_viz::{
+use costmap::inflation;
+use costmap::rerun_viz::{
     COST_FREE, COST_LETHAL, COST_UNKNOWN, log_costmap, log_occupancy_grid, log_point3d,
 };
-use voxel_grid::{Grid2d, MapInfo, RosMapLoader};
+use costmap::{Grid2d, MapInfo, RosMapLoader};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let info = grid.info().clone();
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
-    let rec = rerun::RecordingStreamBuilder::new("voxel_grid_rerun_local_costmap_lidar").spawn()?;
+    let rec = rerun::RecordingStreamBuilder::new("costmap_rerun_local_costmap_lidar").spawn()?;
     log_occupancy_grid(&rec, "world/global_map", &grid, Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
