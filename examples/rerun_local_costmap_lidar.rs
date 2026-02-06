@@ -1,22 +1,22 @@
 use std::error::Error;
 
+use glam::{UVec2, Vec2, Vec3};
 use std::f32::consts::TAU;
 use std::time::Duration;
-use voxel_grid::Grid2d;
-use voxel_grid::rerun_viz::{COST_LETHAL, costmap_to_rgb_bytes, log_textured_plane_mesh3d};
-
-use glam::{UVec2, Vec2, Vec3};
 use voxel_grid::raycast::RayHit2D;
+use voxel_grid::rerun_viz::{COST_LETHAL, costmap_to_rgb_bytes, log_textured_plane_mesh3d};
 use voxel_grid::rerun_viz::{log_point3d, occupancy_to_rgb_bytes};
-use voxel_grid::{MapInfo, RosMapLoader};
+use voxel_grid::{Grid2d, MapInfo, RosMapLoader};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
-const FRAMES_PER_REV: i64 = 360;
 const DELAY_MS: u64 = 100;
 const N_BEAMS: usize = 60;
 const MAX_RANGE_M: f32 = 12.0;
-const LOCAL_SIZE_CELLS: u32 = 120;
+const LOCAL_SIZE_CELLS: u32 = 240;
 const INFLATION_RADIUS_M: f32 = 0.9;
+const WAYPOINT_SPEED_MPS: f32 = 1.1;
+
+const WAYPOINTS: &[(f32, f32)] = &[(258.0, 98.0), (229.0, 98.0), (229.0, 62.0), (258.0, 62.0)];
 
 const Z_GLOBAL: f32 = 0.0;
 const Z_LOCAL: f32 = 0.12;
@@ -35,22 +35,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let map_width_m = info.width as f32 * info.resolution;
     let map_height_m = info.height as f32 * info.resolution;
     let map_center = info.origin.truncate() + Vec2::new(0.5 * map_width_m, 0.5 * map_height_m);
-    let robot_radius = 0.25 * map_width_m.min(map_height_m);
-
-    let local_width_m = LOCAL_SIZE_CELLS as f32 * info.resolution;
-    let local_height_m = LOCAL_SIZE_CELLS as f32 * info.resolution;
-
-    let initial_origin = map_center - Vec2::new(0.5 * local_width_m, 0.5 * local_height_m);
-    let local_info = MapInfo {
-        width: LOCAL_SIZE_CELLS,
-        height: LOCAL_SIZE_CELLS,
-        depth: 1,
-        resolution: info.resolution,
-        origin: initial_origin.extend(0.0),
-    };
-
-    let mut local_costmap = Grid2d::<u8>::empty(local_info.clone());
-    let mut inflated_costmap = Grid2d::<u8>::empty(local_info);
 
     let rec = rerun::RecordingStreamBuilder::new("voxel_grid_rerun_local_costmap_lidar").spawn()?;
 
@@ -67,25 +51,52 @@ fn main() -> Result<(), Box<dyn Error>> {
         global_rgb,
     )?;
 
-    let frames_per_rev = FRAMES_PER_REV.max(1);
-    let delay_ms = DELAY_MS;
+    let dt = DELAY_MS as f32 / 1000.0;
+
+    let mut waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
+    if waypoints.len() < 2 {
+        let half_span = 0.2 * map_width_m.min(map_height_m);
+        waypoints = vec![
+            map_center + Vec2::new(-half_span, -half_span),
+            map_center + Vec2::new(half_span, -half_span),
+            map_center + Vec2::new(half_span, half_span),
+            map_center + Vec2::new(-half_span, half_span),
+        ];
+    }
+
+    let local_size_m = LOCAL_SIZE_CELLS as f32 * info.resolution;
+    let initial_origin = map_center - Vec2::splat(0.5 * local_size_m);
+    let local_info = MapInfo {
+        width: LOCAL_SIZE_CELLS,
+        height: LOCAL_SIZE_CELLS,
+        depth: 1,
+        resolution: info.resolution,
+        origin: initial_origin.extend(0.0),
+    };
+
+    let mut local_costmap = Grid2d::<u8>::empty(local_info.clone());
+    let mut inflated_costmap = Grid2d::<u8>::empty(local_info);
+
+    let (segment_lengths, total_length) = build_segments(&waypoints);
 
     let mut frame_idx: i64 = 0;
     loop {
         rec.set_time_sequence("frame", frame_idx);
 
-        let phase = (frame_idx.rem_euclid(frames_per_rev) as f32 / frames_per_rev as f32) * TAU;
-        let robot_pos = map_center + Vec2::new(phase.cos(), phase.sin()) * robot_radius;
-        let heading = phase + TAU * 0.25;
+        let distance = (frame_idx as f32) * WAYPOINT_SPEED_MPS * dt;
+        let (robot_pos, heading_dir) =
+            sample_path(&waypoints, &segment_lengths, total_length, distance);
+        let heading = heading_dir.y.atan2(heading_dir.x);
 
-        let local_origin = robot_pos - Vec2::new(0.5 * local_width_m, 0.5 * local_height_m);
+        let local_origin = robot_pos - Vec2::splat(0.5 * local_size_m);
         local_costmap.update_origin(&local_origin.extend(0.0));
         inflated_costmap.update_origin(&local_origin.extend(0.0));
 
         let mut ray_segments = Vec::with_capacity(N_BEAMS);
+        let beam_step = TAU / N_BEAMS as f32;
 
         for beam_idx in 0..N_BEAMS {
-            let angle = heading + (beam_idx as f32 / N_BEAMS as f32) * TAU;
+            let angle = heading + beam_step * beam_idx as f32;
             let dir = Vec2::new(angle.cos(), angle.sin()).normalize_or_zero();
 
             let hit: Option<RayHit2D> = grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
@@ -140,8 +151,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             Z_INFLATED,
         )?;
 
-        if delay_ms > 0 {
-            std::thread::sleep(Duration::from_millis(delay_ms));
+        if DELAY_MS > 0 {
+            std::thread::sleep(Duration::from_millis(DELAY_MS));
         }
 
         frame_idx = frame_idx.wrapping_add(1);
@@ -235,4 +246,60 @@ fn inflation_cost(dist_cells: f32, radius_cells: f32) -> u8 {
 
     let t = (1.0 - dist_cells / radius_cells).clamp(0.0, 1.0);
     (COST_LETHAL as f32 * t).round() as u8
+}
+
+fn build_segments(waypoints: &[Vec2]) -> (Vec<f32>, f32) {
+    let mut lengths = Vec::with_capacity(waypoints.len());
+    let mut total = 0.0;
+
+    if waypoints.len() < 2 {
+        return (lengths, total);
+    }
+
+    for idx in 0..waypoints.len() {
+        let a = waypoints[idx];
+        let b = waypoints[(idx + 1) % waypoints.len()];
+        let len = (b - a).length();
+        lengths.push(len);
+        total += len;
+    }
+
+    (lengths, total)
+}
+
+fn sample_path(
+    waypoints: &[Vec2],
+    segment_lengths: &[f32],
+    total_length: f32,
+    distance: f32,
+) -> (Vec2, Vec2) {
+    if waypoints.is_empty() {
+        return (Vec2::ZERO, Vec2::X);
+    }
+
+    if waypoints.len() == 1 || total_length <= 0.0 {
+        return (waypoints[0], Vec2::X);
+    }
+
+    let mut remaining = distance.rem_euclid(total_length);
+    for (idx, seg_len) in segment_lengths.iter().enumerate() {
+        if *seg_len <= 0.0 {
+            continue;
+        }
+        if remaining <= *seg_len {
+            let a = waypoints[idx];
+            let b = waypoints[(idx + 1) % waypoints.len()];
+            let dir = (b - a).normalize_or_zero();
+            let pos = a + dir * remaining;
+            let heading = if dir.length_squared() == 0.0 {
+                Vec2::X
+            } else {
+                dir
+            };
+            return (pos, heading);
+        }
+        remaining -= *seg_len;
+    }
+
+    (waypoints[0], Vec2::X)
 }
