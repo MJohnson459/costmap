@@ -29,6 +29,16 @@ name = "viewer"
 path = "src/bin/viewer.rs"
 required-features = ["viewer"]
 
+[[example]]
+name = "rerun_local_costmap_lidar"
+path = "examples/rerun_local_costmap_lidar.rs"
+required-features = ["rerun"]
+
+[[example]]
+name = "rerun_occupancy_raycast"
+path = "examples/rerun_occupancy_raycast.rs"
+required-features = ["rerun"]
+
 [[bench]]
 name = "load_warehouse"
 harness = false

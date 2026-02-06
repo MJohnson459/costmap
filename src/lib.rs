@@ -5,6 +5,9 @@ pub mod raycast;
 pub mod types;
 pub mod visualization;
 
+#[cfg(feature = "rerun")]
+pub mod rerun_viz;
+
 #[cfg(feature = "nav2_compat")]
 pub mod nav2_compat;
 
