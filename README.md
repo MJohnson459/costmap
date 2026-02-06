@@ -1,79 +1,176 @@
-# Voxel Grid
+# voxel_grid
 
-This is an implementation of a Voxel Grid and a collection of ray casting
-algorithms for use with it.
+A Rust library for obstacle grids, costmaps, and raycasting — aimed at robotics applications.
 
-Primarily aimed at use within Robotics.
+The goal is to provide a standalone, composable alternative to [costmap_2d](https://github.com/ros-navigation/navigation2/tree/main/nav2_costmap_2d) from Nav2, implemented as an independent Rust crate with no ROS dependency. The Rust robotics ecosystem needs more self-contained libraries that can be mixed and matched outside of any single framework.
+
+> **Status:** Work in progress. The core grid, raycasting, coordinate transforms, inflation, and ROS2 map loading are functional. The Nav2 compatibility layer and advanced costmap features are partially stubbed.
+
+> **Note:** This project has also been a testbed for AI-assisted code generation. Much of the code has been written or refined with the help of LLMs.
+
+## Goals
+
+- **Easy to use** — clear API with sensible defaults; load a map and start querying in a few lines.
+- **Performant** — match or exceed the performance of Nav2's C++ costmap_2d implementation.
+- **Composable** — no framework lock-in. Use the grid on its own, plug in your own layers, or integrate with any robotics stack.
+
+## Who is this for?
+
+This library is designed for:
+- **Rust robotics developers** building mobile robots, autonomous vehicles, or drone navigation systems
+- **ROS2 users** wanting to prototype or deploy navigation algorithms in pure Rust
+- **Game developers** needing efficient 2D spatial queries and line-of-sight calculations
+- **Researchers** experimenting with costmap algorithms without the overhead of a full robotics framework
+
+## Features
+
+- **Rolling window costmaps** — `update_origin` shifts the grid while preserving overlapping data, enabling efficient robot-centered local costmaps.
+- **Raycasting** — DDA and grid-step algorithms for sensor simulation and collision detection in world coordinates.
+- **Obstacle inflation** — expand obstacles with pluggable cost functions (linear, inscribed exponential) for safe navigation.
+- **Line and polygon iterators** — iterate cells along a ray or inside a convex polygon, with read/write access.
+- **2D occupancy grids & costmaps** — `Grid2d<i8>` and `Grid2d<u8>` with configurable resolution, origin, and coordinate transforms.
+- **Nav2-compatible semantics** — lethal / inscribed / free / unknown cost values matching costmap_2d conventions.
+- **ROS2 map loading** — load occupancy grids from the standard YAML + image format.
+- **Rerun visualisation** (optional) — log grids and costmaps as textured 3D planes with the RViz colour palette.
+- **Nav2 compatibility layer** (optional) — a `Costmap2D`-like API surface for incremental migration.
+
+## Installation
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+voxel_grid = "0.1.0"
+
+# Optional features
+voxel_grid = { version = "0.1.0", features = ["rerun"] }
+```
 
 ## Quick start
 
-Load a ROS2 occupancy grid (YAML + image) and render a grayscale preview:
+Load a map and perform raycasting for obstacle detection:
 
 ```rust
-use voxel_grid::{RosMapLoader, visualization::occupancy_grid_to_image};
+use voxel_grid::RosMapLoader;
+use glam::Vec2;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load a ROS2 map (YAML + image format)
     let grid = RosMapLoader::load_from_yaml("map.yaml")?;
-    let image = occupancy_grid_to_image(&grid);
-    image.save("map_preview.png")?;
+
+    // Raycast from origin in a given direction
+    let origin = Vec2::new(10.0, 10.0);  // meters, world coordinates
+    let direction = Vec2::new(1.0, 0.0); // unit vector
+    let max_range = 30.0;
+
+    // Check for obstacles along the ray
+    if let Some(hit) = grid.raycast_dda(&origin, &direction, max_range) {
+        println!("Hit obstacle at distance: {:.2}m", hit.hit_distance);
+        println!("Cell coordinates: {:?}", hit.cell);
+    } else {
+        println!("No obstacles within range");
+    }
+
     Ok(())
 }
 ```
 
-## TODO (Operations)
+## Examples
+
+Run the examples with the `rerun` feature enabled:
+
+```bash
+cargo run --example rerun_occupancy_raycast --features rerun
+cargo run --example rerun_local_costmap_lidar --features rerun
+```
+
+### [rerun_occupancy_raycast](examples/rerun_occupancy_raycast.rs)
+
+Demonstrates the core raycasting API with an animated 360° sweep. Shows how to:
+- Load ROS2 map files
+- Perform DDA raycasting for obstacle detection
+- Handle hit/miss cases
+
+![Raycast example](docs/images/rerun_raycast.png)
+
+### [rerun_local_costmap_lidar](examples/rerun_local_costmap_lidar.rs)
+
+Complete local costmap workflow for mobile robot navigation. Shows how to:
+- Create and update rolling window costmaps
+- Integrate simulated lidar data using `clear_ray()`
+- Apply inflation layers for safe path planning
+- Move the costmap origin to follow the robot
+
+![Costmap example](docs/images/rerun_costmap.png)
+
+## Roadmap
 
 ### Core
 
-- [x] Core grid storage for 2D occupancy
-- [x] Bounds-checked get/set helpers
-- [ ] Grid iterators: row-major cells, column iter, layer iter
-- [ ] Grid iterators: sparse active cells (occupied/known)
-- [ ] Region queries: rect/box scans by bounds
-- [ ] Region queries: circle/sphere scans by radius
-- [x] World <-> grid coordinate transforms
-- [ ] Origin updates (translate/rotate)
-- [ ] Resolution changes (resample)
-
-### Layers
-
-- [x] Layered grid wrapper + metadata
-- [x] Aggregation policy trait + default policy
-- [ ] Per-layer updates: set/get by layer index
-- [ ] Per-layer updates: set/get by layer name
-- [ ] Layer masks: include/exclude subsets
-- [ ] Layer filtering: apply transforms to selected layers
-- [ ] Occupancy semantics: thresholds and conversions
-- [ ] Occupancy semantics: unknown handling policies
+- [x] 2D grid storage with bounds-checked access
+- [x] World / map coordinate transforms
+- [x] Row-major cell iterators (immutable and mutable)
+- [x] Origin updates with data preservation (rolling window)
+- [x] Configurable fill value for new / reset cells
+- [x] Map resize and region reset
+- [ ] Sparse active-cell iterators
+- [ ] Region queries (rect, circle)
+- [ ] Resolution resampling
 
 ### Raycasting
 
 - [x] Grid-step raycast (2D)
 - [x] DDA raycast (2D)
+- [x] Line iterators (position, value, mutable value)
+- [x] `clear_ray` — clear along a ray with optional endpoint marking
 - [ ] 3D raycast variants
-- [ ] Configurable hit rules (thresholds)
-
-### Grid map (grid_map-style)
-
-- [ ] Layered numeric fields (elevation, variance, semantics)
-- [ ] Interpolation: bilinear/nearest sampling
-- [ ] Gradient/slope computation from elevation
-- [ ] Layer math: add/subtract, normalize, clamp
-- [ ] Spatial filters: smoothing, dilation/erosion
-- [ ] Region ops: submap extraction and reproject
-- [ ] Map fusion: merge/overwrite layers by policy
+- [ ] Configurable hit thresholds
 
 ### Costmap
 
-- [ ] Layer lifecycle: initialize, reset, clear by bounds
-- [ ] Obstacle marking: add points, add rays (clear free space)
-- [ ] Obstacle clearing: clear by raytrace and by footprint
-- [ ] Inflation: compute inflated costs with radius + scaling
-- [ ] Footprint checks: collision and inscribed radius tests
-- [ ] Rolling window: shift origin, recenter, and clear stale
-- [ ] Cost queries: cost at cell, cost at pose, cost bounds
+- [x] Costmap constants (free / inscribed / lethal / unknown)
+- [x] Inflation with pluggable cost functions (linear, inscribed exponential)
+- [x] Unknown-cell preservation through inflation
+- [x] Polygon iterators and footprint cost queries
+- [ ] Full Nav2 layer lifecycle (initialize, reset, update bounds/costs)
+- [ ] Obstacle clearing by footprint
+- [ ] Cost queries at pose
+
+### Layers
+
+- [x] Layered grid wrapper with metadata
+- [x] Aggregation policy trait
+- [ ] Per-layer get/set by index and name
+- [ ] Layer masks and filtering
 
 ### IO
 
 - [x] ROS2 map loader (YAML + image)
 - [ ] ROS2 map writer
-- [ ] Other formats (e.g., PGM/PNG with metadata)
+- [ ] Other formats (PGM/PNG with metadata sidecar)
+
+### Visualisation
+
+- [x] Greyscale image export for occupancy grids
+- [x] Rerun: log occupancy grids and costmaps as textured planes
+- [x] Rerun: RViz-compatible costmap colour palette
+- [ ] Pixel-buffer viewer (optional `viewer` feature)
+
+## Contributing
+
+Contributions are welcome! Please feel free to:
+- Open issues for bugs, feature requests, or questions
+- Submit pull requests (please open an issue first for major changes)
+- Improve documentation and examples
+- Share your use cases and feedback
+
+When contributing code, please ensure it follows the existing style and includes appropriate tests.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
