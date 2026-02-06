@@ -107,6 +107,15 @@ impl<T> Grid2d<T> {
         )
     }
 
+    /// Return the world-space center of the given cell.
+    ///
+    /// This is the position of the cell's center, offset by half a cell from the
+    /// lower-left corner that [`map_to_world`](Self::map_to_world) returns for
+    /// integer coordinates.
+    pub fn cell_center_world(&self, cell: &UVec2) -> Vec2 {
+        self.map_to_world(&cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
+    }
+
     pub fn world_to_map(&self, pos: &Vec2) -> Option<Vec2> {
         let mx = (pos.x - self.info.origin.x) / self.info.resolution;
         let my = (pos.y - self.info.origin.y) / self.info.resolution;
@@ -274,6 +283,36 @@ impl<T> Grid2d<T> {
         max_t: f32,
     ) -> Option<LineValueMutIterator<'a, T>> {
         LineValueMutIterator::new(self, origin, dir, max_t)
+    }
+
+    /// Clear all cells along a ray and optionally mark the endpoint.
+    ///
+    /// Every cell traversed by the ray from `origin` in direction `dir` for
+    /// `distance` world units is set to `clear_value`. If `endpoint_value` is
+    /// `Some`, the cell at the end of the ray is then set to that value.
+    pub fn clear_ray(
+        &mut self,
+        origin: &Vec2,
+        dir: &Vec2,
+        distance: f32,
+        clear_value: T,
+        endpoint_value: Option<T>,
+    ) where
+        T: Clone,
+    {
+        if let Some(mut iter) = self.line_value_mut(origin, dir, distance) {
+            for cell in &mut iter {
+                *cell = clear_value.clone();
+            }
+        }
+
+        if let Some(endpoint) = endpoint_value {
+            let end_world = *origin + *dir * distance;
+            if let Some(map_pos) = self.world_to_map(&end_world) {
+                let cell = map_pos.floor().as_uvec2();
+                let _ = self.set(&cell, endpoint);
+            }
+        }
     }
 
     pub fn polygon<'a>(&'a self, points: &[Vec2]) -> Option<PolygonIterator> {

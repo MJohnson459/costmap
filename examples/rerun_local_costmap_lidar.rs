@@ -4,7 +4,6 @@ use glam::{Vec2, Vec3};
 use std::f32::consts::TAU;
 use std::time::Duration;
 use voxel_grid::inflation;
-use voxel_grid::raycast::RayHit2D;
 use voxel_grid::rerun_viz::{
     COST_FREE, COST_LETHAL, COST_UNKNOWN, log_costmap, log_occupancy_grid, log_point3d,
 };
@@ -77,27 +76,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             let angle = heading + beam_step * beam_idx as f32;
             let dir = Vec2::new(angle.cos(), angle.sin());
 
-            let hit: Option<RayHit2D> = grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
+            let hit = grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
             let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
+            let endpoint = hit.map(|_| COST_LETHAL);
+
+            local_costmap.clear_ray(&robot_pos, &dir, t, COST_FREE, endpoint);
+
             let end_world = robot_pos + dir * t;
-
-            // Clear cells along the ray (free space observed by the lidar).
-            if let Some(mut iter) = local_costmap.line_value_mut(&robot_pos, &dir, t) {
-                for cell in &mut iter {
-                    *cell = COST_FREE;
-                }
-            }
-
-            // Mark the hit cell as lethal (obstacle observed by the lidar).
-            if let Some(hit) = hit {
-                let hit_world =
-                    grid.map_to_world(&hit.cell.as_vec2()) + Vec2::splat(0.5 * info.resolution);
-                if let Some(map_pos) = local_costmap.world_to_map(&hit_world) {
-                    let cell = map_pos.floor().as_uvec2();
-                    let _ = local_costmap.set(&cell, COST_LETHAL);
-                }
-            }
-
             ray_segments.push([
                 [robot_pos.x, robot_pos.y, Z_RAYS],
                 [end_world.x, end_world.y, Z_RAYS],
