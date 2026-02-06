@@ -10,8 +10,6 @@ The goal is to provide a standalone, composable alternative to [costmap_2d](http
 
 > **Status:** Work in progress. The core grid, raycasting, coordinate transforms, inflation, and ROS2 map loading are functional. The Nav2 compatibility layer and advanced costmap features are partially stubbed.
 
-> **Note:** This project has also been a testbed for AI-assisted code generation. Much of the code has been written or refined with the help of LLMs.
-
 ## Goals
 
 - **Easy to use** — clear API with sensible defaults; load a map and start querying in a few lines.
@@ -21,6 +19,7 @@ The goal is to provide a standalone, composable alternative to [costmap_2d](http
 ## Who is this for?
 
 This library is designed for:
+
 - **Rust robotics developers** building mobile robots, autonomous vehicles, or drone navigation systems
 - **ROS2 users** wanting to prototype or deploy navigation algorithms in pure Rust
 - **Game developers** needing efficient 2D spatial queries and line-of-sight calculations
@@ -91,6 +90,7 @@ cargo run --example rerun_local_costmap_lidar --features rerun
 ### [rerun_occupancy_raycast](examples/rerun_occupancy_raycast.rs)
 
 Demonstrates the core raycasting API with an animated 360° sweep. Shows how to:
+
 - Load ROS2 map files
 - Perform DDA raycasting for obstacle detection
 - Handle hit/miss cases
@@ -100,6 +100,7 @@ Demonstrates the core raycasting API with an animated 360° sweep. Shows how to:
 ### [rerun_local_costmap_lidar](examples/rerun_local_costmap_lidar.rs)
 
 Complete local costmap workflow for mobile robot navigation. Shows how to:
+
 - Create and update rolling window costmaps
 - Integrate simulated lidar data using `clear_ray()`
 - Apply inflation layers for safe path planning
@@ -163,6 +164,7 @@ Complete local costmap workflow for mobile robot navigation. Shows how to:
 ## Contributing
 
 Contributions are welcome! Please feel free to:
+
 - Open issues for bugs, feature requests, or questions
 - Submit pull requests (please open an issue first for major changes)
 - Improve documentation and examples
