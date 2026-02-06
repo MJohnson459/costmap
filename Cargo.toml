@@ -44,6 +44,11 @@ name = "rerun_occupancy_raycast"
 path = "examples/rerun_occupancy_raycast.rs"
 required-features = ["rerun"]
 
+[[example]]
+name = "rerun_footprint_checking"
+path = "examples/rerun_footprint_checking.rs"
+required-features = ["rerun"]
+
 [[bench]]
 name = "load_warehouse"
 harness = false

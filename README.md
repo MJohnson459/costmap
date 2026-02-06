@@ -80,11 +80,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Examples
 
-Run the examples with the `rerun` feature enabled:
+### [rerun_footprint_checking](examples/rerun_footprint_checking.rs)
+
+Footprint-based collision checking: a footprint moves through a funnel-shaped corridor. Its color matches the costmap (white when free, gradient when elevated, cyan when lethal). Demonstrates `footprint_cost()` for pose validation.
 
 ```bash
-cargo run --example rerun_occupancy_raycast --features rerun
-cargo run --example rerun_local_costmap_lidar --features rerun
+cargo run --example rerun_footprint_checking --features rerun
 ```
 
 ### [rerun_occupancy_raycast](examples/rerun_occupancy_raycast.rs)

@@ -115,6 +115,32 @@ pub fn log_line3d(
     Ok(())
 }
 
+/// Log a closed polygon footprint as a 3D line strip in Rerun.
+///
+/// `points` are in world XY (meters); the polygon is drawn at `z` height.
+/// The polygon is closed by connecting the last point back to the first.
+pub fn log_footprint_polygon(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    points: &[Vec2],
+    z: f32,
+    color: rerun::Color,
+) -> Result<(), Box<dyn Error>> {
+    if points.len() < 2 {
+        return Ok(());
+    }
+    let strip: Vec<[f32; 3]> = points
+        .iter()
+        .map(|p| [p.x, p.y, z])
+        .chain(std::iter::once([points[0].x, points[0].y, z]))
+        .collect();
+    let line = rerun::LineStrips3D::new([strip])
+        .with_colors([color])
+        .with_radii([rerun::Radius::new_ui_points(2.0)]);
+    rec.log(entity_path, &line)?;
+    Ok(())
+}
+
 fn gray_to_rgb(gray: &[u8]) -> Vec<u8> {
     let mut rgb = Vec::with_capacity(gray.len() * 3);
     for &v in gray {
@@ -123,6 +149,13 @@ fn gray_to_rgb(gray: &[u8]) -> Vec<u8> {
         rgb.push(v);
     }
     rgb
+}
+
+/// Convert a costmap cost value to a Rerun color matching the RViz costmap palette.
+/// Use this to make footprint colors consistent with the costmap visualization.
+pub fn cost_to_rerun_color(cost: u8) -> rerun::Color {
+    let [r, g, b] = cost_to_rgb(cost);
+    rerun::Color::from_rgb(r, g, b)
 }
 
 /// Map a costmap cost value to an RGB colour matching the RViz costmap palette.
