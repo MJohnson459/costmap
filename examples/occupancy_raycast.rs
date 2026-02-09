@@ -31,7 +31,7 @@ const FRAMES_PER_REV: i64 = 360;
 const DELAY_MS: u64 = 30;
 
 /// Position to cast rays from (in world frame, meters)
-const RAY_ORIGIN_WORLD: (f32, f32) = (214.0, 72.0);
+const RAY_ORIGIN_WORLD: Vec2 = Vec2::new(214.0, 72.0);
 /// Maximum distance to check for obstacles (meters)
 const MAX_RANGE_M: f32 = 30.0;
 
@@ -43,8 +43,6 @@ const Z_CENTER_MARKER: f32 = 0.15;
 const Z_ORIGIN_MARKER: f32 = 0.16;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let ray_origin_world = Vec2::new(RAY_ORIGIN_WORLD.0, RAY_ORIGIN_WORLD.1);
-
     // Step 1: Load an occupancy grid from a ROS-format YAML file
     let grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
 
@@ -64,7 +62,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log_point3d(
         &rec,
         "world/ray_origin_marker",
-        Vec3::new(ray_origin_world.x, ray_origin_world.y, Z_ORIGIN_MARKER),
+        Vec3::new(RAY_ORIGIN_WORLD.x, RAY_ORIGIN_WORLD.y, Z_ORIGIN_MARKER),
         Some(rerun::Color::from_rgb(0, 255, 255)),
         Some(4.0),
     )?;
@@ -81,13 +79,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Core API: raycast_dda(origin, direction, max_range)
         // Returns Some(RaycastHit) if an occupied cell is hit, None otherwise
-        let hit = grid.raycast_dda(&ray_origin_world, &dir, MAX_RANGE_M);
+        let hit = grid.raycast_dda(&RAY_ORIGIN_WORLD, &dir, MAX_RANGE_M);
         let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
-        let end_world = ray_origin_world + dir * t;
+        let end_world = RAY_ORIGIN_WORLD + dir * t;
 
         log_raycast_frame(
             &rec,
-            ray_origin_world,
+            RAY_ORIGIN_WORLD,
             end_world,
             hit.is_some(),
             Z_RAY,
