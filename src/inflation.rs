@@ -127,8 +127,6 @@ pub fn inflate(
 
 #[cfg(test)]
 mod tests {
-    use glam::Vec3;
-
     use super::*;
     use crate::{MapInfo, types::COST_UNKNOWN};
 
@@ -194,9 +192,8 @@ mod tests {
             MapInfo {
                 width,
                 height,
-                depth: 1,
                 resolution: 1.0,
-                origin: Vec3::ZERO,
+                ..Default::default()
             },
             data,
         )
@@ -227,9 +224,8 @@ mod tests {
         let source = Grid2d::<u8>::empty(MapInfo {
             width: 10,
             height: 10,
-            depth: 1,
             resolution: 0.5,
-            origin: Vec3::ZERO,
+            ..Default::default()
         });
         let mut dest = Grid2d::<u8>::empty(source.info().clone());
         inflate(&source, &mut dest, 1.0, linear_inflation_cost);

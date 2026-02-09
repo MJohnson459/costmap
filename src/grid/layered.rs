@@ -57,9 +57,8 @@ impl AggregatePolicy<i8> for OccupiedDominant {
 /// let info = MapInfo {
 ///     width: 2,
 ///     height: 2,
-///     depth: 1,
 ///     resolution: 1.0,
-///     origin: Vec3::new(0.0, 0.0, 0.0),
+///     ..Default::default()
 /// };
 /// let layer_a = OccupancyGrid::new(info.clone(), vec![FREE; 4]).unwrap();
 /// let mut layer_b = OccupancyGrid::new(info, vec![FREE; 4]).unwrap();
@@ -160,7 +159,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use glam::{UVec2, Vec3};
+    use glam::UVec2;
 
     use super::*;
     use crate::grid::Grid2d;
@@ -171,9 +170,8 @@ mod tests {
         let info = MapInfo {
             width: 2,
             height: 2,
-            depth: 1,
             resolution: 1.0,
-            origin: Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
         };
         let mismatched = MapInfo {
             width: 3,
@@ -192,9 +190,8 @@ mod tests {
         let info = MapInfo {
             width: 2,
             height: 2,
-            depth: 1,
             resolution: 1.0,
-            origin: Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
         };
 
         let layer_a = Grid2d::new(info.clone(), vec![FREE; 4]).unwrap();

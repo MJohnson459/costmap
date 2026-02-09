@@ -21,7 +21,7 @@ use costmap::inflation;
 use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
 use costmap::types::{COST_FREE, COST_UNKNOWN};
 use costmap::{Grid2d, MapInfo};
-use glam::{Vec2, Vec3};
+use glam::Vec2;
 
 // Funnel map dimensions
 const WIDTH: u32 = 50;
@@ -112,9 +112,8 @@ fn create_funnel_costmap() -> Grid2d<u8> {
     let info = MapInfo {
         width: WIDTH,
         height: HEIGHT,
-        depth: 1,
         resolution: RESOLUTION,
-        origin: Vec3::ZERO,
+        ..Default::default()
     };
 
     let mut data = vec![COST_FREE; (WIDTH * HEIGHT) as usize];

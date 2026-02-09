@@ -126,9 +126,8 @@ fn build_grid(width: usize, height: usize, resolution: f32) -> costmap::Occupanc
     let info = MapInfo {
         width: width as u32,
         height: height as u32,
-        depth: 1,
         resolution,
-        origin: glam::Vec3::new(0.0, 0.0, 0.0),
+        ..Default::default()
     };
 
     costmap::Grid2d::new(info, data).expect("grid should build")
@@ -139,9 +138,8 @@ fn build_empty_grid(width: usize, height: usize, resolution: f32) -> costmap::Oc
     let info = MapInfo {
         width: width as u32,
         height: height as u32,
-        depth: 1,
         resolution,
-        origin: glam::Vec3::new(0.0, 0.0, 0.0),
+        ..Default::default()
     };
     costmap::Grid2d::new(info, data).expect("grid should build")
 }
@@ -161,9 +159,8 @@ fn build_grid_with_occupied_column(
     let info = MapInfo {
         width: width as u32,
         height: height as u32,
-        depth: 1,
         resolution,
-        origin: glam::Vec3::new(0.0, 0.0, 0.0),
+        ..Default::default()
     };
     costmap::Grid2d::new(info, data).expect("grid should build")
 }

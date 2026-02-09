@@ -49,7 +49,7 @@ fn occupancy_to_gray(value: i8) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use glam::{UVec2, Vec3};
+    use glam::UVec2;
 
     use super::*;
     use crate::MapInfo;
@@ -63,9 +63,8 @@ mod tests {
         let info = MapInfo {
             width: 2,
             height: 2,
-            depth: 1,
             resolution: 1.0,
-            origin: Vec3::ZERO,
+            ..Default::default()
         };
         let grid = OccupancyGrid::new(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 

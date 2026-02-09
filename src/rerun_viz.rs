@@ -227,8 +227,6 @@ pub fn log_occupancy_grid(
 
 #[cfg(test)]
 mod tests {
-    use glam::Vec3;
-
     use super::*;
     use crate::types::{FREE, UNKNOWN};
     use crate::{MapInfo, types::OCCUPIED};
@@ -238,9 +236,8 @@ mod tests {
         let info = MapInfo {
             width: 2,
             height: 2,
-            depth: 1,
             resolution: 1.0,
-            origin: Vec3::ZERO,
+            ..Default::default()
         };
         let grid = OccupancyGrid::new(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
@@ -263,9 +260,8 @@ mod tests {
         let info = MapInfo {
             width: 2,
             height: 2,
-            depth: 1,
             resolution: 1.0,
-            origin: Vec3::ZERO,
+            ..Default::default()
         };
         let costmap = Grid2d::new(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
 

@@ -9,9 +9,8 @@ fn bench_polygon_iter(c: &mut Criterion) {
     let info = MapInfo {
         width: 256,
         height: 256,
-        depth: 1,
         resolution: 1.0,
-        origin: glam::Vec3::new(0.0, 0.0, 0.0),
+        ..Default::default()
     };
     let grid = Grid2d::<u8>::empty(info);
 

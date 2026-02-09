@@ -43,14 +43,10 @@ const Z_CENTER_MARKER: f32 = 0.15;
 const Z_ORIGIN_MARKER: f32 = 0.16;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let yaml_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| DEFAULT_YAML_PATH.to_string());
-
     let ray_origin_world = Vec2::new(RAY_ORIGIN_WORLD.0, RAY_ORIGIN_WORLD.1);
 
     // Step 1: Load an occupancy grid from a ROS-format YAML file
-    let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
+    let grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
 
     // Step 2: Set up Rerun for visualization (optional - remove if not needed)
     let rec = rerun::RecordingStreamBuilder::new("costmap_occupancy_raycast").spawn()?;

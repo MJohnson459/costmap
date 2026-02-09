@@ -52,12 +52,8 @@ const Z_RAYS: f32 = 0.3;
 const Z_ROBOT: f32 = 0.35;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let yaml_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| DEFAULT_YAML_PATH.to_string());
-
     // Step 1: Load the global map (static environment representation)
-    let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
+    let grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
     let info = grid.info().clone();
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
@@ -69,15 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Step 3: Create a local costmap - a robot-centered rolling window
     // This has the same resolution as the global map but is much smaller and moves with the robot
-    let local_size_m = LOCAL_SIZE_CELLS as f32 * info.resolution;
-    let initial_origin = info.world_center() - Vec2::splat(0.5 * local_size_m);
-    let local_info = MapInfo {
-        width: LOCAL_SIZE_CELLS,
-        height: LOCAL_SIZE_CELLS,
-        depth: 1,
-        resolution: info.resolution,
-        origin: initial_origin.extend(0.0),
-    };
+    let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
 
     let mut local_costmap = Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN);
     let mut inflated_costmap = Grid2d::<u8>::empty(local_info);
@@ -96,9 +84,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let heading = heading_dir.y.atan2(heading_dir.x);
 
         // Core API: update_origin() moves the rolling window to follow the robot
-        let local_origin = robot_pos - Vec2::splat(0.5 * local_size_m);
-        local_costmap.update_origin(&local_origin.extend(0.0));
-        inflated_costmap.update_origin(&local_origin.extend(0.0));
+        local_costmap.update_center(&robot_pos);
+        inflated_costmap.update_center(&robot_pos);
 
         // Simulate lidar: cast rays in all directions
         let mut ray_segments = Vec::with_capacity(N_BEAMS);

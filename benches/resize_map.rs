@@ -8,9 +8,7 @@ fn bench_resize_map(c: &mut Criterion) {
     let info = MapInfo {
         width: 256,
         height: 256,
-        depth: 1,
-        resolution: 0.05,
-        origin: Vec3::new(0.0, 0.0, 0.0),
+        ..Default::default()
     };
     let grid = Grid2d::<u8>::empty(info);
 

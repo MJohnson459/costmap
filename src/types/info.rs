@@ -12,7 +12,28 @@ pub struct MapInfo {
     pub origin: Vec3,
 }
 
+impl Default for MapInfo {
+    fn default() -> Self {
+        Self {
+            width: 100,
+            height: 100,
+            depth: 1,
+            resolution: 0.05,
+            origin: Vec3::ZERO,
+        }
+    }
+}
+
 impl MapInfo {
+    pub fn square(width: u32, resolution: f32) -> Self {
+        Self {
+            width,
+            height: width,
+            resolution,
+            ..Default::default()
+        }
+    }
+
     /// Width of the map in world units (meters).
     #[inline]
     pub fn world_width(&self) -> f32 {

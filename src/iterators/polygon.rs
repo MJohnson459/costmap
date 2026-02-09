@@ -180,9 +180,8 @@ mod tests {
         let info = MapInfo {
             width: 8,
             height: 8,
-            depth: 1,
             resolution: 1.0,
-            origin: glam::Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
         };
         let grid = Grid2d::<u8>::empty(info);
         let points = vec![
@@ -202,9 +201,8 @@ mod tests {
         let info = MapInfo {
             width: 8,
             height: 8,
-            depth: 1,
             resolution: 1.0,
-            origin: glam::Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
         };
         let mut grid = Grid2d::<u8>::empty(info);
         grid.set(&UVec2::new(2, 2), 100).unwrap();
@@ -229,9 +227,8 @@ mod tests {
         let info = MapInfo {
             width: 8,
             height: 8,
-            depth: 1,
             resolution: 1.0,
-            origin: glam::Vec3::new(0.0, 0.0, 0.0),
+            ..Default::default()
         };
         let mut grid = Grid2d::<u8>::empty(info);
         let points = vec![

@@ -257,6 +257,11 @@ impl<T> Grid2d<T> {
         }
     }
 
+    /// Updates the origin of the grid.
+    ///
+    /// # Arguments
+    ///
+    /// * `origin` - The desired origin of the grid in world coordinates.
     pub fn update_origin(&mut self, origin: &Vec3)
     where
         T: Clone,
@@ -282,6 +287,23 @@ impl<T> Grid2d<T> {
             old_origin.y + cell_offset.y as f32 * resolution,
             old_origin.z,
         );
+    }
+
+    /// Updates the origin based on the desired center of the map.
+    ///
+    /// # Arguments
+    ///
+    /// * `center` - The desired center of the map in world coordinates.
+    pub fn update_center(&mut self, center: &Vec2)
+    where
+        T: Clone,
+    {
+        let origin = center
+            - Vec2::new(
+                self.info.width as f32 * self.info.resolution,
+                self.info.height as f32 * self.info.resolution,
+            ) * 0.5;
+        self.update_origin(&origin.extend(0.0));
     }
 
     pub fn line(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<LineIterator> {
@@ -377,9 +399,7 @@ impl<T> Grid2d<T> {
     /// let info = MapInfo {
     ///     width: 100,
     ///     height: 100,
-    ///     depth: 1,
-    ///     resolution: 0.05,
-    ///     origin: Vec3::ZERO,
+    ///     ..Default::default()
     /// };
     /// let costmap = Grid2d::<u8>::empty(info);
     ///
@@ -417,10 +437,8 @@ impl<T> Grid2d<T> {
             .iter()
             .map(|p| {
                 // Rotate point by yaw
-                let rotated = Vec2::new(
-                    p.x * cos_yaw - p.y * sin_yaw,
-                    p.x * sin_yaw + p.y * cos_yaw,
-                );
+                let rotated =
+                    Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
                 // Translate to world position
                 *position + rotated
             })
@@ -522,9 +540,8 @@ mod tests {
             MapInfo {
                 width: 10,
                 height: 10,
-                depth: 1,
                 resolution: 1.0,
-                origin: Vec3::new(0.0, 0.0, 0.0),
+                ..Default::default()
             },
             vec![0; 100],
         )
@@ -570,9 +587,8 @@ mod tests {
             MapInfo {
                 width: 4,
                 height: 4,
-                depth: 1,
                 resolution: 1.0,
-                origin: Vec3::new(0.0, 0.0, 0.0),
+                ..Default::default()
             },
             vec![0; 16],
         )
@@ -591,9 +607,8 @@ mod tests {
             MapInfo {
                 width: 4,
                 height: 4,
-                depth: 1,
                 resolution: 1.0,
-                origin: Vec3::new(0.0, 0.0, 0.0),
+                ..Default::default()
             },
             vec![0; 16],
         )
@@ -611,9 +626,8 @@ mod tests {
             MapInfo {
                 width: 3,
                 height: 2,
-                depth: 1,
                 resolution: 1.0,
-                origin: Vec3::ZERO,
+                ..Default::default()
             },
             vec![10, 11, 12, 20, 21, 22],
         )
@@ -639,9 +653,7 @@ mod tests {
             MapInfo {
                 width: 2,
                 height: 2,
-                depth: 1,
-                resolution: 1.0,
-                origin: Vec3::ZERO,
+                ..Default::default()
             },
             vec![0, 1, 2, 3],
         )
