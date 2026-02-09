@@ -80,15 +80,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Examples
 
-### [rerun_footprint_checking](examples/rerun_footprint_checking.rs)
+### [footprint_checking](examples/footprint_checking.rs)
 
 Footprint-based collision checking: a footprint moves through a funnel-shaped corridor. Its color matches the costmap (white when free, gradient when elevated, cyan when lethal). Demonstrates `footprint_cost()` for pose validation.
 
 ```bash
-cargo run --example rerun_footprint_checking --features rerun
+cargo run --example footprint_checking --features rerun
 ```
 
-### [rerun_occupancy_raycast](examples/rerun_occupancy_raycast.rs)
+### [occupancy_raycast](examples/occupancy_raycast.rs)
 
 Demonstrates the core raycasting API with an animated 360° sweep. Shows how to:
 
@@ -98,7 +98,7 @@ Demonstrates the core raycasting API with an animated 360° sweep. Shows how to:
 
 ![Raycast example](docs/images/rerun_raycast.png)
 
-### [rerun_local_costmap_lidar](examples/rerun_local_costmap_lidar.rs)
+### [local_costmap_lidar](examples/local_costmap_lidar.rs)
 
 Complete local costmap workflow for mobile robot navigation. Shows how to:
 

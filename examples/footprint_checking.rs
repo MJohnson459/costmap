@@ -1,4 +1,4 @@
-//! # Footprint Cost Checking — Rerun Visualization
+//! # Footprint Cost Checking
 //!
 //! Demonstrates footprint-based collision checking with a moving footprint through a funnel.
 //! The footprint travels along a corridor that narrows; its color changes as it enters
@@ -17,10 +17,10 @@ use std::error::Error;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 
+use costmap::inflation;
 use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
 use costmap::types::{COST_FREE, COST_UNKNOWN};
 use costmap::{Grid2d, MapInfo};
-use costmap::{inflation, types::COST_LETHAL};
 use glam::{Vec2, Vec3};
 
 // Funnel map dimensions
@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Yaw = 90° so the robot faces along the corridor (length along y, width along x)
     let yaw = FRAC_PI_2;
 
-    let rec = rerun::RecordingStreamBuilder::new("costmap_rerun_footprint_checking").spawn()?;
+    let rec = rerun::RecordingStreamBuilder::new("costmap_footprint_checking").spawn()?;
 
     // Log the inflated costmap once (static)
     rec.set_time_sequence("frame", 0);
@@ -135,7 +135,7 @@ fn create_funnel_costmap() -> Grid2d<u8> {
         for x in 0..WIDTH {
             if x < left_x || x > right_x {
                 let idx = (y as usize) * WIDTH as usize + (x as usize);
-                data[idx] = COST_LETHAL;
+                data[idx] = costmap::types::COST_LETHAL;
             }
         }
     }

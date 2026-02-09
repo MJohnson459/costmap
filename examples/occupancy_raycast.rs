@@ -1,4 +1,4 @@
-//! # Occupancy Grid Raycasting Example
+//! # Occupancy Grid Raycasting
 //!
 //! This example demonstrates 2D raycasting in an occupancy grid, a fundamental operation
 //! for robotics applications such as:
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let grid = RosMapLoader::load_from_yaml(&yaml_path)?;
 
     // Step 2: Set up Rerun for visualization (optional - remove if not needed)
-    let rec = rerun::RecordingStreamBuilder::new("costmap_rerun_occupancy_raycast").spawn()?;
+    let rec = rerun::RecordingStreamBuilder::new("costmap_occupancy_raycast").spawn()?;
     log_occupancy_grid(&rec, "world/map", &grid, 0.0)?;
 
     let center = grid.info().world_center();
@@ -110,8 +110,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 // Helper function for Rerun visualization - not essential to understanding the library
 fn log_raycast_frame(
     rec: &rerun::RecordingStream,
-    origin: glam::Vec2,
-    end: glam::Vec2,
+    origin: Vec2,
+    end: Vec2,
     hit: bool,
     z_ray: f32,
     z_origin: f32,
@@ -120,8 +120,8 @@ fn log_raycast_frame(
     log_line3d(
         rec,
         "world/ray",
-        glam::Vec3::new(origin.x, origin.y, z_ray),
-        glam::Vec3::new(end.x, end.y, z_ray),
+        Vec3::new(origin.x, origin.y, z_ray),
+        Vec3::new(end.x, end.y, z_ray),
         Some(rerun::Color::from_rgb(255, 0, 0)),
         Some(1.0),
     )?;
@@ -129,7 +129,7 @@ fn log_raycast_frame(
     log_point3d(
         rec,
         "world/ray_origin",
-        glam::Vec3::new(origin.x, origin.y, z_origin),
+        Vec3::new(origin.x, origin.y, z_origin),
         Some(rerun::Color::from_rgb(0, 128, 255)),
         Some(3.0),
     )?;
@@ -138,7 +138,7 @@ fn log_raycast_frame(
         log_point3d(
             rec,
             "world/ray_hit",
-            glam::Vec3::new(end.x, end.y, z_hit),
+            Vec3::new(end.x, end.y, z_hit),
             Some(rerun::Color::from_rgb(0, 255, 0)),
             Some(3.0),
         )?;

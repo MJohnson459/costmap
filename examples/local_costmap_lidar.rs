@@ -1,4 +1,4 @@
-//! # Local Costmap with Simulated Lidar Example
+//! # Local Costmap with Simulated Lidar
 //!
 //! This example demonstrates a complete local costmap workflow for mobile robotics:
 //! - A robot moving along a predefined path
@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let info = grid.info().clone();
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
-    let rec = rerun::RecordingStreamBuilder::new("costmap_rerun_local_costmap_lidar").spawn()?;
+    let rec = rerun::RecordingStreamBuilder::new("costmap_local_costmap_lidar").spawn()?;
     log_occupancy_grid(&rec, "world/global_map", &grid, Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
