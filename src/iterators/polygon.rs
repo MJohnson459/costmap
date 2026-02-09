@@ -24,7 +24,7 @@ impl PolygonIterator {
         }
         let info = grid.info();
         let resolution = info.resolution;
-        let origin = info.origin.truncate();
+        let origin = info.origin;
         let map_points = points.iter().map(|p| (*p - origin) / resolution).collect();
         Some(Self::new_map(map_points, info.width, info.height))
     }

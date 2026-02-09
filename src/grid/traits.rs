@@ -13,9 +13,6 @@ pub trait Grid {
     fn height(&self) -> u32 {
         self.info().height
     }
-    fn depth(&self) -> u32 {
-        self.info().depth
-    }
 
     /// Get the cell with bounds checking.
     fn get(&self, pos: &UVec3) -> Option<&Self::Cell>;

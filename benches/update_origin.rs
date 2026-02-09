@@ -1,5 +1,5 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
-use glam::Vec3;
+use glam::Vec2;
 
 use costmap::Grid2d;
 use costmap::types::MapInfo;
@@ -16,7 +16,7 @@ fn bench_update_origin(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut grid| {
-                grid.update_origin(&Vec3::new(0.5, 0.0, 0.0));
+                grid.update_origin(&Vec2::new(0.5, 0.0));
                 black_box(grid);
             },
             BatchSize::SmallInput,

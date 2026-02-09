@@ -190,7 +190,7 @@ pub fn log_costmap(
     log_textured_plane_mesh3d(
         rec,
         entity_path,
-        info.origin_xy(),
+        info.origin,
         info.world_width(),
         info.world_height(),
         z_world,
@@ -215,7 +215,7 @@ pub fn log_occupancy_grid(
     log_textured_plane_mesh3d(
         rec,
         entity_path,
-        info.origin_xy(),
+        info.origin,
         info.world_width(),
         info.world_height(),
         z_world,

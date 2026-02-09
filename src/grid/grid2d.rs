@@ -15,7 +15,7 @@
 //! | world→map   | Vec2           | UVec2           | [`world_to_map`]            |
 //! | world→map   | Vec2           | Vec2            | [`world_to_map_continuous`] |
 
-use glam::{IVec2, UVec2, UVec3, Vec2, Vec3};
+use glam::{IVec2, UVec2, UVec3, Vec2};
 
 use crate::{
     grid::Grid,
@@ -220,7 +220,7 @@ impl<T> Grid2d<T> {
     /// Resize the map and update resolution/origin.
     ///
     /// This method clears the data to the fill value.
-    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec3)
+    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec2)
     where
         T: Clone,
     {
@@ -262,7 +262,7 @@ impl<T> Grid2d<T> {
     /// # Arguments
     ///
     /// * `origin` - The desired origin of the grid in world coordinates.
-    pub fn update_origin(&mut self, origin: &Vec3)
+    pub fn update_origin(&mut self, origin: &Vec2)
     where
         T: Clone,
     {
@@ -274,18 +274,16 @@ impl<T> Grid2d<T> {
         }
 
         let old_origin = self.info.origin;
-        let cell_offset = ((origin - &old_origin) / resolution)
-            .truncate()
+        let cell_offset = ((*origin - old_origin) / resolution)
             .floor()
             .as_ivec2();
         let grid_size = IVec2::new(self.info.width as i32, self.info.height as i32);
 
         self.data = self.copy_overlapping_region(grid_size, grid_size, cell_offset);
 
-        self.info.origin = Vec3::new(
+        self.info.origin = Vec2::new(
             old_origin.x + cell_offset.x as f32 * resolution,
             old_origin.y + cell_offset.y as f32 * resolution,
-            old_origin.z,
         );
     }
 
@@ -303,7 +301,7 @@ impl<T> Grid2d<T> {
                 self.info.width as f32 * self.info.resolution,
                 self.info.height as f32 * self.info.resolution,
             ) * 0.5;
-        self.update_origin(&origin.extend(0.0));
+        self.update_origin(&origin);
     }
 
     pub fn line(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<LineIterator> {
@@ -394,7 +392,7 @@ impl<T> Grid2d<T> {
     /// ```
     /// use costmap::{Grid2d, MapInfo};
     /// use costmap::types::COST_LETHAL;
-    /// use glam::{Vec2, Vec3};
+    /// use glam::Vec2;
     ///
     /// let info = MapInfo {
     ///     width: 100,
@@ -525,8 +523,6 @@ impl<T> Grid for Grid2d<T> {
 
 #[cfg(test)]
 mod tests {
-    use glam::Vec3;
-
     use super::*;
 
     fn world_to_map_to_world(grid: &Grid2d<i8>, pos: Vec2) -> Vec2 {
@@ -595,7 +591,7 @@ mod tests {
         .unwrap();
 
         grid.set(&UVec2::new(1, 1), 7).unwrap();
-        grid.update_origin(&Vec3::new(1.0, 0.0, 0.0));
+        grid.update_origin(&Vec2::new(1.0, 0.0));
 
         assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&7));
         assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
@@ -615,7 +611,7 @@ mod tests {
         .unwrap();
 
         grid.set(&UVec2::new(1, 1), 9).unwrap();
-        grid.resize_map(UVec2::new(6, 6), 1.0, &Vec3::new(1.0, 0.0, 0.0));
+        grid.resize_map(UVec2::new(6, 6), 1.0, &Vec2::new(1.0, 0.0));
 
         assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
     }

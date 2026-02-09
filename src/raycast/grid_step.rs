@@ -79,9 +79,8 @@ mod tests {
         let info = crate::types::MapInfo {
             width: width as u32,
             height: height as u32,
-            depth: 1,
             resolution: 1.0,
-            origin: glam::Vec3::new(0.0, 0.0, 0.0),
+            origin: glam::Vec2::ZERO,
         };
 
         OccupancyGrid::new(info, data).expect("grid should build")

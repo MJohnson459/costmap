@@ -1,5 +1,5 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
-use glam::{UVec2, Vec3};
+use glam::{UVec2, Vec2};
 
 use costmap::Grid2d;
 use costmap::types::MapInfo;
@@ -16,7 +16,7 @@ fn bench_resize_map(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut grid| {
-                grid.resize_map(UVec2::new(320, 320), 0.05, &Vec3::new(0.5, 0.0, 0.0));
+                grid.resize_map(UVec2::new(320, 320), 0.05, &Vec2::new(0.5, 0.0));
                 black_box(grid);
             },
             BatchSize::SmallInput,

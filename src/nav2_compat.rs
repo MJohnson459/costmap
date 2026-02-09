@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use glam::{UVec2, Vec2, Vec3};
+use glam::{UVec2, Vec2};
 
 use crate::{Grid2d, MapInfo, types::VoxelError};
 
@@ -118,9 +118,8 @@ impl Costmap2D {
             grid: Grid2d::empty(MapInfo {
                 width: size_x,
                 height: size_y,
-                depth: 1,
-                resolution: resolution,
-                origin: Vec2::new(origin_x, origin_y).extend(0.0),
+                resolution,
+                origin: Vec2::new(origin_x, origin_y),
             }),
         }
     }
@@ -211,7 +210,7 @@ impl Costmap2D {
     /// C++: `virtual void updateOrigin(double new_origin_x, double new_origin_y);`
     pub fn update_origin(&mut self, origin_x: f32, origin_y: f32) {
         self.grid
-            .update_origin(&Vec3::new(origin_x, origin_y, self.grid.info().origin.z));
+            .update_origin(&Vec2::new(origin_x, origin_y));
     }
 
     /// Resize the map and update resolution/origin.
@@ -232,7 +231,7 @@ impl Costmap2D {
         self.grid.resize_map(
             UVec2::new(size_x, size_y),
             resolution,
-            &Vec3::new(origin_x, origin_y, self.grid.info().origin.z),
+            &Vec2::new(origin_x, origin_y),
         );
     }
 
