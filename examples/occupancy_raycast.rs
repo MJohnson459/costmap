@@ -6,12 +6,6 @@
 //! - Line-of-sight checks for visibility
 //! - Collision detection along a ray
 //!
-//! ## Robotics Context
-//! In mobile robotics, raycasting is used to:
-//! - Simulate sensor measurements for testing without physical hardware
-//! - Check if paths are collision-free
-//! - Update costmaps by marking free space along sensor beams
-//!
 //! This example loads a static map and continuously rotates a ray 360 degrees,
 //! visualizing hits and misses using Rerun for real-time debugging.
 
@@ -46,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Step 1: Load an occupancy grid from a ROS-format YAML file
     let grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
 
-    // Step 2: Set up Rerun for visualization (optional - remove if not needed)
+    // Step 2: Set up Rerun for visualization
     let rec = rerun::RecordingStreamBuilder::new("costmap_occupancy_raycast").spawn()?;
     log_occupancy_grid(&rec, "world/map", &grid, 0.0)?;
 
