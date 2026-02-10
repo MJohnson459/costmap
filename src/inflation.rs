@@ -10,9 +10,9 @@
 
 use glam::UVec2;
 
-use crate::grid::{Bounds, CellRegion, Layer, Pose2};
-use crate::types::{MapInfo, COST_FREE, COST_LETHAL};
 use crate::Grid2d;
+use crate::grid::{Bounds, CellRegion, Layer, Pose2};
+use crate::types::{COST_FREE, COST_LETHAL, MapInfo};
 
 /// Convert an inflation radius in world units (meters) to a cell count.
 ///
@@ -472,7 +472,10 @@ mod tests {
         let m = layered.master();
         assert_eq!(m.get(&UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
         let near = m.get(&UVec2::new(3, 2)).copied().unwrap_or(0);
-        assert!(near > 0 && near < COST_LETHAL, "inflated cost should be in (0, LETHAL)");
+        assert!(
+            near > 0 && near < COST_LETHAL,
+            "inflated cost should be in (0, LETHAL)"
+        );
     }
 
     #[test]

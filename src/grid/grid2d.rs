@@ -6,8 +6,8 @@
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
 
-use std::ops::{Index, IndexMut};
 use glam::{IVec2, UVec2, UVec3, Vec2};
+use std::ops::{Index, IndexMut};
 
 use crate::{
     grid::Grid,

@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use costmap::grid::{
-    update_master_overwrite_valid_only, Bounds, CellRegion, Layer, LayeredGrid2d, Pose2,
+    Bounds, CellRegion, Layer, LayeredGrid2d, Pose2, update_master_overwrite_valid_only,
 };
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
 use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
     let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
-    let mut layered = LayeredGrid2d::new(local_info.clone(), COST_UNKNOWN, true);
+    let mut layered = LayeredGrid2d::new(local_info.clone(), COST_FREE, true);
     layered.add_layer(Box::new(SimLidarLayer {
         global_grid: Arc::clone(&global_grid),
         obstacle_grid: Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN),

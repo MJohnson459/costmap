@@ -6,7 +6,7 @@
 use glam::UVec2;
 
 use crate::grid::Grid2d;
-use crate::types::{CellRegion, COST_UNKNOWN};
+use crate::types::{COST_UNKNOWN, CellRegion};
 
 /// Copies source into master only where source is not unknown.
 pub fn update_master_overwrite_valid_only(
@@ -27,11 +27,7 @@ pub fn update_master_overwrite_valid_only(
 }
 
 /// Merges source into master by taking the maximum cost; never writes unknown from the layer.
-pub fn update_master_max(
-    master: &mut Grid2d<u8>,
-    source: &Grid2d<u8>,
-    region: CellRegion,
-) {
+pub fn update_master_max(master: &mut Grid2d<u8>, source: &Grid2d<u8>, region: CellRegion) {
     for y in region.min.y..region.max.y {
         for x in region.min.x..region.max.x {
             let cell = UVec2::new(x, y);
