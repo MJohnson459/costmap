@@ -24,7 +24,9 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::time::Duration;
 
-use costmap::grid::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
+use costmap::grid::{
+    update_master_overwrite_valid_only, Bounds, CellRegion, Layer, LayeredGrid2d, Pose2,
+};
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
 use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
 use costmap::{Grid2d, InflationLayer, MapInfo, OccupancyGrid, RosMapLoader};
@@ -80,7 +82,6 @@ impl Layer for SimLidarLayer {
     }
 
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
-        use glam::UVec2;
         // 1) Update internal grid origin (rolling window) and draw new rays into it.
         self.obstacle_grid.update_center(&self.last_robot.position);
         let beam_step = TAU / self.n_beams as f32;
@@ -95,15 +96,8 @@ impl Layer for SimLidarLayer {
             self.obstacle_grid
                 .clear_ray(&self.last_robot.position, &dir, t, COST_FREE, endpoint);
         }
-        // 2) Write internal layer state into the master (Nav2: updateWithOverwrite / copy).
-        for y in region.min.y..region.max.y {
-            for x in region.min.x..region.max.x {
-                let cell = UVec2::new(x, y);
-                if let Some(&cost) = self.obstacle_grid.get(&cell) {
-                    let _ = master.set(&cell, cost);
-                }
-            }
-        }
+        // 2) Write layer to master (do not copy unknown).
+        update_master_overwrite_valid_only(master, &self.obstacle_grid, region);
     }
 }
 
