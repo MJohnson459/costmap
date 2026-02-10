@@ -12,9 +12,9 @@ pub mod rerun_viz;
 #[cfg(feature = "nav2_compat")]
 pub mod nav2_compat;
 
-pub use grid::{Bounds, CellRegion, Footprint, Grid, Grid2d, Layer, LayeredGrid2d, Pose2};
+pub use grid::{Grid, Grid2d, Layer, LayeredGrid2d};
 pub use inflation::{InflationCostCurve, InflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
-pub use types::{MapInfo, VoxelError};
+pub use types::{Bounds, CellRegion, Footprint, MapInfo, Pose2, VoxelError};
 
 pub type OccupancyGrid = Grid2d<i8>;

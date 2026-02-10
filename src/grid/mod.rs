@@ -3,5 +3,8 @@ pub mod layered;
 pub mod traits;
 
 pub use grid2d::Grid2d;
-pub use layered::{Bounds, CellRegion, Footprint, Layer, LayeredGrid2d, Pose2};
+pub use layered::{Layer, LayeredGrid2d};
 pub use traits::Grid;
+
+// Re-export geometry types from types for convenience (Layer/LayeredGrid2d use them).
+pub use crate::types::{Bounds, CellRegion, Footprint, Pose2};
