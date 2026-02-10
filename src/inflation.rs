@@ -4,11 +4,15 @@
 //! a distance-based cost falloff. The default cost curve is a simple linear
 //! decay; Nav2-compatible exponential decay can be layered on top via
 //! [`inscribed_inflation_cost`].
+//!
+//! [`InflationLayer`] implements the layered costmap [`Layer`](crate::grid::Layer)
+//! trait so it can be used inside [`LayeredGrid2d`](crate::grid::LayeredGrid2d).
 
 use glam::UVec2;
 
+use crate::grid::{Bounds, CellRegion, Layer, Pose2};
+use crate::types::{MapInfo, COST_FREE, COST_LETHAL};
 use crate::Grid2d;
-use crate::types::{COST_FREE, COST_LETHAL};
 
 /// Convert an inflation radius in world units (meters) to a cell count.
 ///
@@ -125,10 +129,208 @@ pub fn inflate(
     }
 }
 
+/// Inflate using inscribed exponential cost (Nav2-style). Same as [`inflate`] but
+/// uses [`inscribed_inflation_cost`] with the given params (cell units).
+pub fn inflate_inscribed(
+    source: &Grid2d<u8>,
+    dest: &mut Grid2d<u8>,
+    radius_m: f32,
+    inscribed_radius_cells: f32,
+    cost_scaling_factor: f32,
+) {
+    for (cell, cost) in source.iter_cells() {
+        let _ = dest.set(&cell, *cost);
+    }
+
+    let resolution = source.info().resolution;
+    let radius_cells = inflation_radius_to_cells(radius_m, resolution);
+    if radius_cells == 0 {
+        return;
+    }
+
+    let radius_i = radius_cells as i32;
+    let radius_f = radius_cells as f32;
+
+    for (cell, cost) in source.iter_cells() {
+        if *cost != COST_LETHAL {
+            continue;
+        }
+
+        let cx = cell.x as i32;
+        let cy = cell.y as i32;
+
+        for dy in -radius_i..=radius_i {
+            for dx in -radius_i..=radius_i {
+                let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                if dist > radius_f {
+                    continue;
+                }
+
+                let nx = cx + dx;
+                let ny = cy + dy;
+                if nx < 0 || ny < 0 {
+                    continue;
+                }
+
+                let pos = UVec2::new(nx as u32, ny as u32);
+                if pos.x >= dest.width() || pos.y >= dest.height() {
+                    continue;
+                }
+
+                let inflated_cost =
+                    inscribed_inflation_cost(dist, inscribed_radius_cells, cost_scaling_factor);
+                let current = dest.get(&pos).copied().unwrap_or(COST_FREE);
+                if inflated_cost > current {
+                    let _ = dest.set(&pos, inflated_cost);
+                }
+            }
+        }
+    }
+}
+
+/// Cost function type for inflation: (distance_cells, radius_cells) -> cost.
+pub type InflationCostFn = fn(f32, f32) -> u8;
+
+/// Cost curve for the inflation layer.
+#[derive(Debug, Clone)]
+pub enum InflationCostCurve {
+    /// Linear falloff from lethal to zero over the radius.
+    Linear,
+    /// Nav2-style inscribed + exponential decay. Params in cell units.
+    Inscribed {
+        inscribed_radius_cells: f32,
+        cost_scaling_factor: f32,
+    },
+    /// User-provided function pointer.
+    Custom(InflationCostFn),
+}
+
+/// Layer that inflates lethal obstacles within the update region.
+/// Has no internal grid; reads from the master and writes inflated costs back.
+#[derive(Debug)]
+pub struct InflationLayer {
+    inflation_radius_m: f32,
+    curve: InflationCostCurve,
+}
+
+impl InflationLayer {
+    /// Create an inflation layer with the given radius (meters) and cost curve.
+    pub fn new(inflation_radius_m: f32, curve: InflationCostCurve) -> Self {
+        Self {
+            inflation_radius_m,
+            curve,
+        }
+    }
+
+    /// Create using linear cost decay (simple linear falloff).
+    pub fn linear(inflation_radius_m: f32) -> Self {
+        Self {
+            inflation_radius_m,
+            curve: InflationCostCurve::Linear,
+        }
+    }
+
+    /// Create using inscribed exponential decay (Nav2-style).
+    /// Params in cell units; convert from meters using resolution if needed.
+    pub fn inscribed(
+        inflation_radius_m: f32,
+        inscribed_radius_cells: f32,
+        cost_scaling_factor: f32,
+    ) -> Self {
+        Self {
+            inflation_radius_m,
+            curve: InflationCostCurve::Inscribed {
+                inscribed_radius_cells,
+                cost_scaling_factor,
+            },
+        }
+    }
+}
+
+impl Layer for InflationLayer {
+    fn reset(&mut self) {}
+
+    fn is_clearable(&self) -> bool {
+        false
+    }
+
+    fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
+        bounds.expand_by(self.inflation_radius_m);
+    }
+
+    fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
+        let w = region.max.x - region.min.x;
+        let h = region.max.y - region.min.y;
+        if w == 0 || h == 0 {
+            return;
+        }
+
+        let resolution = master.info().resolution;
+        let info = MapInfo {
+            width: w,
+            height: h,
+            resolution,
+            ..Default::default()
+        };
+        let mut temp_src = Grid2d::<u8>::filled(info.clone(), 0);
+        let mut temp_dest = Grid2d::<u8>::filled(info, 0);
+
+        for y in region.min.y..region.max.y {
+            for x in region.min.x..region.max.x {
+                let cell = UVec2::new(x, y);
+                let cost = master.get(&cell).copied().unwrap_or(COST_FREE);
+                let tx = x - region.min.x;
+                let ty = y - region.min.y;
+                let _ = temp_src.set(&UVec2::new(tx, ty), cost);
+            }
+        }
+
+        match &self.curve {
+            InflationCostCurve::Linear => {
+                inflate(
+                    &temp_src,
+                    &mut temp_dest,
+                    self.inflation_radius_m,
+                    linear_inflation_cost,
+                );
+            }
+            InflationCostCurve::Inscribed {
+                inscribed_radius_cells,
+                cost_scaling_factor,
+            } => {
+                inflate_inscribed(
+                    &temp_src,
+                    &mut temp_dest,
+                    self.inflation_radius_m,
+                    *inscribed_radius_cells,
+                    *cost_scaling_factor,
+                );
+            }
+            InflationCostCurve::Custom(f) => {
+                inflate(&temp_src, &mut temp_dest, self.inflation_radius_m, *f);
+            }
+        }
+
+        for y in region.min.y..region.max.y {
+            for x in region.min.x..region.max.x {
+                let tx = x - region.min.x;
+                let ty = y - region.min.y;
+                let cost = temp_dest
+                    .get(&UVec2::new(tx, ty))
+                    .copied()
+                    .unwrap_or(COST_FREE);
+                let _ = master.set(&UVec2::new(x, y), cost);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grid::{CellRegion, Layer, LayeredGrid2d, Pose2};
     use crate::{MapInfo, types::COST_UNKNOWN};
+    use glam::Vec2;
 
     #[test]
     fn radius_to_cells_basic() {
@@ -233,6 +435,45 @@ mod tests {
         for (_, cost) in dest.iter_cells() {
             assert_eq!(*cost, COST_FREE);
         }
+    }
+
+    #[test]
+    fn inflation_layer_in_layered_grid2d() {
+        let info = MapInfo {
+            width: 5,
+            height: 5,
+            resolution: 0.2,
+            ..Default::default()
+        };
+        let master = Grid2d::<u8>::filled(info, 0);
+
+        struct OneLethalLayer;
+        impl Layer for OneLethalLayer {
+            fn reset(&mut self) {}
+            fn is_clearable(&self) -> bool {
+                true
+            }
+            fn update_bounds(&mut self, robot: Pose2, bounds: &mut crate::grid::Bounds) {
+                bounds.expand_to_include(robot.position);
+                bounds.expand_by(1.0);
+            }
+            fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
+                let _ = master.set(&UVec2::new(2, 2), COST_LETHAL);
+            }
+        }
+
+        let mut layered = LayeredGrid2d::new(master, false);
+        layered.add_layer(Box::new(OneLethalLayer));
+        layered.add_layer(Box::new(InflationLayer::linear(0.5)));
+        layered.update_map(Pose2 {
+            position: Vec2::new(0.5, 0.5),
+            yaw: 0.0,
+        });
+
+        let m = layered.master();
+        assert_eq!(m.get(&UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
+        let near = m.get(&UVec2::new(3, 2)).copied().unwrap_or(0);
+        assert!(near > 0 && near < COST_LETHAL, "inflated cost should be in (0, LETHAL)");
     }
 
     #[test]

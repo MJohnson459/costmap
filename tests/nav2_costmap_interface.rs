@@ -2,32 +2,27 @@
 
 use std::time::Duration;
 
+use costmap::grid::{Bounds, CellRegion, Layer, Pose2};
 use costmap::nav2_compat::*;
 
 struct DummyLayer;
 
 impl Layer for DummyLayer {
-    fn reset(&mut self) {
-        todo!("layer reset not implemented");
-    }
+    fn reset(&mut self) {}
 
     fn is_clearable(&self) -> bool {
-        todo!("layer is_clearable not implemented");
+        true
     }
 
-    fn update_bounds(&mut self, _robot: Pose2D, _bounds: &mut Bounds) {
-        todo!("layer update_bounds not implemented");
+    fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
+        bounds.expand_to_include(_robot.position);
     }
 
     fn update_costs(
         &mut self,
-        _master: &mut Costmap2D,
-        _min_i: u32,
-        _min_j: u32,
-        _max_i: u32,
-        _max_j: u32,
+        _master: &mut costmap::Grid2d<u8>,
+        _region: CellRegion,
     ) {
-        todo!("layer update_costs not implemented");
     }
 }
 
@@ -80,8 +75,14 @@ fn layered_costmap_plugin_update_flow() {
 fn layered_costmap_footprint_and_bounds() {
     let base = Costmap2D::new(5, 5, 0.2, 0.0, 0.0);
     let mut layered = LayeredCostmap::new(base, false);
+    layered.add_plugin(Box::new(DummyLayer));
     layered.set_footprint(Footprint {
         points: vec![(0.2, 0.2), (-0.2, 0.2), (-0.2, -0.2), (0.2, -0.2)],
+    });
+    layered.update_map(Pose2D {
+        x: 0.5,
+        y: 0.5,
+        yaw: 0.0,
     });
     let bounds = layered.get_updated_bounds();
     assert!(bounds.max_x >= bounds.min_x);

@@ -1,15 +1,15 @@
-//! Minimal compatibility surface for a Costmap2D-like API.
-//!
-//! This module intentionally contains unimplemented stubs to document the
-//! interface expected by Nav2-style costmaps. Tests are written against these
-//! stubs to guide future implementation work.
+//! Nav2-style API translation only. No business logic; wraps core types and
+//! converts between Nav2-style signatures (e.g. `get_cost(mx, my)`, `update_map(x, y, yaw)`)
+//! and core types (`Grid2d<u8>`, `Pose2`, `LayeredGrid2d`).
 
 use std::time::Duration;
 
 use glam::{UVec2, Vec2};
 
-use crate::{Grid2d, MapInfo, types::VoxelError};
+use crate::grid::{Layer as CoreLayer, LayeredGrid2d};
+use crate::{Grid2d, MapInfo, Pose2, types::VoxelError};
 
+/// Nav2-style robot pose (separate x, y, yaw).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pose2D {
     pub x: f32,
@@ -23,11 +23,7 @@ pub struct PoseStamped {
     pub pose: Pose2D,
 }
 
-/// Axis-aligned bounds in world coordinates (meters).
-///
-/// Expectations:
-/// - Bounds are inclusive on min and exclusive on max for grid index conversions.
-/// - Bounds should be expanded by layers when they affect space outside their immediate update.
+/// Nav2-style axis-aligned bounds (separate min_x, min_y, max_x, max_y in meters).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
     pub min_x: f32,
@@ -36,72 +32,78 @@ pub struct Bounds {
     pub max_y: f32,
 }
 
-/// Footprint polygon in world coordinates (meters).
-///
-/// Expectations:
-/// - Points are ordered and form a convex polygon (as in costmap2d).
-/// - Units are meters in the global costmap frame.
+/// Nav2-style footprint: points as (x, y) tuples in meters.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Footprint {
     pub points: Vec<(f32, f32)>,
 }
 
 /// Raytrace range constraints in meters.
-///
-/// Expectations:
-/// - `min` is the minimum ray length; hits closer than this should be ignored.
-/// - `max` is the maximum ray length; rays should be clamped to this distance.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RaytraceRange {
     pub min: f32,
     pub max: f32,
 }
 
-/// Minimal layer interface expected by a layered costmap update loop.
-///
-/// Expectations:
-/// - `update_bounds` expands bounds in world coordinates that `update_costs` will mutate.
-/// - `update_costs` only writes within `[min_i, max_i)` and `[min_j, max_j)` indices.
-/// - `reset` should restore the layer to default (typically unknown or free).
-/// - `is_clearable` indicates whether global clearing actions should reset the layer.
-pub trait Layer {
-    /// Reset the layer to its initial state.
-    /// C++: `virtual void reset() = 0;`
-    fn reset(&mut self);
-    /// Whether this layer should be cleared by global clear requests.
-    /// C++: `virtual bool isClearable() = 0;`
-    fn is_clearable(&self) -> bool;
-    /// Expand update bounds for this layer given the robot pose.
-    /// C++: `virtual void updateBounds(double robot_x, double robot_y, double robot_yaw,`
-    /// `double * min_x, double * min_y, double * max_x, double * max_y) = 0;`
-    fn update_bounds(&mut self, robot: Pose2D, bounds: &mut Bounds);
-    /// Update costs for this layer within the given map window.
-    /// C++: `virtual void updateCosts(Costmap2D & master_grid, int min_i, int min_j,`
-    /// `int max_i, int max_j) = 0;`
-    fn update_costs(
-        &mut self,
-        master: &mut Costmap2D,
-        min_i: u32,
-        min_j: u32,
-        max_i: u32,
-        max_j: u32,
-    );
-    /// Callback for footprint updates. Layers can invalidate caches here.
-    /// C++: `virtual void onFootprintChanged();`
-    fn on_footprint_changed(&mut self, footprint: &Footprint) {
-        let _ = footprint;
+fn pose2d_to_core(p: Pose2D) -> Pose2 {
+    Pose2 {
+        position: Vec2::new(p.x, p.y),
+        yaw: p.yaw,
     }
 }
 
-/// A Costmap2D-like grid with cost values in [0, 254].
-///
-/// Expectations:
-/// - Costs are unsigned 8-bit values where 0 is FREE and 254 is LETHAL.
-/// - Unknown should be encoded by a configurable sentinel (often 255 or 253 in ROS2).
-/// - World coordinates are in meters (f32), map coordinates are integer cell indices.
+fn bounds_core_to_nav2(min: Vec2, max: Vec2) -> Bounds {
+    Bounds {
+        min_x: min.x,
+        min_y: min.y,
+        max_x: max.x,
+        max_y: max.y,
+    }
+}
+
+/// Nav2-style costmap: thin wrapper around `Grid2d<u8>`. All methods translate to core.
 #[derive(Debug)]
 pub struct Costmap2D {
     grid: Grid2d<u8>,
+}
+
+/// Nav2-style view over a reference to the master grid (e.g. from LayeredCostmap).
+#[derive(Debug)]
+pub struct Costmap2DRef<'a> {
+    grid: &'a Grid2d<u8>,
+}
+
+impl<'a> Costmap2DRef<'a> {
+    pub fn get_cost(&self, mx: u32, my: u32) -> u8 {
+        self.grid.get(&UVec2::new(mx, my)).copied().unwrap_or(0)
+    }
+
+    pub fn map_to_world(&self, mx: u32, my: u32) -> (f32, f32) {
+        let pos = self.grid.map_to_world(&UVec2::new(mx, my));
+        (pos.x, pos.y)
+    }
+
+    pub fn world_to_map(&self, wx: f32, wy: f32) -> Option<(u32, u32)> {
+        let cell = self.grid.world_to_map(&Vec2::new(wx, wy))?;
+        Some((cell.x, cell.y))
+    }
+
+    pub fn get_size_in_cells_x(&self) -> u32 {
+        self.grid.width()
+    }
+
+    pub fn get_size_in_cells_y(&self) -> u32 {
+        self.grid.height()
+    }
+
+    pub fn get_resolution(&self) -> f32 {
+        self.grid.info().resolution
+    }
+
+    pub fn get_origin(&self) -> (f32, f32) {
+        let o = self.grid.info().origin;
+        (o.x, o.y)
+    }
 }
 
 impl Costmap2D {
@@ -288,109 +290,70 @@ impl Costmap2D {
     }
 }
 
-/// Aggregates multiple layers into a single master costmap.
-///
-/// Expectations:
-/// - `update_map` runs `update_bounds` then `update_costs` across all layers.
-/// - Bounds accumulation uses world coordinates and then converts to map indices.
+/// Nav2-style layered costmap: thin wrapper around core `LayeredGrid2d`.
+/// All logic is in the core; this only converts pose/bounds API.
 pub struct LayeredCostmap {
-    plugins: Vec<Box<dyn Layer>>,
-    costmap: Costmap2D,
-    rolling_window: bool,
+    layered: LayeredGrid2d,
 }
 
 impl LayeredCostmap {
-    /// Create a layered costmap around a base grid.
-    /// C++: `LayeredCostmap(std::string global_frame, bool rolling_window, bool track_unknown);`
+    /// Create from a Nav2-style costmap (takes ownership of its grid).
     pub fn new(costmap: Costmap2D, rolling_window: bool) -> Self {
         Self {
-            plugins: Vec::new(),
-            costmap,
-            rolling_window,
+            layered: LayeredGrid2d::new(costmap.into_grid(), rolling_window),
         }
     }
 
-    /// Add a layer plugin to the update loop.
-    ///
-    /// Expectations:
-    /// - Layers should be stored in order and processed in that order.
-    ///
-    /// C++: `void addPlugin(std::shared_ptr<Layer> plugin);`
-    pub fn add_plugin(&mut self, plugin: Box<dyn Layer>) {
-        let _ = plugin;
-        todo!("add_plugin not implemented");
+    /// Add a core layer. Order is preserved.
+    pub fn add_plugin(&mut self, plugin: Box<dyn CoreLayer>) {
+        self.layered.add_layer(plugin);
     }
 
-    /// Run update bounds/costs across layers for a robot pose.
-    ///
-    /// Expectations:
-    /// - Uses a common bounds window for all layers (after expansion).
-    ///
-    /// C++: `void updateMap(double robot_x, double robot_y, double robot_yaw);`
-    pub fn update_map(&mut self, _robot: Pose2D) {
-        todo!("update_map not implemented");
+    /// Run the update loop; converts Nav2 pose to core and delegates.
+    pub fn update_map(&mut self, robot: Pose2D) {
+        self.layered.update_map(pose2d_to_core(robot));
     }
 
-    /// Return whether all layers are current.
+    /// Returns true if configured as rolling window.
+    pub fn is_rolling(&self) -> bool {
+        self.layered.is_rolling_window()
+    }
+
+    /// Reference to the master grid with Nav2-style API.
+    pub fn get_costmap(&self) -> Costmap2DRef<'_> {
+        Costmap2DRef {
+            grid: self.layered.master(),
+        }
+    }
+
+    /// Mutable reference to the core layered grid (for direct access if needed).
+    pub fn layered_mut(&mut self) -> &mut LayeredGrid2d {
+        &mut self.layered
+    }
+
+    /// Bounds from the last update (Nav2-style min_x, min_y, max_x, max_y).
+    pub fn get_updated_bounds(&self) -> Bounds {
+        let b = self.layered.updated_bounds();
+        bounds_core_to_nav2(b.min, b.max)
+    }
+
+    /// Whether all layers are current.
     /// C++: `bool isCurrent();`
     pub fn is_current(&self) -> bool {
-        todo!("is_current not implemented");
-    }
-
-    /// Returns true if the map is configured as rolling.
-    /// C++: `bool isRolling();`
-    pub fn is_rolling(&self) -> bool {
-        self.rolling_window
-    }
-
-    /// Resize the master map and propagate to layers.
-    ///
-    /// Expectations:
-    /// - Calls `matchSize` / equivalent on each layer.
-    ///
-    /// C++: `void resizeMap(unsigned int size_x, unsigned int size_y, double resolution,`
-    /// `double origin_x, double origin_y, bool size_locked = false);`
-    pub fn resize_map(
-        &mut self,
-        _size_x: u32,
-        _size_y: u32,
-        _resolution: f32,
-        _origin_x: f32,
-        _origin_y: f32,
-    ) {
-        todo!("resize_map not implemented");
-    }
-
-    /// Return an immutable reference to the master costmap.
-    /// C++: `Costmap2D * getCostmap();`
-    pub fn get_costmap(&self) -> &Costmap2D {
-        &self.costmap
-    }
-
-    /// Return a mutable reference to the master costmap.
-    /// C++: `Costmap2D * getCostmap();`
-    pub fn get_costmap_mut(&mut self) -> &mut Costmap2D {
-        &mut self.costmap
+        todo!("is_current not implemented")
     }
 
     /// Set the robot footprint and notify layers.
-    ///
-    /// Expectations:
-    /// - Updates inscribed/circumscribed radii if tracked.
-    ///
     /// C++: `void setFootprint(const std::vector<geometry_msgs::msg::Point> & footprint_spec);`
     pub fn set_footprint(&mut self, _footprint: Footprint) {
-        todo!("set_footprint not implemented");
+        todo!("set_footprint not implemented")
     }
+}
 
-    /// Get the bounds updated by the last update cycle.
-    ///
-    /// Expectations:
-    /// - Returns world-coordinate bounds last computed during update.
-    ///
-    /// C++: `void getUpdatedBounds(double & minx, double & miny, double & maxx, double & maxy);`
-    pub fn get_updated_bounds(&self) -> Bounds {
-        todo!("get_updated_bounds not implemented");
+impl Costmap2D {
+    /// Access the underlying grid (for use when building LayeredCostmap).
+    pub fn into_grid(self) -> Grid2d<u8> {
+        self.grid
     }
 }
 
@@ -411,55 +374,40 @@ impl Costmap2DROS {
     }
 
     /// Update the costmap using the latest robot pose and layers.
-    ///
-    /// Expectations:
-    /// - Equivalent to `LayeredCostmap::update_map` plus footprint publication.
-    ///
     /// C++: `void updateMap();`
     pub fn update_map(&mut self) {
-        todo!("update_map not implemented");
+        todo!("update_map not implemented")
     }
 
     /// Reset all layers to default state.
     /// C++: `void resetLayers();`
     pub fn reset_layers(&mut self) {
-        todo!("reset_layers not implemented");
+        todo!("reset_layers not implemented")
     }
 
     /// Block until the map is current or timeout is reached.
-    ///
-    /// Expectations:
-    /// - Throws/errs on timeout.
-    ///
     /// C++: `void waitUntilCurrent(const rclcpp::Duration & timeout);`
     pub fn wait_until_current(&self, _timeout: Duration) -> Result<(), VoxelError> {
-        todo!("wait_until_current not implemented");
+        todo!("wait_until_current not implemented")
     }
 
     /// Return the robot pose in the global frame.
-    ///
-    /// Expectations:
-    /// - Uses TF buffer in a real implementation.
-    ///
     /// C++: `bool getRobotPose(geometry_msgs::msg::PoseStamped & global_pose);`
     pub fn get_robot_pose(&self) -> Result<PoseStamped, VoxelError> {
-        todo!("get_robot_pose not implemented");
+        todo!("get_robot_pose not implemented")
     }
 
     /// Transform a pose into the global frame.
-    ///
-    /// C++: `bool transformPoseToGlobalFrame(const geometry_msgs::msg::PoseStamped & input_pose,`
-    /// `geometry_msgs::msg::PoseStamped & transformed_pose);`
+    /// C++: `bool transformPoseToGlobalFrame(...)`
     pub fn transform_pose_to_global_frame(
         &self,
         _pose: &PoseStamped,
     ) -> Result<PoseStamped, VoxelError> {
-        todo!("transform_pose_to_global_frame not implemented");
+        todo!("transform_pose_to_global_frame not implemented")
     }
 
-    /// Return the master costmap for queries.
-    /// C++: `Costmap2D * getCostmap();`
-    pub fn get_costmap(&self) -> &Costmap2D {
+    /// Return a Nav2-style view over the master costmap.
+    pub fn get_costmap(&self) -> Costmap2DRef<'_> {
         self.layered.get_costmap()
     }
 
@@ -481,7 +429,7 @@ pub fn raytrace_line_2d(
     _max_range: u32,
     _min_range: u32,
 ) -> Vec<(u32, u32)> {
-    todo!("raytrace_line_2d not implemented");
+    todo!("raytrace_line_2d not implemented")
 }
 
 /// Compute inflation cost for a given distance.
