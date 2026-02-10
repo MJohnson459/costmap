@@ -24,7 +24,7 @@ pub struct LineStep {
 }
 
 impl LineIterator {
-    pub fn new<T>(grid: &Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
+    pub fn new<T>(grid: &Grid2d<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
         if dir.length_squared() == 0.0 {
             return None;
         }
@@ -108,7 +108,7 @@ pub struct LineValueIterator<'a, T> {
 }
 
 impl<'a, T> LineValueIterator<'a, T> {
-    pub fn new(grid: &'a Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
+    pub fn new(grid: &'a Grid2d<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
         Some(Self {
             iter: LineIterator::new(grid, origin, dir, max_t)?,
             grid,
@@ -122,7 +122,7 @@ impl<'a, T> Iterator for LineValueIterator<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|step| {
             // SAFETY: step.cell comes from LineIterator, which only yields in-bounds cells.
-            unsafe { self.grid.get_unchecked(&step.cell) }
+            unsafe { self.grid.get_unchecked(step.cell) }
         })
     }
 }
@@ -133,7 +133,7 @@ pub struct LineValueMutIterator<'a, T> {
 }
 
 impl<'a, T> LineValueMutIterator<'a, T> {
-    pub fn new(grid: &'a mut Grid2d<T>, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<Self> {
+    pub fn new(grid: &'a mut Grid2d<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
         Some(Self {
             iter: LineIterator::new(grid, origin, dir, max_t)?,
             grid,
@@ -149,7 +149,7 @@ impl<'a, T> Iterator for LineValueMutIterator<'a, T> {
         // The raw pointer cast extends the lifetime for the returned &mut T.
         self.iter
             .next()
-            .map(|step| unsafe { &mut *(self.grid.get_unchecked_mut(&step.cell) as *mut T) })
+            .map(|step| unsafe { &mut *(self.grid.get_unchecked_mut(step.cell) as *mut T) })
     }
 }
 
@@ -204,7 +204,7 @@ mod tests {
         let dir = goal.as_vec2().normalize();
 
         let hit = grid
-            .raycast_dda(&Vec2::ZERO, &dir, 30.0)
+            .raycast_dda(Vec2::ZERO, dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 4.1231055, epsilon = 1e-4);
@@ -214,7 +214,7 @@ mod tests {
     fn miss() {
         let grid = test_grid(None, 1.0, Vec2::ZERO);
         let dir = Vec2::new(6.0, 1.0).normalize();
-        let hit = grid.raycast_dda(&Vec2::ZERO, &dir, 30.0);
+        let hit = grid.raycast_dda(Vec2::ZERO, dir, 30.0);
         assert!(hit.is_none());
     }
 
@@ -224,7 +224,7 @@ mod tests {
         let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
         let dir = Vec2::new(-3.9, 1.0).normalize();
         let hit = grid
-            .raycast_dda(&Vec2::new(4.0, 0.0), &dir, 30.0)
+            .raycast_dda(Vec2::new(4.0, 0.0), dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 4.026176, epsilon = 1e-4);
@@ -236,7 +236,7 @@ mod tests {
         let grid = test_grid(Some(goal), 0.05, Vec2::new(-0.18, 0.0));
         let dir = Vec2::new(-1.0, 2.0).normalize();
         let hit = grid
-            .raycast_dda(&Vec2::new(0.04, 0.0), &dir, 30.0)
+            .raycast_dda(Vec2::new(0.04, 0.0), dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 0.2236068, epsilon = 1e-4);
@@ -245,10 +245,10 @@ mod tests {
     #[test]
     fn line_value_iterator_reads_values() {
         let mut grid = test_grid(None, 1.0, Vec2::ZERO);
-        grid.set(&UVec2::new(2, 0), OCCUPIED).unwrap();
+        grid.set(UVec2::new(2, 0), OCCUPIED).unwrap();
 
         let dir = Vec2::new(1.0, 0.0);
-        let values: Vec<i8> = LineValueIterator::new(&grid, &Vec2::ZERO, &dir, 4.0)
+        let values: Vec<i8> = LineValueIterator::new(&grid, Vec2::ZERO, dir, 4.0)
             .unwrap()
             .copied()
             .collect();
@@ -262,12 +262,12 @@ mod tests {
         let mut grid = test_grid(None, 1.0, Vec2::ZERO);
         let dir = Vec2::new(1.0, 0.0);
 
-        for value in LineValueMutIterator::new(&mut grid, &Vec2::ZERO, &dir, 4.0).unwrap() {
+        for value in LineValueMutIterator::new(&mut grid, Vec2::ZERO, dir, 4.0).unwrap() {
             *value = OCCUPIED;
         }
 
         for x in 0..5 {
-            assert_eq!(grid.get(&UVec2::new(x, 0)), Some(&OCCUPIED));
+            assert_eq!(grid.get(UVec2::new(x, 0)), Some(&OCCUPIED));
         }
     }
 }

@@ -24,11 +24,11 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::time::Duration;
 
-use costmap::grid::{
-    Bounds, CellRegion, Layer, LayeredGrid2d, Pose2, update_master_overwrite_valid_only,
-};
+use costmap::grid::merge_overwrite;
+use costmap::raycast::RayHit2D;
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
 use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
+use costmap::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
 use costmap::{Grid2d, InflationLayer, MapInfo, OccupancyGrid, RosMapLoader};
 use glam::{Vec2, Vec3};
 
@@ -83,21 +83,21 @@ impl Layer for SimLidarLayer {
 
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
         // 1) Update internal grid origin (rolling window) and draw new rays into it.
-        self.obstacle_grid.update_center(&self.last_robot.position);
+        self.obstacle_grid.update_center(self.last_robot.position);
         let beam_step = TAU / self.n_beams as f32;
         for beam_idx in 0..self.n_beams {
             let angle = self.last_robot.yaw + beam_step * beam_idx as f32;
             let dir = Vec2::new(angle.cos(), angle.sin());
-            let hit =
-                self.global_grid
-                    .raycast_dda(&self.last_robot.position, &dir, self.max_range_m);
-            let t = hit.map(|h| h.hit_distance).unwrap_or(self.max_range_m);
+            let hit = self
+                .global_grid
+                .raycast_dda(self.last_robot.position, dir, self.max_range_m);
+            let t = RayHit2D::distance_or(hit, self.max_range_m);
             let endpoint = hit.map(|_| COST_LETHAL);
             self.obstacle_grid
-                .clear_ray(&self.last_robot.position, &dir, t, COST_FREE, endpoint);
+                .clear_ray(self.last_robot.position, dir, t, COST_FREE, endpoint);
         }
         // 2) Write layer to master (do not copy unknown).
-        update_master_overwrite_valid_only(master, &self.obstacle_grid, region);
+        merge_overwrite(master, &self.obstacle_grid, region);
     }
 }
 
@@ -139,10 +139,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let heading = heading_dir.y.atan2(heading_dir.x);
 
         // Layered costmap update: rolling window, then each layer writes into the master
-        layered.update_map(Pose2 {
-            position: robot_pos,
-            yaw: heading,
-        });
+        layered.update_map(Pose2::new(robot_pos, heading));
 
         log_point3d(
             &rec,

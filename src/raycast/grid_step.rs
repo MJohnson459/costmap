@@ -7,7 +7,7 @@ use super::utils;
 
 impl OccupancyGrid {
     /// Grid-step traversal (Bresenham-style) over all crossed cells until hit.
-    pub fn raycast_grid_step(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<RayHit2D> {
+    pub fn raycast_grid_step(&self, origin: Vec2, dir: Vec2, max_t: f32) -> Option<RayHit2D> {
         if dir.length_squared() == 0.0 {
             return None;
         }
@@ -16,7 +16,7 @@ impl OccupancyGrid {
         let resolution = info.resolution;
         let dir = dir.normalize();
 
-        let start = self.world_to_map_continuous(&origin)?;
+        let start = self.world_to_map_continuous(origin)?;
         let end = start + dir * (max_t / resolution);
 
         let mut current = start.floor().as_ivec2();
@@ -32,8 +32,8 @@ impl OccupancyGrid {
         let bounds = UVec2::new(info.width, info.height);
 
         loop {
-            if utils::in_bounds(&current, &bounds) && utils::is_occupied(self, &current) {
-                let center = self.map_to_world(&current.as_uvec2());
+            if utils::in_bounds(current, bounds) && utils::is_occupied(self, current) {
+                let center = self.map_to_world(current.as_uvec2());
                 let hit_distance = (center - origin).dot(dir).max(0.0);
                 return Some(RayHit2D {
                     cell: current.as_uvec2(),
@@ -93,7 +93,7 @@ mod tests {
         let dir = Vec2::new(4.0, 1.0).normalize();
 
         let hit = grid
-            .raycast_grid_step(&Vec2::ZERO, &dir, 30.0)
+            .raycast_grid_step(Vec2::ZERO, dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
     }
@@ -102,7 +102,7 @@ mod tests {
     fn miss() {
         let grid = test_grid(None);
         let dir = Vec2::new(6.0, 1.0).normalize();
-        let hit = grid.raycast_grid_step(&Vec2::ZERO, &dir, 30.0);
+        let hit = grid.raycast_grid_step(Vec2::ZERO, dir, 30.0);
         assert!(hit.is_none());
     }
 }

@@ -93,7 +93,7 @@ impl LayeredGrid2d {
             let half_w = (info.width as f32) * info.resolution * 0.5;
             let half_h = (info.height as f32) * info.resolution * 0.5;
             let new_origin = robot.position - Vec2::new(half_w, half_h);
-            self.master.update_origin(&new_origin);
+            self.master.update_origin(new_origin);
         }
 
         let mut bounds = Bounds::empty();
@@ -109,8 +109,8 @@ impl LayeredGrid2d {
         let width = self.master.width();
         let height = self.master.height();
 
-        let min_cell = self.master.world_to_map(&bounds.min);
-        let max_cell = self.master.world_to_map(&bounds.max);
+        let min_cell = self.master.world_to_map(bounds.min);
+        let max_cell = self.master.world_to_map(bounds.max);
 
         let (x0, y0) = match min_cell {
             Some(c) => (c.x.min(width), c.y.min(height)),
