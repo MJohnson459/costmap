@@ -139,7 +139,10 @@ impl<'a, T> Iterator for PolygonValueIterator<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|cell| self.grid.get(&cell).unwrap())
+        self.iter.next().map(|cell| {
+            // SAFETY: cell is from PolygonIterator, which only yields in-bounds cells.
+            unsafe { self.grid.get_unchecked(&cell) }
+        })
     }
 }
 
@@ -159,11 +162,11 @@ impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: We need to use unsafe here because the compiler doesn't know
-        // that the PolygonIterator will never repeat cells.
+        // SAFETY: cell is in-bounds (PolygonIterator only yields in-bounds cells).
+        // The raw pointer cast extends the lifetime for the returned &mut T.
         self.iter
             .next()
-            .map(|cell| unsafe { &mut *(self.grid.get_mut(&cell) as *mut T) })
+            .map(|cell| unsafe { &mut *(self.grid.get_unchecked_mut(&cell) as *mut T) })
     }
 }
 

@@ -120,9 +120,10 @@ impl<'a, T> Iterator for LineValueIterator<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter
-            .next()
-            .map(|step| self.grid.get(&step.cell).unwrap())
+        self.iter.next().map(|step| {
+            // SAFETY: step.cell comes from LineIterator, which only yields in-bounds cells.
+            unsafe { self.grid.get_unchecked(&step.cell) }
+        })
     }
 }
 
@@ -144,11 +145,11 @@ impl<'a, T> Iterator for LineValueMutIterator<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: We need to use unsafe here because the compiler doesn't know
-        // that the LineIterator will never repeat cells.
+        // SAFETY: step.cell is in-bounds (LineIterator only yields in-bounds cells).
+        // The raw pointer cast extends the lifetime for the returned &mut T.
         self.iter
             .next()
-            .map(|step| unsafe { &mut *(self.grid.get_mut(&step.cell) as *mut T) })
+            .map(|step| unsafe { &mut *(self.grid.get_unchecked_mut(&step.cell) as *mut T) })
     }
 }
 

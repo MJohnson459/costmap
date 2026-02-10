@@ -5,16 +5,8 @@
 //! - **Map coordinates**: Cell indices (UVec2) or continuous (Vec2) in the grid.
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
-//!
-//! ## Map ↔ world conversion (four variants)
-//!
-//! | Direction   | In (map/world) | Out (world/map) | Function                    |
-//! |-------------|----------------|-----------------|-----------------------------|
-//! | map→world   | UVec2          | Vec2            | [`map_to_world`]            |
-//! | map→world   | Vec2           | Vec2            | [`map_to_world_continuous`] |
-//! | world→map   | Vec2           | UVec2           | [`world_to_map`]            |
-//! | world→map   | Vec2           | Vec2            | [`world_to_map_continuous`] |
 
+use std::ops::{Index, IndexMut};
 use glam::{IVec2, UVec2, UVec3, Vec2};
 
 use crate::{
@@ -84,27 +76,52 @@ impl<T> Grid2d<T> {
         &self.info
     }
 
+    #[inline]
     pub fn width(&self) -> u32 {
         self.info.width
     }
 
+    #[inline]
     pub fn height(&self) -> u32 {
         self.info.height
     }
 
+    /// Returns a reference to the cell at `pos` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure `pos.x < self.width()` and `pos.y < self.height()`.
+    #[inline]
+    pub unsafe fn get_unchecked(&self, pos: &UVec2) -> &T {
+        &self.data[self.index(pos)]
+    }
+
+    /// Returns a mutable reference to the cell at `pos` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure `pos.x < self.width()` and `pos.y < self.height()`.
+    #[inline]
+    pub unsafe fn get_unchecked_mut(&mut self, pos: &UVec2) -> &mut T {
+        let idx = self.index(pos);
+        &mut self.data[idx]
+    }
+
+    #[inline]
     pub fn get(&self, pos: &UVec2) -> Option<&T> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return None;
         }
-        let idx = self.index(pos);
-        Some(&self.data[idx])
+        Some(unsafe { self.get_unchecked(pos) })
     }
 
+    #[inline]
     pub fn get_mut(&mut self, pos: &UVec2) -> &mut T {
         let idx = self.index(pos);
         &mut self.data[idx]
     }
 
+    #[inline]
     pub fn set(&mut self, pos: &UVec2, value: T) -> Result<(), VoxelError> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return Err(VoxelError::OutOfBounds(format!(
@@ -112,17 +129,18 @@ impl<T> Grid2d<T> {
                 pos.x, pos.y, self.info.width, self.info.height
             )));
         }
-        let idx = self.index(pos);
-        self.data[idx] = value;
+        *unsafe { self.get_unchecked_mut(pos) } = value;
         Ok(())
     }
 
     /// Map (cell indices) → world. Returns the cell center.
+    #[inline]
     pub fn map_to_world(&self, cell: &UVec2) -> Vec2 {
         self.map_to_world_continuous(&cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
     }
 
     /// Map (continuous) → world. For integer coords, returns the cell's lower-left corner.
+    #[inline]
     pub fn map_to_world_continuous(&self, pos: &Vec2) -> Vec2 {
         Vec2::new(
             self.info.origin.x + pos.x * self.info.resolution,
@@ -131,12 +149,14 @@ impl<T> Grid2d<T> {
     }
 
     /// World → map (cell indices). Returns `None` if out of bounds.
+    #[inline]
     pub fn world_to_map(&self, pos: &Vec2) -> Option<UVec2> {
         let mp = self.world_to_map_continuous(pos)?;
         Some(UVec2::new(mp.x as u32, mp.y as u32))
     }
 
     /// World → map (continuous). Returns `None` if out of bounds.
+    #[inline]
     pub fn world_to_map_continuous(&self, pos: &Vec2) -> Option<Vec2> {
         let mx = (pos.x - self.info.origin.x) / self.info.resolution;
         let my = (pos.y - self.info.origin.y) / self.info.resolution;
@@ -274,9 +294,7 @@ impl<T> Grid2d<T> {
         }
 
         let old_origin = self.info.origin;
-        let cell_offset = ((*origin - old_origin) / resolution)
-            .floor()
-            .as_ivec2();
+        let cell_offset = ((*origin - old_origin) / resolution).floor().as_ivec2();
         let grid_size = IVec2::new(self.info.width as i32, self.info.height as i32);
 
         self.data = self.copy_overlapping_region(grid_size, grid_size, cell_offset);
@@ -500,22 +518,54 @@ impl<T> Grid2d<T> {
         new_data
     }
 
+    #[inline]
     fn index(&self, pos: &UVec2) -> usize {
         (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
+    }
+}
+
+impl<T> Index<UVec2> for Grid2d<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, index: UVec2) -> &Self::Output {
+        if index.x >= self.info.width || index.y >= self.info.height {
+            panic!(
+                "grid index ({}, {}) out of bounds for grid {}x{}",
+                index.x, index.y, self.info.width, self.info.height
+            );
+        }
+        unsafe { self.get_unchecked(&index) }
+    }
+}
+
+impl<T> IndexMut<UVec2> for Grid2d<T> {
+    #[inline]
+    fn index_mut(&mut self, index: UVec2) -> &mut Self::Output {
+        if index.x >= self.info.width || index.y >= self.info.height {
+            panic!(
+                "grid index ({}, {}) out of bounds for grid {}x{}",
+                index.x, index.y, self.info.width, self.info.height
+            );
+        }
+        unsafe { self.get_unchecked_mut(&index) }
     }
 }
 
 impl<T> Grid for Grid2d<T> {
     type Cell = T;
 
+    #[inline]
     fn info(&self) -> &MapInfo {
         self.info()
     }
 
+    #[inline]
     fn get(&self, pos: &UVec3) -> Option<&Self::Cell> {
         Grid2d::get(self, &pos.truncate())
     }
 
+    #[inline]
     fn set(&mut self, pos: &UVec3, value: Self::Cell) -> Result<(), VoxelError> {
         Grid2d::set(self, &pos.truncate(), value)
     }
