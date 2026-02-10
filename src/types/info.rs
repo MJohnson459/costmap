@@ -2,7 +2,7 @@
 
 use glam::Vec2;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MapInfo {
     pub width: u32,
     pub height: u32,

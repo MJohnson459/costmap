@@ -17,10 +17,9 @@ use std::error::Error;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 
-use costmap::inflation;
 use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
 use costmap::types::{COST_FREE, COST_UNKNOWN};
-use costmap::{Grid2d, MapInfo};
+use costmap::{Footprint, Grid2d, MapInfo};
 use glam::Vec2;
 
 // Funnel map dimensions
@@ -42,15 +41,9 @@ const Z_FOOTPRINT: f32 = 0.08;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let costmap = create_funnel_costmap();
-    let mut inflated = Grid2d::<u8>::empty(costmap.info().clone());
-    inflation::inflate(
-        &costmap,
-        &mut inflated,
-        INFLATION_RADIUS_M,
-        inflation::linear_inflation_cost,
-    );
+    let inflated = costmap.inflated(INFLATION_RADIUS_M);
 
-    let footprint = create_rectangular_footprint(ROBOT_LENGTH, ROBOT_WIDTH);
+    let footprint = Footprint::rectangle(ROBOT_LENGTH, ROBOT_WIDTH);
     let info = inflated.info();
 
     // Path: move from wide end (low y) to narrow end (high y) and back
@@ -82,8 +75,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let position = Vec2::new(center.x, start_y + t * (end_y - start_y));
 
-        let cost = inflated.footprint_cost(&position, yaw, &footprint);
-        let world_footprint = transform_footprint(&footprint, &position, yaw);
+        let cost = inflated.footprint_cost(position, yaw, &footprint.points);
+        let world_footprint = footprint.transform(position, yaw);
         // Use costmap palette, but white when cost matches background (free=blue, unknown=teal)
         let color = if cost == COST_UNKNOWN || cost == COST_FREE {
             rerun::Color::from_rgb(255, 255, 255)
@@ -116,8 +109,6 @@ fn create_funnel_costmap() -> Grid2d<u8> {
         ..Default::default()
     };
 
-    let mut data = vec![COST_FREE; (WIDTH * HEIGHT) as usize];
-
     // Funnel walls: left and right boundaries that converge
     // At y=0 (bottom): corridor x in [12, 38]
     // At y=HEIGHT-1 (top): corridor x in [22, 28] — narrower, footprint gets squeezed
@@ -126,41 +117,14 @@ fn create_funnel_costmap() -> Grid2d<u8> {
     let left_at_top = 22u32;
     let right_at_top = 28u32;
 
-    for y in 0..HEIGHT {
+    Grid2d::from_fn(info, |x, y| {
         let t = y as f32 / (HEIGHT - 1).max(1) as f32;
         let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as u32;
         let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as u32;
-
-        for x in 0..WIDTH {
-            if x < left_x || x > right_x {
-                let idx = (y as usize) * WIDTH as usize + (x as usize);
-                data[idx] = costmap::types::COST_LETHAL;
-            }
+        if x < left_x || x > right_x {
+            costmap::types::COST_LETHAL
+        } else {
+            COST_FREE
         }
-    }
-
-    Grid2d::new(info, data).expect("funnel map")
-}
-
-fn create_rectangular_footprint(length: f32, width: f32) -> Vec<Vec2> {
-    let half_length = length / 2.0;
-    let half_width = width / 2.0;
-    vec![
-        Vec2::new(half_length, half_width),
-        Vec2::new(half_length, -half_width),
-        Vec2::new(-half_length, -half_width),
-        Vec2::new(-half_length, half_width),
-    ]
-}
-
-fn transform_footprint(footprint: &[Vec2], position: &Vec2, yaw: f32) -> Vec<Vec2> {
-    let cos_yaw = yaw.cos();
-    let sin_yaw = yaw.sin();
-    footprint
-        .iter()
-        .map(|p| {
-            let rotated = Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
-            *position + rotated
-        })
-        .collect()
+    })
 }

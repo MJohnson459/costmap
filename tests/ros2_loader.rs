@@ -14,10 +14,10 @@ fn loads_trinary_ros2_map() {
     assert_eq!(grid.width(), 2);
     assert_eq!(grid.height(), 2);
 
-    assert_eq!(grid.get(&UVec2::new(0, 0)), Some(&FREE));
-    assert_eq!(grid.get(&UVec2::new(1, 0)), Some(&OCCUPIED));
-    assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&OCCUPIED));
-    assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&UNKNOWN));
+    assert_eq!(grid.get(UVec2::new(0, 0)), Some(&FREE));
+    assert_eq!(grid.get(UVec2::new(1, 0)), Some(&OCCUPIED));
+    assert_eq!(grid.get(UVec2::new(0, 1)), Some(&OCCUPIED));
+    assert_eq!(grid.get(UVec2::new(1, 1)), Some(&UNKNOWN));
 }
 
 #[test]
@@ -47,8 +47,8 @@ fn loads_image_direct() {
     assert_eq!(grid.width(), 2);
     assert_eq!(grid.height(), 2);
 
-    assert_eq!(grid.get(&UVec2::new(0, 0)), Some(&FREE));
-    assert_eq!(grid.get(&UVec2::new(1, 0)), Some(&OCCUPIED));
-    assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&OCCUPIED));
-    assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&UNKNOWN));
+    assert_eq!(grid.get(UVec2::new(0, 0)), Some(&FREE));
+    assert_eq!(grid.get(UVec2::new(1, 0)), Some(&OCCUPIED));
+    assert_eq!(grid.get(UVec2::new(0, 1)), Some(&OCCUPIED));
+    assert_eq!(grid.get(UVec2::new(1, 1)), Some(&UNKNOWN));
 }

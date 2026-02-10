@@ -67,3 +67,34 @@ pub struct CellRegion {
 pub struct Footprint {
     pub points: Vec<Vec2>,
 }
+
+impl Footprint {
+    /// Rectangular footprint centered at the origin (robot frame).
+    /// `length` is along x, `width` along y; vertices in counterclockwise order.
+    pub fn rectangle(length: f32, width: f32) -> Self {
+        let half_length = length / 2.0;
+        let half_width = width / 2.0;
+        Self {
+            points: vec![
+                Vec2::new(half_length, half_width),
+                Vec2::new(half_length, -half_width),
+                Vec2::new(-half_length, -half_width),
+                Vec2::new(-half_length, half_width),
+            ],
+        }
+    }
+
+    /// Transform footprint points from robot-local frame to world frame.
+    pub fn transform(&self, position: Vec2, yaw: f32) -> Vec<Vec2> {
+        let cos_yaw = yaw.cos();
+        let sin_yaw = yaw.sin();
+        self.points
+            .iter()
+            .map(|p| {
+                let rotated =
+                    Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
+                position + rotated
+            })
+            .collect()
+    }
+}

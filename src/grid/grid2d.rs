@@ -92,7 +92,7 @@ impl<T> Grid2d<T> {
     ///
     /// Caller must ensure `pos.x < self.width()` and `pos.y < self.height()`.
     #[inline]
-    pub unsafe fn get_unchecked(&self, pos: &UVec2) -> &T {
+    pub unsafe fn get_unchecked(&self, pos: UVec2) -> &T {
         &self.data[self.index(pos)]
     }
 
@@ -102,13 +102,13 @@ impl<T> Grid2d<T> {
     ///
     /// Caller must ensure `pos.x < self.width()` and `pos.y < self.height()`.
     #[inline]
-    pub unsafe fn get_unchecked_mut(&mut self, pos: &UVec2) -> &mut T {
+    pub unsafe fn get_unchecked_mut(&mut self, pos: UVec2) -> &mut T {
         let idx = self.index(pos);
         &mut self.data[idx]
     }
 
     #[inline]
-    pub fn get(&self, pos: &UVec2) -> Option<&T> {
+    pub fn get(&self, pos: UVec2) -> Option<&T> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return None;
         }
@@ -116,13 +116,13 @@ impl<T> Grid2d<T> {
     }
 
     #[inline]
-    pub fn get_mut(&mut self, pos: &UVec2) -> &mut T {
+    pub fn get_mut(&mut self, pos: UVec2) -> &mut T {
         let idx = self.index(pos);
         &mut self.data[idx]
     }
 
     #[inline]
-    pub fn set(&mut self, pos: &UVec2, value: T) -> Result<(), VoxelError> {
+    pub fn set(&mut self, pos: UVec2, value: T) -> Result<(), VoxelError> {
         if pos.x >= self.info.width || pos.y >= self.info.height {
             return Err(VoxelError::OutOfBounds(format!(
                 "cell ({}, {}) out of bounds for map {}x{}",
@@ -135,13 +135,13 @@ impl<T> Grid2d<T> {
 
     /// Map (cell indices) → world. Returns the cell center.
     #[inline]
-    pub fn map_to_world(&self, cell: &UVec2) -> Vec2 {
-        self.map_to_world_continuous(&cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
+    pub fn map_to_world(&self, cell: UVec2) -> Vec2 {
+        self.map_to_world_continuous(cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
     }
 
     /// Map (continuous) → world. For integer coords, returns the cell's lower-left corner.
     #[inline]
-    pub fn map_to_world_continuous(&self, pos: &Vec2) -> Vec2 {
+    pub fn map_to_world_continuous(&self, pos: Vec2) -> Vec2 {
         Vec2::new(
             self.info.origin.x + pos.x * self.info.resolution,
             self.info.origin.y + pos.y * self.info.resolution,
@@ -150,14 +150,14 @@ impl<T> Grid2d<T> {
 
     /// World → map (cell indices). Returns `None` if out of bounds.
     #[inline]
-    pub fn world_to_map(&self, pos: &Vec2) -> Option<UVec2> {
+    pub fn world_to_map(&self, pos: Vec2) -> Option<UVec2> {
         let mp = self.world_to_map_continuous(pos)?;
         Some(UVec2::new(mp.x as u32, mp.y as u32))
     }
 
     /// World → map (continuous). Returns `None` if out of bounds.
     #[inline]
-    pub fn world_to_map_continuous(&self, pos: &Vec2) -> Option<Vec2> {
+    pub fn world_to_map_continuous(&self, pos: Vec2) -> Option<Vec2> {
         let mx = (pos.x - self.info.origin.x) / self.info.resolution;
         let my = (pos.y - self.info.origin.y) / self.info.resolution;
         if mx < 0.0 || my < 0.0 || mx >= self.info.width as f32 || my >= self.info.height as f32 {
@@ -224,6 +224,24 @@ impl<T> Grid2d<T> {
         }
     }
 
+    /// Create a grid by calling `f(x, y)` for each cell in row-major order.
+    pub fn from_fn(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
+    where
+        T: Default,
+    {
+        let mut data = Vec::with_capacity((info.width * info.height) as usize);
+        for y in 0..info.height {
+            for x in 0..info.width {
+                data.push(f(x, y));
+            }
+        }
+        Self {
+            info,
+            data,
+            fill_value: T::default(),
+        }
+    }
+
     /// Reset all cells to the grid's fill value.
     pub fn clear(&mut self)
     where
@@ -240,14 +258,14 @@ impl<T> Grid2d<T> {
     /// Resize the map and update resolution/origin.
     ///
     /// This method clears the data to the fill value.
-    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: &Vec2)
+    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: Vec2)
     where
         T: Clone,
     {
         self.info.width = size.x;
         self.info.height = size.y;
         self.info.resolution = resolution;
-        self.info.origin = *origin;
+        self.info.origin = origin;
         self.data = vec![self.fill_value.clone(); size.x as usize * size.y as usize];
     }
 
@@ -282,19 +300,19 @@ impl<T> Grid2d<T> {
     /// # Arguments
     ///
     /// * `origin` - The desired origin of the grid in world coordinates.
-    pub fn update_origin(&mut self, origin: &Vec2)
+    pub fn update_origin(&mut self, origin: Vec2)
     where
         T: Clone,
     {
         let resolution = self.info.resolution;
         if resolution <= 0.0 {
-            self.info.origin = *origin;
+            self.info.origin = origin;
             self.data = vec![self.fill_value.clone(); self.data.len()];
             return;
         }
 
         let old_origin = self.info.origin;
-        let cell_offset = ((*origin - old_origin) / resolution).floor().as_ivec2();
+        let cell_offset = ((origin - old_origin) / resolution).floor().as_ivec2();
         let grid_size = IVec2::new(self.info.width as i32, self.info.height as i32);
 
         self.data = self.copy_overlapping_region(grid_size, grid_size, cell_offset);
@@ -310,7 +328,7 @@ impl<T> Grid2d<T> {
     /// # Arguments
     ///
     /// * `center` - The desired center of the map in world coordinates.
-    pub fn update_center(&mut self, center: &Vec2)
+    pub fn update_center(&mut self, center: Vec2)
     where
         T: Clone,
     {
@@ -319,17 +337,17 @@ impl<T> Grid2d<T> {
                 self.info.width as f32 * self.info.resolution,
                 self.info.height as f32 * self.info.resolution,
             ) * 0.5;
-        self.update_origin(&origin);
+        self.update_origin(origin);
     }
 
-    pub fn line(&self, origin: &Vec2, dir: &Vec2, max_t: f32) -> Option<LineIterator> {
+    pub fn line(&self, origin: Vec2, dir: Vec2, max_t: f32) -> Option<LineIterator> {
         LineIterator::new(self, origin, dir, max_t)
     }
 
     pub fn line_value<'a>(
         &'a self,
-        origin: &Vec2,
-        dir: &Vec2,
+        origin: Vec2,
+        dir: Vec2,
         max_t: f32,
     ) -> Option<LineValueIterator<'a, T>> {
         LineValueIterator::new(self, origin, dir, max_t)
@@ -337,8 +355,8 @@ impl<T> Grid2d<T> {
 
     pub fn line_value_mut<'a>(
         &'a mut self,
-        origin: &Vec2,
-        dir: &Vec2,
+        origin: Vec2,
+        dir: Vec2,
         max_t: f32,
     ) -> Option<LineValueMutIterator<'a, T>> {
         LineValueMutIterator::new(self, origin, dir, max_t)
@@ -351,8 +369,8 @@ impl<T> Grid2d<T> {
     /// `Some`, the cell at the end of the ray is then set to that value.
     pub fn clear_ray(
         &mut self,
-        origin: &Vec2,
-        dir: &Vec2,
+        origin: Vec2,
+        dir: Vec2,
         distance: f32,
         clear_value: T,
         endpoint_value: Option<T>,
@@ -366,9 +384,9 @@ impl<T> Grid2d<T> {
         }
 
         if let Some(endpoint) = endpoint_value {
-            let end_world = *origin + *dir * distance;
-            if let Some(cell) = self.world_to_map(&end_world) {
-                let _ = self.set(&cell, endpoint);
+            let end_world = origin + dir * distance;
+            if let Some(cell) = self.world_to_map(end_world) {
+                let _ = self.set(cell, endpoint);
             }
         }
     }
@@ -430,14 +448,14 @@ impl<T> Grid2d<T> {
     /// // Check cost at a specific pose
     /// let position = Vec2::new(5.0, 5.0);
     /// let yaw = 0.0;
-    /// let max_cost = costmap.footprint_cost(&position, yaw, &footprint);
+    /// let max_cost = costmap.footprint_cost(position, yaw, &footprint);
     ///
     /// // Use in planning: reject poses with high cost
     /// if max_cost < COST_LETHAL {
     ///     // This pose is safe for the robot
     /// }
     /// ```
-    pub fn footprint_cost(&self, position: &Vec2, yaw: f32, footprint: &[Vec2]) -> T
+    pub fn footprint_cost(&self, position: Vec2, yaw: f32, footprint: &[Vec2]) -> T
     where
         T: Default + Ord + Copy,
     {
@@ -456,7 +474,7 @@ impl<T> Grid2d<T> {
                 let rotated =
                     Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
                 // Translate to world position
-                *position + rotated
+                position + rotated
             })
             .collect();
 
@@ -519,7 +537,7 @@ impl<T> Grid2d<T> {
     }
 
     #[inline]
-    fn index(&self, pos: &UVec2) -> usize {
+    fn index(&self, pos: UVec2) -> usize {
         (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
     }
 }
@@ -535,7 +553,7 @@ impl<T> Index<UVec2> for Grid2d<T> {
                 index.x, index.y, self.info.width, self.info.height
             );
         }
-        unsafe { self.get_unchecked(&index) }
+        unsafe { self.get_unchecked(index) }
     }
 }
 
@@ -548,7 +566,7 @@ impl<T> IndexMut<UVec2> for Grid2d<T> {
                 index.x, index.y, self.info.width, self.info.height
             );
         }
-        unsafe { self.get_unchecked_mut(&index) }
+        unsafe { self.get_unchecked_mut(index) }
     }
 }
 
@@ -561,13 +579,13 @@ impl<T> Grid for Grid2d<T> {
     }
 
     #[inline]
-    fn get(&self, pos: &UVec3) -> Option<&Self::Cell> {
-        Grid2d::get(self, &pos.truncate())
+    fn get(&self, pos: UVec3) -> Option<&Self::Cell> {
+        Grid2d::get(self, pos.truncate())
     }
 
     #[inline]
-    fn set(&mut self, pos: &UVec3, value: Self::Cell) -> Result<(), VoxelError> {
-        Grid2d::set(self, &pos.truncate(), value)
+    fn set(&mut self, pos: UVec3, value: Self::Cell) -> Result<(), VoxelError> {
+        Grid2d::set(self, pos.truncate(), value)
     }
 }
 
@@ -576,8 +594,8 @@ mod tests {
     use super::*;
 
     fn world_to_map_to_world(grid: &Grid2d<i8>, pos: Vec2) -> Vec2 {
-        let map_pos = grid.world_to_map_continuous(&pos).unwrap();
-        grid.map_to_world_continuous(&map_pos)
+        let map_pos = grid.world_to_map_continuous(pos).unwrap();
+        grid.map_to_world_continuous(map_pos)
     }
 
     #[test]
@@ -640,11 +658,11 @@ mod tests {
         )
         .unwrap();
 
-        grid.set(&UVec2::new(1, 1), 7).unwrap();
-        grid.update_origin(&Vec2::new(1.0, 0.0));
+        grid.set(UVec2::new(1, 1), 7).unwrap();
+        grid.update_origin(Vec2::new(1.0, 0.0));
 
-        assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&7));
-        assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
+        assert_eq!(grid.get(UVec2::new(0, 1)), Some(&7));
+        assert_eq!(grid.get(UVec2::new(1, 1)), Some(&0));
     }
 
     #[test]
@@ -660,10 +678,10 @@ mod tests {
         )
         .unwrap();
 
-        grid.set(&UVec2::new(1, 1), 9).unwrap();
-        grid.resize_map(UVec2::new(6, 6), 1.0, &Vec2::new(1.0, 0.0));
+        grid.set(UVec2::new(1, 1), 9).unwrap();
+        grid.resize_map(UVec2::new(6, 6), 1.0, Vec2::new(1.0, 0.0));
 
-        assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&0));
+        assert_eq!(grid.get(UVec2::new(1, 1)), Some(&0));
     }
 
     #[test]
@@ -709,9 +727,9 @@ mod tests {
             *v = (pos.x + 10 * pos.y) as u8;
         }
 
-        assert_eq!(grid.get(&UVec2::new(0, 0)), Some(&0));
-        assert_eq!(grid.get(&UVec2::new(1, 0)), Some(&1));
-        assert_eq!(grid.get(&UVec2::new(0, 1)), Some(&10));
-        assert_eq!(grid.get(&UVec2::new(1, 1)), Some(&11));
+        assert_eq!(grid.get(UVec2::new(0, 0)), Some(&0));
+        assert_eq!(grid.get(UVec2::new(1, 0)), Some(&1));
+        assert_eq!(grid.get(UVec2::new(0, 1)), Some(&10));
+        assert_eq!(grid.get(UVec2::new(1, 1)), Some(&11));
     }
 }

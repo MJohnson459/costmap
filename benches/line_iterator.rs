@@ -14,7 +14,7 @@ fn bench_line_iterator(c: &mut Criterion) {
         b.iter(|| {
             let mut steps = 0usize;
             for (origin, dir, max_t) in &rays {
-                if let Some(iter) = LineIterator::new(&mut grid, origin, dir, *max_t) {
+                if let Some(iter) = LineIterator::new(&grid, *origin, *dir, *max_t) {
                     steps += iter.count();
                 }
             }
@@ -26,7 +26,7 @@ fn bench_line_iterator(c: &mut Criterion) {
         b.iter(|| {
             let mut sum = 0i32;
             for (origin, dir, max_t) in &rays {
-                if let Some(iter) = LineValueIterator::new(&grid, origin, dir, *max_t) {
+                if let Some(iter) = LineValueIterator::new(&grid, *origin, *dir, *max_t) {
                     for value in iter {
                         sum += *value as i32;
                     }
@@ -41,7 +41,8 @@ fn bench_line_iterator(c: &mut Criterion) {
             || build_empty_grid(256, 256, 0.05),
             |mut grid| {
                 for (origin, dir, max_t) in &rays {
-                    if let Some(iter) = LineValueMutIterator::new(&mut grid, origin, dir, *max_t) {
+                    if let Some(iter) = LineValueMutIterator::new(&mut grid, *origin, *dir, *max_t)
+                    {
                         for value in iter {
                             *value = FREE;
                         }

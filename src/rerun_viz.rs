@@ -24,7 +24,7 @@ pub fn costmap_to_rgb_bytes(grid: &Grid2d<u8>) -> (u32, u32, Vec<u8>) {
         let y_grid = height - 1 - y_img;
         for x in 0..width {
             let cost = grid
-                .get(&glam::UVec2::new(x, y_grid))
+                .get(glam::UVec2::new(x, y_grid))
                 .copied()
                 .unwrap_or(COST_UNKNOWN);
             let [r, g, b] = cost_to_rgb(cost);

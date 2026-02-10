@@ -21,7 +21,7 @@ pub fn occupancy_grid_to_image(grid: &OccupancyGrid) -> GrayImage {
         let y_grid = height - 1 - y_img;
         for x in 0..width {
             let value = grid
-                .get(&glam::UVec2::new(x, y_grid))
+                .get(glam::UVec2::new(x, y_grid))
                 .copied()
                 .unwrap_or(UNKNOWN);
             let px = occupancy_to_gray(value);
@@ -69,8 +69,8 @@ mod tests {
         let grid = OccupancyGrid::new(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
         // Sanity check the layout we intend (row-major, y=0 first).
-        assert_eq!(grid.get(&UVec2::new(0, 0)).copied(), Some(UNKNOWN));
-        assert_eq!(grid.get(&UVec2::new(0, 1)).copied(), Some(OCCUPIED));
+        assert_eq!(grid.get(UVec2::new(0, 0)).copied(), Some(UNKNOWN));
+        assert_eq!(grid.get(UVec2::new(0, 1)).copied(), Some(OCCUPIED));
 
         let img = occupancy_grid_to_image(&grid);
         assert_eq!(img.width(), 2);

@@ -18,7 +18,7 @@ fn bench_resize_map(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut grid| {
-                grid.resize_map(UVec2::new(320, 320), 0.05, &Vec2::new(0.5, 0.0));
+                grid.resize_map(UVec2::new(320, 320), 0.05, Vec2::new(0.5, 0.0));
                 black_box(grid);
             },
             BatchSize::SmallInput,

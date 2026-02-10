@@ -141,7 +141,7 @@ impl<'a, T> Iterator for PolygonValueIterator<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iter.next().map(|cell| {
             // SAFETY: cell is from PolygonIterator, which only yields in-bounds cells.
-            unsafe { self.grid.get_unchecked(&cell) }
+            unsafe { self.grid.get_unchecked(cell) }
         })
     }
 }
@@ -166,7 +166,7 @@ impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
         // The raw pointer cast extends the lifetime for the returned &mut T.
         self.iter
             .next()
-            .map(|cell| unsafe { &mut *(self.grid.get_unchecked_mut(&cell) as *mut T) })
+            .map(|cell| unsafe { &mut *(self.grid.get_unchecked_mut(cell) as *mut T) })
     }
 }
 
@@ -208,7 +208,7 @@ mod tests {
             ..Default::default()
         };
         let mut grid = Grid2d::<u8>::empty(info);
-        grid.set(&UVec2::new(2, 2), 100).unwrap();
+        grid.set(UVec2::new(2, 2), 100).unwrap();
 
         let points = vec![
             Vec2::new(1.0, 1.0),
@@ -248,7 +248,7 @@ mod tests {
         // Check that all cells in the polygon were set
         let cells: Vec<UVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
         for cell in cells {
-            assert_eq!(grid.get(&cell), Some(&50));
+            assert_eq!(grid.get(cell), Some(&50));
         }
     }
 }

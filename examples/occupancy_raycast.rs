@@ -16,6 +16,7 @@ use std::f32::consts::TAU;
 use std::time::Duration;
 
 use costmap::RosMapLoader;
+use costmap::raycast::RayHit2D;
 use glam::{Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
@@ -73,8 +74,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Core API: raycast_dda(origin, direction, max_range)
         // Returns Some(RaycastHit) if an occupied cell is hit, None otherwise
-        let hit = grid.raycast_dda(&RAY_ORIGIN_WORLD, &dir, MAX_RANGE_M);
-        let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
+        let hit = grid.raycast_dda(RAY_ORIGIN_WORLD, dir, MAX_RANGE_M);
+        let t = RayHit2D::distance_or(hit, MAX_RANGE_M);
         let end_world = RAY_ORIGIN_WORLD + dir * t;
 
         log_raycast_frame(
