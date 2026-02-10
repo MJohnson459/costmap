@@ -1,10 +1,13 @@
 //! # Local Costmap with Simulated Lidar
 //!
-//! This example demonstrates a complete local costmap workflow for mobile robotics:
+//! This example demonstrates a complete local costmap workflow using the layered costmap API:
 //! - A robot moving along a predefined path
-//! - Simulated 2D lidar scanning the environment
+//! - Simulated 2D lidar scanning the environment (sensor layer)
 //! - Local costmap generation from lidar data (rolling window following the robot)
-//! - Costmap inflation for safe navigation planning
+//! - Costmap inflation for safe navigation planning (inflation layer)
+//!
+//! The pipeline is: **sensor layer** (ray clearing from global map) → **inflation layer** → single
+//! master grid. Only the final master costmap (obstacles + inflation) is visualized.
 //!
 //! ## Robotics Context
 //! This workflow is fundamental to mobile robot navigation. The key concepts shown:
@@ -17,15 +20,15 @@
 //! This pattern allows robots to navigate using both prior maps and real-time sensor data.
 
 use std::error::Error;
-
-use costmap::inflation;
-use costmap::rerun_viz::{
-    COST_FREE, COST_LETHAL, COST_UNKNOWN, log_costmap, log_occupancy_grid, log_point3d,
-};
-use costmap::{Grid2d, MapInfo, RosMapLoader};
-use glam::{Vec2, Vec3};
 use std::f32::consts::TAU;
+use std::sync::Arc;
 use std::time::Duration;
+
+use costmap::grid::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
+use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
+use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
+use costmap::{Grid2d, InflationLayer, MapInfo, OccupancyGrid, RosMapLoader};
+use glam::{Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
@@ -47,28 +50,73 @@ const INFLATION_RADIUS_M: f32 = 0.9;
 // Visualization Z-heights for layering elements in Rerun
 const Z_GLOBAL: f32 = 0.0;
 const Z_LOCAL: f32 = 0.12;
-const Z_INFLATED: f32 = 0.18;
 const Z_RAYS: f32 = 0.3;
 const Z_ROBOT: f32 = 0.35;
+
+/// Example-only layer: simulates lidar by raycasting on a global occupancy grid
+/// and writing free/obstacle costs into the master grid.
+struct LidarFromGlobalLayer {
+    global_grid: Arc<OccupancyGrid>,
+    last_robot: Pose2,
+    max_range_m: f32,
+    n_beams: usize,
+}
+
+impl Layer for LidarFromGlobalLayer {
+    fn reset(&mut self) {}
+
+    fn is_clearable(&self) -> bool {
+        true
+    }
+
+    fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds) {
+        self.last_robot = robot;
+        bounds.expand_to_include(robot.position);
+        bounds.expand_by(self.max_range_m);
+    }
+
+    fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
+        let beam_step = TAU / self.n_beams as f32;
+        for beam_idx in 0..self.n_beams {
+            let angle = self.last_robot.yaw + beam_step * beam_idx as f32;
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            let hit = self
+                .global_grid
+                .raycast_dda(&self.last_robot.position, &dir, self.max_range_m);
+            let t = hit.map(|h| h.hit_distance).unwrap_or(self.max_range_m);
+            let endpoint = hit.map(|_| COST_LETHAL);
+            master.clear_ray(&self.last_robot.position, &dir, t, COST_FREE, endpoint);
+        }
+    }
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Step 1: Load the global map (static environment representation)
     let grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
     let info = grid.info().clone();
+    let global_grid = Arc::new(grid);
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
     let rec = rerun::RecordingStreamBuilder::new("costmap_local_costmap_lidar").spawn()?;
-    log_occupancy_grid(&rec, "world/global_map", &grid, Z_GLOBAL)?;
+    log_occupancy_grid(&rec, "world/global_map", global_grid.as_ref(), Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
     let waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
 
-    // Step 3: Create a local costmap - a robot-centered rolling window
-    // This has the same resolution as the global map but is much smaller and moves with the robot
+    // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
     let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
-
-    let mut local_costmap = Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN);
-    let mut inflated_costmap = Grid2d::<u8>::empty(local_info);
+    let master = Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN);
+    let mut layered = LayeredGrid2d::new(master, true);
+    layered.add_layer(Box::new(LidarFromGlobalLayer {
+        global_grid: Arc::clone(&global_grid),
+        last_robot: Pose2 {
+            position: Vec2::ZERO,
+            yaw: 0.0,
+        },
+        max_range_m: MAX_RANGE_M,
+        n_beams: N_BEAMS,
+    }));
+    layered.add_layer(Box::new(InflationLayer::linear(INFLATION_RADIUS_M)));
 
     let (segment_lengths, total_length) = build_segments(&waypoints);
 
@@ -77,40 +125,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     loop {
         rec.set_time_sequence("frame", frame_idx);
 
-        // Update robot pose
         let distance = (frame_idx as f32) * WAYPOINT_SPEED_MPS * dt;
         let (robot_pos, heading_dir) =
             sample_path(&waypoints, &segment_lengths, total_length, distance);
         let heading = heading_dir.y.atan2(heading_dir.x);
 
-        // Core API: update_origin() moves the rolling window to follow the robot
-        local_costmap.update_center(&robot_pos);
-        inflated_costmap.update_center(&robot_pos);
+        // Layered costmap update: rolling window, then each layer writes into the master
+        layered.update_map(Pose2 {
+            position: robot_pos,
+            yaw: heading,
+        });
 
-        // Simulate lidar: cast rays in all directions
+        // Ray visualization (same geometry as the sensor layer)
         let mut ray_segments = Vec::with_capacity(N_BEAMS);
         let beam_step = TAU / N_BEAMS as f32;
-
         for beam_idx in 0..N_BEAMS {
             let angle = heading + beam_step * beam_idx as f32;
             let dir = Vec2::new(angle.cos(), angle.sin());
-
-            // Simulate sensor measurement using raycast
-            let hit = grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
-
-            // Core API: clear_ray() marks free space and optionally sets an obstacle at the end
-            // This implements the inverse sensor model (free space along the beam)
+            let hit = global_grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
             let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
-            let endpoint = hit.map(|_| COST_LETHAL);
-            local_costmap.clear_ray(&robot_pos, &dir, t, COST_FREE, endpoint);
-
             let end_world = robot_pos + dir * t;
             ray_segments.push([
                 [robot_pos.x, robot_pos.y, Z_RAYS],
                 [end_world.x, end_world.y, Z_RAYS],
             ]);
         }
-
         let colors = vec![rerun::Color::from_rgb(255, 128, 0); ray_segments.len()];
         let radii = vec![rerun::Radius::new_ui_points(1.0); ray_segments.len()];
         rec.log(
@@ -128,22 +167,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Some(5.0),
         )?;
 
-        // Core API: inflate() expands obstacles for safety margins
-        // Uses a cost function to determine how cost decreases with distance from obstacles
-        inflation::inflate(
-            &local_costmap,
-            &mut inflated_costmap,
-            INFLATION_RADIUS_M,
-            inflation::linear_inflation_cost,
-        );
-
-        log_costmap(&rec, "world/local_costmap", &local_costmap, Z_LOCAL)?;
-        log_costmap(
-            &rec,
-            "world/inflated_costmap",
-            &inflated_costmap,
-            Z_INFLATED,
-        )?;
+        log_costmap(&rec, "world/local_costmap", layered.master(), Z_LOCAL)?;
 
         if DELAY_MS > 0 {
             std::thread::sleep(Duration::from_millis(DELAY_MS));
