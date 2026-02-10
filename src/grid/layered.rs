@@ -42,8 +42,16 @@ pub struct LayeredGrid2d {
 }
 
 impl LayeredGrid2d {
-    /// Create a layered costmap with the given master grid.
-    pub fn new(master: Grid2d<u8>, rolling_window: bool) -> Self {
+    /// Create a layered costmap with a new master grid of the given size and default value.
+    ///
+    /// The master is created with `Grid2d::filled(info, fill_value)`. The updated region
+    /// is reset to `fill_value` each frame before layers write.
+    ///
+    /// If `rolling_window` is true, the grid origin is recentered on the robot each
+    /// [`update_map`](Self::update_map), so the costmap stays fixed in size but moves
+    /// with the robot (local costmap). If false, the grid is fixed in world frame.
+    pub fn new(info: MapInfo, fill_value: u8, rolling_window: bool) -> Self {
+        let master = Grid2d::filled(info, fill_value);
         Self {
             master,
             layers: Vec::new(),
@@ -180,8 +188,7 @@ mod tests {
             fn update_costs(&mut self, _master: &mut Grid2d<u8>, _region: CellRegion) {}
         }
 
-        let master = Grid2d::<u8>::filled(default_info(), 0);
-        let mut layered = LayeredGrid2d::new(master, false);
+        let mut layered = LayeredGrid2d::new(default_info(), 0, false);
         layered.add_layer(Box::new(BoundsLayer { margin: 0.5 }));
 
         layered.update_map(Pose2 {

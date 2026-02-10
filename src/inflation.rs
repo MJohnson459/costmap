@@ -445,7 +445,6 @@ mod tests {
             resolution: 0.2,
             ..Default::default()
         };
-        let master = Grid2d::<u8>::filled(info, 0);
 
         struct OneLethalLayer;
         impl Layer for OneLethalLayer {
@@ -462,7 +461,7 @@ mod tests {
             }
         }
 
-        let mut layered = LayeredGrid2d::new(master, false);
+        let mut layered = LayeredGrid2d::new(info, 0, false);
         layered.add_layer(Box::new(OneLethalLayer));
         layered.add_layer(Box::new(InflationLayer::linear(0.5)));
         layered.update_map(Pose2 {

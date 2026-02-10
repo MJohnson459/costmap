@@ -50,13 +50,12 @@ const INFLATION_RADIUS_M: f32 = 0.9;
 // Visualization Z-heights for layering elements in Rerun
 const Z_GLOBAL: f32 = 0.0;
 const Z_LOCAL: f32 = 0.12;
-const Z_RAYS: f32 = 0.3;
 const Z_ROBOT: f32 = 0.35;
 
 /// Example-only layer: simulates lidar by raycasting on a global occupancy grid.
 /// Keeps an internal obstacle grid (like Nav2's layer costmap_) so observations
 /// persist across frames; each update we shift it, draw new rays, then write to master.
-struct LidarFromGlobalLayer {
+struct SimLidarLayer {
     global_grid: Arc<OccupancyGrid>,
     /// Internal costmap that persists between updates (Nav2-style layer costmap_).
     obstacle_grid: Grid2d<u8>,
@@ -65,7 +64,7 @@ struct LidarFromGlobalLayer {
     n_beams: usize,
 }
 
-impl Layer for LidarFromGlobalLayer {
+impl Layer for SimLidarLayer {
     fn reset(&mut self) {
         self.obstacle_grid.clear();
     }
@@ -83,15 +82,14 @@ impl Layer for LidarFromGlobalLayer {
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
         use glam::UVec2;
         // 1) Update internal grid origin (rolling window) and draw new rays into it.
-        self.obstacle_grid
-            .update_center(&self.last_robot.position);
+        self.obstacle_grid.update_center(&self.last_robot.position);
         let beam_step = TAU / self.n_beams as f32;
         for beam_idx in 0..self.n_beams {
             let angle = self.last_robot.yaw + beam_step * beam_idx as f32;
             let dir = Vec2::new(angle.cos(), angle.sin());
-            let hit = self
-                .global_grid
-                .raycast_dda(&self.last_robot.position, &dir, self.max_range_m);
+            let hit =
+                self.global_grid
+                    .raycast_dda(&self.last_robot.position, &dir, self.max_range_m);
             let t = hit.map(|h| h.hit_distance).unwrap_or(self.max_range_m);
             let endpoint = hit.map(|_| COST_LETHAL);
             self.obstacle_grid
@@ -124,15 +122,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
     let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
-    let master = Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN);
-    let mut layered = LayeredGrid2d::new(master, true);
-    layered.add_layer(Box::new(LidarFromGlobalLayer {
+    let mut layered = LayeredGrid2d::new(local_info.clone(), COST_UNKNOWN, true);
+    layered.add_layer(Box::new(SimLidarLayer {
         global_grid: Arc::clone(&global_grid),
         obstacle_grid: Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN),
-        last_robot: Pose2 {
-            position: Vec2::ZERO,
-            yaw: 0.0,
-        },
+        last_robot: Pose2::default(),
         max_range_m: MAX_RANGE_M,
         n_beams: N_BEAMS,
     }));
@@ -155,29 +149,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             position: robot_pos,
             yaw: heading,
         });
-
-        // Ray visualization (same geometry as the sensor layer)
-        let mut ray_segments = Vec::with_capacity(N_BEAMS);
-        let beam_step = TAU / N_BEAMS as f32;
-        for beam_idx in 0..N_BEAMS {
-            let angle = heading + beam_step * beam_idx as f32;
-            let dir = Vec2::new(angle.cos(), angle.sin());
-            let hit = global_grid.raycast_dda(&robot_pos, &dir, MAX_RANGE_M);
-            let t = hit.map(|h| h.hit_distance).unwrap_or(MAX_RANGE_M);
-            let end_world = robot_pos + dir * t;
-            ray_segments.push([
-                [robot_pos.x, robot_pos.y, Z_RAYS],
-                [end_world.x, end_world.y, Z_RAYS],
-            ]);
-        }
-        let colors = vec![rerun::Color::from_rgb(255, 128, 0); ray_segments.len()];
-        let radii = vec![rerun::Radius::new_ui_points(1.0); ray_segments.len()];
-        rec.log(
-            "world/rays",
-            &rerun::LineStrips3D::new(ray_segments)
-                .with_colors(colors)
-                .with_radii(radii),
-        )?;
 
         log_point3d(
             &rec,

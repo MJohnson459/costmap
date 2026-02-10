@@ -6,8 +6,11 @@ use std::time::Duration;
 
 use glam::{UVec2, Vec2};
 
-use crate::grid::{Layer as CoreLayer, LayeredGrid2d};
 use crate::{Grid2d, MapInfo, Pose2, types::VoxelError};
+use crate::{
+    grid::{Layer as CoreLayer, LayeredGrid2d},
+    types::{COST_FREE, COST_UNKNOWN},
+};
 
 /// Nav2-style robot pose (separate x, y, yaw).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -211,8 +214,7 @@ impl Costmap2D {
     ///
     /// C++: `virtual void updateOrigin(double new_origin_x, double new_origin_y);`
     pub fn update_origin(&mut self, origin_x: f32, origin_y: f32) {
-        self.grid
-            .update_origin(&Vec2::new(origin_x, origin_y));
+        self.grid.update_origin(&Vec2::new(origin_x, origin_y));
     }
 
     /// Resize the map and update resolution/origin.
@@ -298,9 +300,14 @@ pub struct LayeredCostmap {
 
 impl LayeredCostmap {
     /// Create from a Nav2-style costmap (takes ownership of its grid).
-    pub fn new(costmap: Costmap2D, rolling_window: bool) -> Self {
+    pub fn new(info: MapInfo, rolling_window: bool, track_unknown: bool) -> Self {
+        let fill = if track_unknown {
+            COST_UNKNOWN
+        } else {
+            COST_FREE
+        };
         Self {
-            layered: LayeredGrid2d::new(costmap.into_grid(), rolling_window),
+            layered: LayeredGrid2d::new(info, fill, rolling_window),
         }
     }
 

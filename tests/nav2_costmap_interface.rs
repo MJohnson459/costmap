@@ -2,8 +2,11 @@
 
 use std::time::Duration;
 
-use costmap::grid::{Bounds, CellRegion, Layer, Pose2};
 use costmap::nav2_compat::*;
+use costmap::{
+    MapInfo,
+    grid::{Bounds, CellRegion, Layer, Pose2},
+};
 
 struct DummyLayer;
 
@@ -18,12 +21,7 @@ impl Layer for DummyLayer {
         bounds.expand_to_include(_robot.position);
     }
 
-    fn update_costs(
-        &mut self,
-        _master: &mut costmap::Grid2d<u8>,
-        _region: CellRegion,
-    ) {
-    }
+    fn update_costs(&mut self, _master: &mut costmap::Grid2d<u8>, _region: CellRegion) {}
 }
 
 #[test]
@@ -60,8 +58,7 @@ fn costmap_resize_and_origin_shift() {
 
 #[test]
 fn layered_costmap_plugin_update_flow() {
-    let base = Costmap2D::new(5, 5, 0.2, 0.0, 0.0);
-    let mut layered = LayeredCostmap::new(base, true);
+    let mut layered = LayeredCostmap::new(MapInfo::square(5, 0.2), true, false);
     layered.add_plugin(Box::new(DummyLayer));
     layered.update_map(Pose2D {
         x: 0.0,
@@ -73,8 +70,7 @@ fn layered_costmap_plugin_update_flow() {
 
 #[test]
 fn layered_costmap_footprint_and_bounds() {
-    let base = Costmap2D::new(5, 5, 0.2, 0.0, 0.0);
-    let mut layered = LayeredCostmap::new(base, false);
+    let mut layered = LayeredCostmap::new(MapInfo::square(5, 0.2), false, false);
     layered.add_plugin(Box::new(DummyLayer));
     layered.set_footprint(Footprint {
         points: vec![(0.2, 0.2), (-0.2, 0.2), (-0.2, -0.2), (0.2, -0.2)],
@@ -91,8 +87,7 @@ fn layered_costmap_footprint_and_bounds() {
 
 #[test]
 fn costmap_ros_update_and_queries() {
-    let base = Costmap2D::new(5, 5, 0.2, 0.0, 0.0);
-    let layered = LayeredCostmap::new(base, true);
+    let layered = LayeredCostmap::new(MapInfo::square(5, 0.2), true, false);
     let mut ros = Costmap2DROS::new(layered);
     ros.update_map();
 

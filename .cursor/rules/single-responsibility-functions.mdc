@@ -1,0 +1,33 @@
+---
+description: Prefer multiple focused functions over one function with a mode/type parameter
+alwaysApply: true
+---
+
+# One Responsibility Per Function
+
+Prefer multiple functions over a single function that takes a parameter to change its behavior. Each function should do one thing.
+
+## Avoid
+
+```rust
+// BAD: one function, behavior selected by enum
+fn update_region_to(&self, region: ..., dest: &mut Grid2d<u8>, merge: CostmapMerge);
+// call: grid.update_region_to(r, dest, CostmapMerge::Overwrite);
+```
+
+## Prefer
+
+```rust
+// GOOD: separate functions, clear names
+fn copy_region_to(&self, min: UVec2, max: UVec2, dest: &mut Grid2d<u8>);
+fn merge_region_max_to(&self, min: UVec2, max: UVec2, dest: &mut Grid2d<u8>);
+// call: grid.copy_region_to(r.min, r.max, dest);
+```
+
+## Why
+
+- Call sites are clearer: `update_overwrite()` vs `update(UpdateType::Overwrite)`.
+- Easier to discover and document each behavior.
+- No need to pass or document a "mode" enum for a single call.
+
+If you have many variants (e.g. more than 2–3), consider a trait or a small module of related functions rather than one function with a large enum.
