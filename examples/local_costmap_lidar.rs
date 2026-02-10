@@ -53,17 +53,22 @@ const Z_LOCAL: f32 = 0.12;
 const Z_RAYS: f32 = 0.3;
 const Z_ROBOT: f32 = 0.35;
 
-/// Example-only layer: simulates lidar by raycasting on a global occupancy grid
-/// and writing free/obstacle costs into the master grid.
+/// Example-only layer: simulates lidar by raycasting on a global occupancy grid.
+/// Keeps an internal obstacle grid (like Nav2's layer costmap_) so observations
+/// persist across frames; each update we shift it, draw new rays, then write to master.
 struct LidarFromGlobalLayer {
     global_grid: Arc<OccupancyGrid>,
+    /// Internal costmap that persists between updates (Nav2-style layer costmap_).
+    obstacle_grid: Grid2d<u8>,
     last_robot: Pose2,
     max_range_m: f32,
     n_beams: usize,
 }
 
 impl Layer for LidarFromGlobalLayer {
-    fn reset(&mut self) {}
+    fn reset(&mut self) {
+        self.obstacle_grid.clear();
+    }
 
     fn is_clearable(&self) -> bool {
         true
@@ -75,7 +80,11 @@ impl Layer for LidarFromGlobalLayer {
         bounds.expand_by(self.max_range_m);
     }
 
-    fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
+    fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
+        use glam::UVec2;
+        // 1) Update internal grid origin (rolling window) and draw new rays into it.
+        self.obstacle_grid
+            .update_center(&self.last_robot.position);
         let beam_step = TAU / self.n_beams as f32;
         for beam_idx in 0..self.n_beams {
             let angle = self.last_robot.yaw + beam_step * beam_idx as f32;
@@ -85,7 +94,17 @@ impl Layer for LidarFromGlobalLayer {
                 .raycast_dda(&self.last_robot.position, &dir, self.max_range_m);
             let t = hit.map(|h| h.hit_distance).unwrap_or(self.max_range_m);
             let endpoint = hit.map(|_| COST_LETHAL);
-            master.clear_ray(&self.last_robot.position, &dir, t, COST_FREE, endpoint);
+            self.obstacle_grid
+                .clear_ray(&self.last_robot.position, &dir, t, COST_FREE, endpoint);
+        }
+        // 2) Write internal layer state into the master (Nav2: updateWithOverwrite / copy).
+        for y in region.min.y..region.max.y {
+            for x in region.min.x..region.max.x {
+                let cell = UVec2::new(x, y);
+                if let Some(&cost) = self.obstacle_grid.get(&cell) {
+                    let _ = master.set(&cell, cost);
+                }
+            }
         }
     }
 }
@@ -109,6 +128,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut layered = LayeredGrid2d::new(master, true);
     layered.add_layer(Box::new(LidarFromGlobalLayer {
         global_grid: Arc::clone(&global_grid),
+        obstacle_grid: Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN),
         last_robot: Pose2 {
             position: Vec2::ZERO,
             yaw: 0.0,
