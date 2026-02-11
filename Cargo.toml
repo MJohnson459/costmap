@@ -68,3 +68,7 @@ harness = false
 [[bench]]
 name = "update_origin"
 harness = false
+
+[[bench]]
+name = "inflation"
+harness = false
