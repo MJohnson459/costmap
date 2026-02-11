@@ -12,7 +12,7 @@ use glam::UVec2;
 
 use crate::Grid2d;
 use crate::grid::{Bounds, CellRegion, Layer, Pose2};
-use crate::types::{COST_FREE, COST_LETHAL, MapInfo};
+use crate::types::{COST_FREE, COST_LETHAL};
 
 /// Convert an inflation radius in world units (meters) to a cell count.
 ///
@@ -30,7 +30,7 @@ pub fn inflation_radius_to_cells(radius_m: f32, resolution: f32) -> u32 {
 ///
 /// Returns [`COST_LETHAL`] at distance 0, linearly decaying to 0 at
 /// `radius_cells`. Values outside `[0, radius_cells]` are clamped.
-pub fn linear_inflation_cost(distance_cells: f32, radius_cells: f32) -> u8 {
+fn linear_inflation_cost(distance_cells: f32, radius_cells: f32) -> u8 {
     if distance_cells <= 0.0 {
         return COST_LETHAL;
     }
@@ -63,28 +63,22 @@ pub fn inscribed_inflation_cost(
     value.max(COST_FREE)
 }
 
-/// Inflate lethal obstacles from `source` into `dest` using the given radius
-/// and cost function.
+/// Inflate lethal cells in place.
 ///
-/// Non-lethal cells (including unknown) are copied from `source` to `dest` so
-/// the inflated map preserves the free/unknown distinction. Lethal cells and
-/// their inflation halos are then stamped on top, taking the maximum cost at
-/// each cell.
-///
-/// Both grids must have the same resolution. The grids may have different sizes
-/// and origins (the function operates in cell-local coordinates).
-pub fn inflate(
-    source: &Grid2d<u8>,
-    dest: &mut Grid2d<u8>,
-    radius_m: f32,
-    cost_fn: fn(f32, f32) -> u8,
-) {
-    // Copy source into dest so unknown/free cells are preserved.
-    for (cell, cost) in source.iter_cells() {
-        let _ = dest.set(cell, *cost);
+/// Collects lethal cells within `region`, then for each stamps a cost falloff
+/// disk (clipped to `region`), taking the maximum cost at each cell. Used by
+/// both [`Grid2d::inflate`] and [`InflationLayer`].
+fn inflate<F>(grid: &mut Grid2d<u8>, region: CellRegion, radius_m: f32, cost_fn: F)
+where
+    F: Fn(f32, f32) -> u8,
+{
+    let w = region.max.x.saturating_sub(region.min.x);
+    let h = region.max.y.saturating_sub(region.min.y);
+    if w == 0 || h == 0 {
+        return;
     }
 
-    let resolution = source.info().resolution;
+    let resolution = grid.info().resolution;
     let radius_cells = inflation_radius_to_cells(radius_m, resolution);
     if radius_cells == 0 {
         return;
@@ -93,11 +87,17 @@ pub fn inflate(
     let radius_i = radius_cells as i32;
     let radius_f = radius_cells as f32;
 
-    for (cell, cost) in source.iter_cells() {
-        if *cost != COST_LETHAL {
-            continue;
+    let mut lethals = Vec::new();
+    for y in region.min.y..region.max.y {
+        for x in region.min.x..region.max.x {
+            let cell = UVec2::new(x, y);
+            if grid.get(cell).copied() == Some(COST_LETHAL) {
+                lethals.push(cell);
+            }
         }
+    }
 
+    for cell in lethals {
         let cx = cell.x as i32;
         let cy = cell.y as i32;
 
@@ -115,73 +115,21 @@ pub fn inflate(
                 }
 
                 let pos = UVec2::new(nx as u32, ny as u32);
-                if pos.x >= dest.width() || pos.y >= dest.height() {
+                if pos.x < region.min.x
+                    || pos.x >= region.max.x
+                    || pos.y < region.min.y
+                    || pos.y >= region.max.y
+                {
+                    continue;
+                }
+                if pos.x >= grid.width() || pos.y >= grid.height() {
                     continue;
                 }
 
                 let inflated_cost = cost_fn(dist, radius_f);
-                let current = dest.get(pos).copied().unwrap_or(COST_FREE);
+                let current = grid.get(pos).copied().unwrap_or(COST_FREE);
                 if inflated_cost > current {
-                    let _ = dest.set(pos, inflated_cost);
-                }
-            }
-        }
-    }
-}
-
-/// Inflate using inscribed exponential cost (Nav2-style). Same as [`inflate`] but
-/// uses [`inscribed_inflation_cost`] with the given params (cell units).
-pub fn inflate_inscribed(
-    source: &Grid2d<u8>,
-    dest: &mut Grid2d<u8>,
-    radius_m: f32,
-    inscribed_radius_cells: f32,
-    cost_scaling_factor: f32,
-) {
-    for (cell, cost) in source.iter_cells() {
-        let _ = dest.set(cell, *cost);
-    }
-
-    let resolution = source.info().resolution;
-    let radius_cells = inflation_radius_to_cells(radius_m, resolution);
-    if radius_cells == 0 {
-        return;
-    }
-
-    let radius_i = radius_cells as i32;
-    let radius_f = radius_cells as f32;
-
-    for (cell, cost) in source.iter_cells() {
-        if *cost != COST_LETHAL {
-            continue;
-        }
-
-        let cx = cell.x as i32;
-        let cy = cell.y as i32;
-
-        for dy in -radius_i..=radius_i {
-            for dx in -radius_i..=radius_i {
-                let dist = ((dx * dx + dy * dy) as f32).sqrt();
-                if dist > radius_f {
-                    continue;
-                }
-
-                let nx = cx + dx;
-                let ny = cy + dy;
-                if nx < 0 || ny < 0 {
-                    continue;
-                }
-
-                let pos = UVec2::new(nx as u32, ny as u32);
-                if pos.x >= dest.width() || pos.y >= dest.height() {
-                    continue;
-                }
-
-                let inflated_cost =
-                    inscribed_inflation_cost(dist, inscribed_radius_cells, cost_scaling_factor);
-                let current = dest.get(pos).copied().unwrap_or(COST_FREE);
-                if inflated_cost > current {
-                    let _ = dest.set(pos, inflated_cost);
+                    let _ = grid.set(pos, inflated_cost);
                 }
             }
         }
@@ -192,11 +140,13 @@ pub fn inflate_inscribed(
 pub type InflationCostFn = fn(f32, f32) -> u8;
 
 impl Grid2d<u8> {
-    /// Inflate lethal obstacles with linear falloff, returning a new grid.
-    pub fn inflated(&self, radius_m: f32) -> Grid2d<u8> {
-        let mut dest = Grid2d::<u8>::empty(*self.info());
-        inflate(self, &mut dest, radius_m, linear_inflation_cost);
-        dest
+    /// Inflate lethal obstacles in place with linear falloff.
+    pub fn inflate(&mut self, radius_m: f32) {
+        let region = CellRegion {
+            min: UVec2::ZERO,
+            max: UVec2::new(self.width(), self.height()),
+        };
+        inflate(self, region, radius_m, linear_inflation_cost);
     }
 }
 
@@ -215,24 +165,29 @@ pub enum InflationCostCurve {
 }
 
 /// Layer that inflates lethal obstacles within the update region.
-/// Caches temporary grids to avoid per-frame allocation.
 #[derive(Debug)]
 pub struct InflationLayer {
     inflation_radius_m: f32,
     curve: InflationCostCurve,
-    /// Cached temp grids for the current region size; invalidated by match_size.
-    temp_src: Option<Grid2d<u8>>,
-    temp_dest: Option<Grid2d<u8>>,
 }
 
 impl InflationLayer {
+    fn cost_at_distance(&self, dist: f32, radius_f: f32) -> u8 {
+        match &self.curve {
+            InflationCostCurve::Linear => linear_inflation_cost(dist, radius_f),
+            InflationCostCurve::Inscribed {
+                inscribed_radius_cells,
+                cost_scaling_factor,
+            } => inscribed_inflation_cost(dist, *inscribed_radius_cells, *cost_scaling_factor),
+            InflationCostCurve::Custom(f) => f(dist, radius_f),
+        }
+    }
+
     /// Create an inflation layer with the given radius (meters) and cost curve.
     pub fn new(inflation_radius_m: f32, curve: InflationCostCurve) -> Self {
         Self {
             inflation_radius_m,
             curve,
-            temp_src: None,
-            temp_dest: None,
         }
     }
 
@@ -241,8 +196,6 @@ impl InflationLayer {
         Self {
             inflation_radius_m,
             curve: InflationCostCurve::Linear,
-            temp_src: None,
-            temp_dest: None,
         }
     }
 
@@ -259,8 +212,6 @@ impl InflationLayer {
                 inscribed_radius_cells,
                 cost_scaling_factor,
             },
-            temp_src: None,
-            temp_dest: None,
         }
     }
 }
@@ -277,97 +228,9 @@ impl Layer for InflationLayer {
     }
 
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
-        let w = region.max.x - region.min.x;
-        let h = region.max.y - region.min.y;
-        if w == 0 || h == 0 {
-            return;
-        }
-
-        let resolution = master.info().resolution;
-        let reuse = self.temp_src.as_ref().map_or(false, |g| {
-            g.width() == w && g.height() == h && g.info().resolution == resolution
+        inflate(master, region, self.inflation_radius_m, |dist, radius_f| {
+            self.cost_at_distance(dist, radius_f)
         });
-
-        if !reuse {
-            let info = MapInfo {
-                width: w,
-                height: h,
-                resolution,
-                ..Default::default()
-            };
-            self.temp_src = Some(Grid2d::<u8>::filled(info, 0));
-            self.temp_dest = Some(Grid2d::<u8>::filled(
-                MapInfo {
-                    width: w,
-                    height: h,
-                    resolution,
-                    ..Default::default()
-                },
-                0,
-            ));
-        } else {
-            self.temp_src.as_mut().unwrap().clear();
-            self.temp_dest.as_mut().unwrap().clear();
-        }
-
-        for y in region.min.y..region.max.y {
-            for x in region.min.x..region.max.x {
-                let cell = UVec2::new(x, y);
-                let cost = master.get(cell).copied().unwrap_or(COST_FREE);
-                let tx = x - region.min.x;
-                let ty = y - region.min.y;
-                let _ = self
-                    .temp_src
-                    .as_mut()
-                    .unwrap()
-                    .set(UVec2::new(tx, ty), cost);
-            }
-        }
-
-        let temp_src = self.temp_src.as_ref().unwrap();
-        let temp_dest = self.temp_dest.as_mut().unwrap();
-        match &self.curve {
-            InflationCostCurve::Linear => {
-                inflate(
-                    temp_src,
-                    temp_dest,
-                    self.inflation_radius_m,
-                    linear_inflation_cost,
-                );
-            }
-            InflationCostCurve::Inscribed {
-                inscribed_radius_cells,
-                cost_scaling_factor,
-            } => {
-                inflate_inscribed(
-                    temp_src,
-                    temp_dest,
-                    self.inflation_radius_m,
-                    *inscribed_radius_cells,
-                    *cost_scaling_factor,
-                );
-            }
-            InflationCostCurve::Custom(f) => {
-                inflate(temp_src, temp_dest, self.inflation_radius_m, *f);
-            }
-        }
-
-        for y in region.min.y..region.max.y {
-            for x in region.min.x..region.max.x {
-                let tx = x - region.min.x;
-                let ty = y - region.min.y;
-                let cost = temp_dest
-                    .get(UVec2::new(tx, ty))
-                    .copied()
-                    .unwrap_or(COST_FREE);
-                let _ = master.set(UVec2::new(x, y), cost);
-            }
-        }
-    }
-
-    fn match_size(&mut self, _info: &MapInfo) {
-        self.temp_src = None;
-        self.temp_dest = None;
     }
 }
 
@@ -455,8 +318,8 @@ mod tests {
         data[2 * 5 + 2] = COST_LETHAL; // cell (2, 2)
         let source = make_grid(5, 5, data);
 
-        let mut dest = Grid2d::<u8>::empty(source.info().clone());
-        inflate(&source, &mut dest, 2.0, linear_inflation_cost);
+        let mut dest = source.clone();
+        dest.inflate(2.0);
 
         // Center should be lethal.
         assert_eq!(dest.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
@@ -475,8 +338,8 @@ mod tests {
             resolution: 0.5,
             ..Default::default()
         });
-        let mut dest = Grid2d::<u8>::empty(source.info().clone());
-        inflate(&source, &mut dest, 1.0, linear_inflation_cost);
+        let mut dest = source.clone();
+        dest.inflate(1.0);
 
         for (_, cost) in dest.iter_cells() {
             assert_eq!(*cost, COST_FREE);
@@ -536,8 +399,8 @@ mod tests {
         data[2 * 5 + 4] = COST_LETHAL;
         let source = make_grid(5, 5, data);
 
-        let mut dest = Grid2d::<u8>::empty(source.info().clone());
-        inflate(&source, &mut dest, 1.2, linear_inflation_cost);
+        let mut dest = source.clone();
+        dest.inflate(1.2);
 
         // Unknown cells far from any lethal should remain unknown.
         assert_eq!(dest.get(UVec2::new(0, 0)).copied(), Some(COST_UNKNOWN));

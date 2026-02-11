@@ -40,11 +40,11 @@ const Z_COSTMAP: f32 = 0.0;
 const Z_FOOTPRINT: f32 = 0.08;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let costmap = create_funnel_costmap();
-    let inflated = costmap.inflated(INFLATION_RADIUS_M);
+    let mut costmap = create_funnel_costmap();
+    costmap.inflate(INFLATION_RADIUS_M);
 
     let footprint = Footprint::rectangle(ROBOT_LENGTH, ROBOT_WIDTH);
-    let info = inflated.info();
+    let info = costmap.info();
 
     // Path: move from wide end (low y) to narrow end (high y) and back
     let start_y = 0.5;
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Log the inflated costmap once (static)
     rec.set_time_sequence("frame", 0);
-    log_costmap(&rec, "world/costmap", &inflated, Z_COSTMAP)?;
+    log_costmap(&rec, "world/costmap", &costmap, Z_COSTMAP)?;
 
     let mut frame: i64 = 0;
     loop {
@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let position = Vec2::new(center.x, start_y + t * (end_y - start_y));
 
-        let cost = inflated.footprint_cost(position, yaw, &footprint.points);
+        let cost = costmap.footprint_cost(position, yaw, &footprint.points);
         let world_footprint = footprint.transform(position, yaw);
         // Use costmap palette, but white when cost matches background (free=blue, unknown=teal)
         let color = if cost == COST_UNKNOWN || cost == COST_FREE {
