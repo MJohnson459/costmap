@@ -361,6 +361,11 @@ impl Grid2d<u8> {
         cost_scaling_factor: f32,
     ) {
         let resolution = self.info().resolution;
+        let radius_cells = inflation_radius_to_cells(radius_m, resolution);
+        if radius_cells == 0 {
+            return;
+        }
+
         let cache = InflationCache::build(
             radius_m,
             inscribed_radius_m,
