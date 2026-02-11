@@ -1,0 +1,14 @@
+---
+description: Run cargo fmt when code changes are finished
+alwaysApply: true
+---
+
+# Format Before Finishing
+
+Once edits are complete for a change (or a logical batch of changes), run:
+
+```bash
+cargo fmt
+```
+
+Do this before marking tasks done or handing back to the user, so the codebase stays consistently formatted.
