@@ -46,8 +46,6 @@ const MAX_RANGE_M: f32 = 12.0;
 // Local costmap configuration
 /// Size of the robot-centered rolling window costmap (square, in cells)
 const LOCAL_SIZE_CELLS: u32 = 240;
-/// How far to expand obstacles for safe navigation (meters)
-const INFLATION_RADIUS_M: f32 = 0.9;
 
 // Visualization Z-heights for layering elements in Rerun
 const Z_GLOBAL: f32 = 0.0;
@@ -124,7 +122,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_range_m: MAX_RANGE_M,
         n_beams: N_BEAMS,
     }));
-    layered.add_layer(Box::new(InflationLayer::linear(INFLATION_RADIUS_M)));
+    layered.add_layer(Box::new(InflationLayer::new(
+        0.9,  // inflation_radius_m
+        0.15, // inscribed_radius_m
+        3.0,  // cost_scaling_factor (lower = softer decay)
+    )));
 
     let (segment_lengths, total_length) = build_segments(&waypoints);
 

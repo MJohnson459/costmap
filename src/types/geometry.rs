@@ -62,6 +62,14 @@ pub struct CellRegion {
     pub max: UVec2,
 }
 
+impl CellRegion {
+    /// Returns true if the cell position is inside this region (half-open bounds).
+    #[inline]
+    pub fn contains(&self, pos: UVec2) -> bool {
+        pos.x >= self.min.x && pos.x < self.max.x && pos.y >= self.min.y && pos.y < self.max.y
+    }
+}
+
 /// Footprint: polygon in world coordinates (meters). Used by layers for footprint callbacks.
 #[derive(Debug, Clone, Default)]
 pub struct Footprint {

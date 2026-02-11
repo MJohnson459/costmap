@@ -26,7 +26,6 @@ use glam::Vec2;
 const WIDTH: u32 = 50;
 const HEIGHT: u32 = 80;
 const RESOLUTION: f32 = 0.05;
-const INFLATION_RADIUS_M: f32 = 0.15;
 
 // Footprint: length along direction of travel, width across
 const ROBOT_LENGTH: f32 = 0.9;
@@ -41,7 +40,7 @@ const Z_FOOTPRINT: f32 = 0.08;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut costmap = create_funnel_costmap();
-    costmap.inflate(INFLATION_RADIUS_M);
+    costmap.inflate_inscribed(0.15, 0.1, 3.0);
 
     let footprint = Footprint::rectangle(ROBOT_LENGTH, ROBOT_WIDTH);
     let info = costmap.info();
