@@ -1,12 +1,12 @@
 //! Obstacle inflation for `Grid2d<u8>` costmaps.
 //!
-//! Provides inflate operations that expand lethal cells outward with Nav2-style
-//! inscribed exponential decay. Uses wavefront propagation for performance.
+//! Provides inflate operations that expand lethal cells outward with inscribed
+//! exponential decay. Uses wavefront propagation for performance.
 //!
-//! Uses a **wavefront propagation** algorithm (Nav2-style): obstacle seeds are
-//! processed in distance order, each cell is visited once, and costs are
-//! looked up from a precomputed cache. This is significantly faster than
-//! stamping disks for dense obstacle maps.
+//! Uses a **wavefront propagation** algorithm: obstacle seeds are processed in
+//! distance order, each cell is visited once, and costs are looked up from a
+//! precomputed cache. This is significantly faster than stamping disks for
+//! dense obstacle maps.
 //!
 //! [`InflationLayer`] implements the layered costmap [`Layer`](crate::grid::Layer)
 //! trait so it can be used inside [`LayeredGrid2d`](crate::grid::LayeredGrid2d).
@@ -15,7 +15,7 @@ use glam::UVec2;
 
 use crate::Grid2d;
 use crate::grid::{Bounds, CellRegion, Layer, Pose2};
-use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
+use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, MapInfo};
 
 /// Cell data for wavefront propagation: cell position and the obstacle source
 /// it was enqueued from (for cost lookup).
@@ -281,11 +281,14 @@ pub struct InflateOptions {
 }
 
 /// Inflate lethal (and optionally unknown) cells in place using wavefront propagation.
+///
+/// `seen` is a reusable buffer; it is resized to `width * height` if needed and cleared on use.
 fn inflate_wavefront(
     grid: &mut Grid2d<u8>,
     region: CellRegion,
     cache: &InflationCache,
     options: InflateOptions,
+    seen: &mut Vec<bool>,
 ) {
     let w = region.max.x.saturating_sub(region.min.x);
     let h = region.max.y.saturating_sub(region.min.y);
@@ -299,6 +302,12 @@ fn inflate_wavefront(
     let size = (width * height) as usize;
     let radius_f = cache.radius_f();
     let max_level = cache.max_level();
+
+    if seen.len() != size {
+        seen.resize(size, false);
+    } else {
+        seen.fill(false);
+    }
 
     let search_min_x = region.min.x.saturating_sub(radius_cells);
     let search_min_y = region.min.y.saturating_sub(radius_cells);
@@ -322,22 +331,31 @@ fn inflate_wavefront(
         return;
     }
 
-    let mut seen = vec![false; size];
     let mut inflation_cells: Vec<Vec<CellData>> = vec![Vec::new(); (max_level + 1) as usize];
     inflation_cells[0] = seeds;
+
+    let mut enqueue_ctx = EnqueueContext {
+        cache,
+        inflation_cells: &mut inflation_cells,
+        seen: seen.as_mut_slice(),
+        width,
+        size,
+        radius_f,
+        max_level,
+    };
 
     for level in 0..=max_level {
         let level_usize = level as usize;
         let mut i = 0;
-        while i < inflation_cells[level_usize].len() {
-            let cell = inflation_cells[level_usize][i];
+        while i < enqueue_ctx.inflation_cells[level_usize].len() {
+            let cell = enqueue_ctx.inflation_cells[level_usize][i];
             i += 1;
 
-            let index = (cell.pos.y * width + cell.pos.x) as usize;
-            if index >= size || seen[index] {
+            let index = (cell.pos.y * enqueue_ctx.width + cell.pos.x) as usize;
+            if index >= enqueue_ctx.size || enqueue_ctx.seen[index] {
                 continue;
             }
-            seen[index] = true;
+            enqueue_ctx.seen[index] = true;
 
             if region.contains(cell.pos) {
                 let dx = cell.pos.x as i32 - cell.src.x as i32;
@@ -346,7 +364,10 @@ fn inflate_wavefront(
                 let current = grid.get(cell.pos).copied().unwrap_or(COST_FREE);
 
                 let new_cost = if current == COST_UNKNOWN {
-                    if options.inflate_unknown && cost > COST_FREE {
+                    // Nav2: when inflate_unknown, overwrite if cost > FREE; else overwrite if cost >= INSCRIBED
+                    if options.inflate_unknown {
+                        if cost > COST_FREE { Some(cost) } else { None }
+                    } else if cost >= COST_INSCRIBED {
                         Some(cost)
                     } else {
                         None
@@ -360,109 +381,65 @@ fn inflate_wavefront(
                 }
             }
 
-            let src_x = cell.src.x as i32;
-            let src_y = cell.src.y as i32;
-
             if cell.pos.x > 0 {
-                let np = UVec2::new(cell.pos.x - 1, cell.pos.y);
                 try_enqueue_neighbour(
-                    &cache,
-                    &mut inflation_cells,
-                    &mut seen,
-                    width,
-                    height,
-                    size,
-                    radius_f,
-                    max_level,
-                    np,
+                    &mut enqueue_ctx,
+                    UVec2::new(cell.pos.x - 1, cell.pos.y),
                     cell.src,
-                    src_x,
-                    src_y,
                 );
             }
             if cell.pos.y > 0 {
-                let np = UVec2::new(cell.pos.x, cell.pos.y - 1);
                 try_enqueue_neighbour(
-                    &cache,
-                    &mut inflation_cells,
-                    &mut seen,
-                    width,
-                    height,
-                    size,
-                    radius_f,
-                    max_level,
-                    np,
+                    &mut enqueue_ctx,
+                    UVec2::new(cell.pos.x, cell.pos.y - 1),
                     cell.src,
-                    src_x,
-                    src_y,
                 );
             }
             if cell.pos.x + 1 < width {
-                let np = UVec2::new(cell.pos.x + 1, cell.pos.y);
                 try_enqueue_neighbour(
-                    &cache,
-                    &mut inflation_cells,
-                    &mut seen,
-                    width,
-                    height,
-                    size,
-                    radius_f,
-                    max_level,
-                    np,
+                    &mut enqueue_ctx,
+                    UVec2::new(cell.pos.x + 1, cell.pos.y),
                     cell.src,
-                    src_x,
-                    src_y,
                 );
             }
             if cell.pos.y + 1 < height {
-                let np = UVec2::new(cell.pos.x, cell.pos.y + 1);
                 try_enqueue_neighbour(
-                    &cache,
-                    &mut inflation_cells,
-                    &mut seen,
-                    width,
-                    height,
-                    size,
-                    radius_f,
-                    max_level,
-                    np,
+                    &mut enqueue_ctx,
+                    UVec2::new(cell.pos.x, cell.pos.y + 1),
                     cell.src,
-                    src_x,
-                    src_y,
                 );
             }
         }
     }
 }
 
-#[inline]
-fn try_enqueue_neighbour(
-    cache: &InflationCache,
-    inflation_cells: &mut [Vec<CellData>],
-    seen: &mut [bool],
+/// Mutable state used when enqueueing neighbours in the wavefront. Keeps
+/// `try_enqueue_neighbour` to three arguments instead of many.
+struct EnqueueContext<'a> {
+    cache: &'a InflationCache,
+    inflation_cells: &'a mut [Vec<CellData>],
+    seen: &'a mut [bool],
     width: u32,
-    _height: u32,
     size: usize,
     radius_f: f32,
     max_level: u32,
-    np: UVec2,
-    src: UVec2,
-    src_x: i32,
-    src_y: i32,
-) {
-    let idx = (np.y * width + np.x) as usize;
-    if idx >= size || seen[idx] {
+}
+
+#[inline]
+fn try_enqueue_neighbour(ctx: &mut EnqueueContext<'_>, np: UVec2, src: UVec2) {
+    let idx = (np.y * ctx.width + np.x) as usize;
+    if idx >= ctx.size || ctx.seen[idx] {
         return;
     }
-    let dx = np.x as i32 - src_x;
-    let dy = np.y as i32 - src_y;
-    let dist = cache.distance_lookup(dx, dy);
-    if dist > radius_f {
+    let dx = np.x as i32 - src.x as i32;
+    let dy = np.y as i32 - src.y as i32;
+    let dist = ctx.cache.distance_lookup(dx, dy);
+    if dist > ctx.radius_f {
         return;
     }
-    let lvl = cache.dist_level(dx, dy);
-    if lvl <= max_level {
-        inflation_cells[lvl as usize].push(CellData { pos: np, src });
+    let lvl = ctx.cache.dist_level(dx, dy);
+    if lvl <= ctx.max_level {
+        ctx.inflation_cells[lvl as usize].push(CellData { pos: np, src });
     }
 }
 
@@ -493,7 +470,8 @@ impl Grid2d<u8> {
             min: UVec2::ZERO,
             max: UVec2::new(self.width(), self.height()),
         };
-        inflate_wavefront(self, region, &cache, InflateOptions::default());
+        let mut seen = Vec::new();
+        inflate_wavefront(self, region, &cache, InflateOptions::default(), &mut seen);
     }
 }
 
@@ -506,6 +484,8 @@ pub struct InflationLayer {
     cache: Option<InflationCache>,
     cached_radius_cells: Option<u32>,
     cached_resolution: Option<f32>,
+    /// Reusable buffer for wavefront visitation; resized when grid size changes.
+    seen: Vec<bool>,
 }
 
 impl InflationLayer {
@@ -530,6 +510,7 @@ impl InflationLayer {
             cache: None,
             cached_radius_cells: None,
             cached_resolution: None,
+            seen: Vec::new(),
         }
     }
 
@@ -553,7 +534,12 @@ impl InflationLayer {
 }
 
 impl Layer for InflationLayer {
-    fn reset(&mut self) {}
+    fn reset(&mut self) {
+        self.cache = None;
+        self.cached_radius_cells = None;
+        self.cached_resolution = None;
+        self.seen.clear();
+    }
 
     fn is_clearable(&self) -> bool {
         false
@@ -561,6 +547,13 @@ impl Layer for InflationLayer {
 
     fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
         bounds.expand_by(self.config.inflation_radius_m);
+    }
+
+    fn match_size(&mut self, _info: &MapInfo) {
+        self.cache = None;
+        self.cached_radius_cells = None;
+        self.cached_resolution = None;
+        self.seen.clear();
     }
 
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
@@ -598,7 +591,7 @@ impl Layer for InflationLayer {
                 inflate_unknown: self.config.inflate_unknown,
                 inflate_around_unknown: self.config.inflate_around_unknown,
             };
-            inflate_wavefront(master, region, cache, options);
+            inflate_wavefront(master, region, cache, options, &mut self.seen);
         }
     }
 }
@@ -864,7 +857,8 @@ mod tests {
         });
 
         let m = layered.master();
-        assert_eq!(m.get(UVec2::new(2, 2)).copied(), Some(COST_UNKNOWN));
+        // Seed cell gets the inflation cost at distance 0 (LETHAL), same as Nav2
+        assert_eq!(m.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
         let near = m.get(UVec2::new(3, 2)).copied().unwrap_or(0);
         assert!(
             near > COST_FREE,
