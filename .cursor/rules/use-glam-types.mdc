@@ -1,0 +1,42 @@
+---
+description: Use glam types for coordinates, positions, and spatial math
+globs: **/*.rs
+alwaysApply: false
+---
+
+# Use Glam Types When Appropriate
+
+Use `glam` types for coordinates, positions, and spatial vectors instead of raw tuples or separate `x`/`y` parameters.
+
+## Type Mapping
+
+| Use case              | Type            | Notes                          |
+| --------------------- | --------------- | ------------------------------ |
+| Cell indices (u32)    | `UVec2`         | Grid coordinates, unsigned     |
+| Signed grid coords    | `IVec2`         | Offsets, deltas, ray stepping  |
+| World coords (meters) | `Vec2`          | Physical positions, transforms |
+| 3D when needed        | `Vec3`, `UVec3` | Spatial ops, voxels            |
+
+## Avoid
+
+```rust
+// BAD: tuples or separate params for coordinates
+fn get_cell(&self, x: u32, y: u32) -> u8;
+fn ray_to(&self, from: (f32, f32), to: (f32, f32));
+fn region(min_x: u32, min_y: u32, max_x: u32, max_y: u32) -> ...;
+```
+
+## Prefer
+
+```rust
+// GOOD: glam types for spatial data
+fn get_cell(&self, cell: UVec2) -> u8;
+fn ray_to(&self, from: Vec2, to: Vec2);
+fn region(min: UVec2, max: UVec2) -> CellRegion;
+```
+
+## Why
+
+- Consistent with `Pose2`, `Bounds`, `CellRegion`, and `Footprint`
+- Enables vector ops (`.min()`, `.max()`, `+`, `-`)
+- Clear semantics: `UVec2` = indices, `Vec2` = world coords
