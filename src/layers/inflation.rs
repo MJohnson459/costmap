@@ -11,11 +11,17 @@
 //! [`InflationLayer`] implements the layered costmap [`Layer`](crate::grid::Layer)
 //! trait so it can be used inside [`LayeredGrid2d`](crate::grid::LayeredGrid2d).
 
-use glam::UVec2;
+use glam::{IVec2, UVec2};
 
 use crate::Grid2d;
 use crate::grid::{Bounds, CellRegion, Layer, Pose2};
 use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, MapInfo};
+
+/// Epsilon for comparing resolution (f32) when deciding whether to rebuild the cache.
+const RESOLUTION_EPSILON: f32 = 1e-9;
+
+/// Padding added to the cache so that it contains more of the exponential decay curve.
+const CACHE_PADDING: u32 = 3;
 
 /// Cell data for wavefront propagation: cell position and the obstacle source
 /// it was enqueued from (for cost lookup).
@@ -45,8 +51,8 @@ pub fn inflation_radius_to_cells(radius_m: f32, resolution: f32) -> u32 {
 ///   - Otherwise            → `exp(-cost_scaling_factor * (distance - inscribed_radius)) * (COST_INSCRIBED - 1)`
 ///
 /// Distance and inscribed_radius can be in any consistent units (cells or meters).
-/// For Nav2 parity with world units, pass distances in meters and use
-/// `cost_scaling_factor` as in Nav2; for cell units pass `cost_scaling_factor * resolution`.
+/// For world units, pass distances in meters and use `cost_scaling_factor`; for
+/// cell units pass `cost_scaling_factor * resolution`.
 pub fn inscribed_inflation_cost(
     distance: f32,
     inscribed_radius: f32,
@@ -64,7 +70,7 @@ pub fn inscribed_inflation_cost(
     value.max(COST_FREE)
 }
 
-/// Configuration for the inflation layer (Nav2 parity).
+/// Configuration for the inflation layer.
 ///
 /// Groups parameters that control inflation behaviour. Defaults match Nav2.
 #[derive(Debug, Clone)]
@@ -102,84 +108,91 @@ impl Default for InflationConfig {
 /// and a level matrix for wavefront ordering. Uses symmetry for negative coords.
 /// Recompute when radius, resolution (for world-unit layer), or inscribed/scaling change.
 pub struct InflationCache {
-    cell_inflation_radius: u32,
-    side: usize,
+    /// Radius to inflate around a cell in world units
+    radius: f32,
+    /// Side length of the cache (width/height)
+    side: u32,
+    /// Cached costs for each positive position in the cache
     costs: Vec<u8>,
+    /// Cached world distances for each position in the cache
     distances: Vec<f32>,
-    /// Integer distance levels for wavefront: [dx + r][dy + r] -> level. r = cell_inflation_radius + 2.
+    /// Integer distance levels for wavefront
     distance_levels: Vec<u32>,
-    level_side: usize,
+    /// Side length of the distance-level matrix (2*r + 1)
+    level_side: u32,
     max_level: u32,
 }
 
-impl InflationCache {
-    /// Build the cache for cell-space inscribed cost.
-    ///
-    /// Used by `Grid2d::inflate_inscribed`. All units are in cells.
-    pub fn build(radius_cells: u32, inscribed_radius_cells: f32, cost_scaling_factor: f32) -> Self {
-        let extent = radius_cells as usize + 3;
-
-        let mut costs = Vec::with_capacity(extent * extent);
-        let mut distances = Vec::with_capacity(extent * extent);
-
-        for dy in 0..extent {
-            for dx in 0..extent {
-                let dist = ((dx * dx + dy * dy) as f32).sqrt();
-                distances.push(dist);
-                costs.push(inscribed_inflation_cost(
-                    dist,
-                    inscribed_radius_cells,
-                    cost_scaling_factor,
-                ));
+impl std::fmt::Debug for InflationCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut costs = String::new();
+        for (i, cost) in self.costs.iter().enumerate() {
+            if i % self.side as usize == 0 {
+                costs.push('\n');
             }
+            costs.push_str(&format!("{:3} ", cost));
         }
-
-        let (distance_levels, level_side, max_level) =
-            Self::generate_integer_distances(radius_cells);
-
-        Self {
-            cell_inflation_radius: radius_cells,
-            side: extent,
+        costs.push('\n');
+        let mut distances = String::new();
+        for (i, distance) in self.distances.iter().enumerate() {
+            if i % self.side as usize == 0 {
+                distances.push('\n');
+            }
+            distances.push_str(&format!("{:2.6} ", distance));
+        }
+        distances.push('\n');
+        let mut distance_levels = String::new();
+        for (i, distance_level) in self.distance_levels.iter().enumerate() {
+            if i % self.level_side as usize == 0 {
+                distance_levels.push('\n');
+            }
+            distance_levels.push_str(&format!("{:2} ", distance_level));
+        }
+        distance_levels.push('\n');
+        write!(
+            f,
+            "InflationCache {{ radius: {}, side: {}, level_side: {}, max_level: {}\ncosts: {}\ndistances: {}\ndistance_levels: {} }}",
+            self.radius,
+            self.side,
+            self.level_side,
+            self.max_level,
             costs,
             distances,
             distance_levels,
-            level_side,
-            max_level,
-        }
+        )
     }
+}
 
-    /// Build the cache for world-unit inscribed cost (used by InflationLayer with resolution).
-    /// Distance lookup returns cell distance (for wavefront radius check); costs use world units.
-    pub fn build_world(
-        radius_cells: u32,
-        resolution: f32,
+impl InflationCache {
+    /// Build the cache for inscribed cost.
+    /// Distance lookup returns world distance (for wavefront radius check); costs use world units.
+    pub fn build(
+        radius_m: f32,
         inscribed_radius_m: f32,
+        resolution: f32,
         cost_scaling_factor: f32,
     ) -> Self {
-        let extent = radius_cells as usize + 3;
+        let radius_cells = inflation_radius_to_cells(radius_m, resolution);
 
-        let mut costs = Vec::with_capacity(extent * extent);
-        let mut distances = Vec::with_capacity(extent * extent);
-
-        for dy in 0..extent {
-            for dx in 0..extent {
-                let dist_cells = ((dx * dx + dy * dy) as f32).sqrt();
-                let dist_m = dist_cells * resolution;
-                distances.push(dist_cells);
-                costs.push(inscribed_inflation_cost(
-                    dist_m,
-                    inscribed_radius_m,
-                    cost_scaling_factor,
-                ));
+        let padded_radius = radius_cells + CACHE_PADDING;
+        let cost_fn =
+            |dist_m: f32| inscribed_inflation_cost(dist_m, inscribed_radius_m, cost_scaling_factor);
+        let capacity = (padded_radius * padded_radius) as usize;
+        let mut costs = Vec::with_capacity(capacity);
+        let mut distances = Vec::with_capacity(capacity);
+        for dy in 0..padded_radius {
+            for dx in 0..padded_radius {
+                let dist_m = ((dx * dx + dy * dy) as f32).sqrt() * resolution;
+                distances.push(dist_m);
+                costs.push(cost_fn(dist_m));
             }
         }
-
         let (distance_levels, level_side, max_level) =
-            Self::generate_integer_distances(radius_cells);
+            Self::generate_integer_distances(padded_radius);
 
         Self {
-            cell_inflation_radius: radius_cells,
-            side: extent,
+            radius: radius_m,
+            side: padded_radius,
             costs,
             distances,
             distance_levels,
@@ -188,76 +201,74 @@ impl InflationCache {
         }
     }
 
-    fn generate_integer_distances(cell_inflation_radius: u32) -> (Vec<u32>, usize, u32) {
-        let r = cell_inflation_radius as i32 + 2;
+    fn generate_integer_distances(radius: u32) -> (Vec<u32>, u32, u32) {
+        let r = radius as i32;
 
-        let mut points: Vec<(i32, i32)> = Vec::new();
+        let mut points: Vec<IVec2> = Vec::new();
         for y in -r..=r {
             for x in -r..=r {
                 if x * x + y * y <= r * r {
-                    points.push((x, y));
+                    points.push(IVec2::new(x, y));
                 }
             }
         }
-        points.sort_by_key(|(x, y)| x * x + y * y);
 
-        let size = (2 * r + 1) as usize;
+        points.sort_by_key(|p| p.length_squared());
+
+        let level_side = (2 * r + 1) as u32;
+        let size = level_side as usize;
         let mut distance_matrix = vec![0u32; size * size];
         let mut last_dist_sq = -1i32;
         let mut level = 0u32;
-        for (x, y) in points {
-            let dist_sq = x * x + y * y;
+        for p in points {
+            let dist_sq = p.length_squared();
             if dist_sq != last_dist_sq {
                 level += 1;
                 last_dist_sq = dist_sq;
             }
-            let ix = (x + r) as usize;
-            let iy = (y + r) as usize;
-            distance_matrix[iy * size + ix] = level;
+            let i = (p + r).as_usizevec2();
+            distance_matrix[i.y * size + i.x] = level;
         }
 
-        (distance_matrix, size, level)
+        (distance_matrix, level_side, level)
     }
 
+    /// Lookup the cost for a given distance delta.
     #[inline]
-    pub fn cost_lookup(&self, dx: i32, dy: i32) -> u8 {
-        let adx = dx.unsigned_abs() as usize;
-        let ady = dy.unsigned_abs() as usize;
-        if adx >= self.side || ady >= self.side {
+    pub fn cost_lookup(&self, delta: IVec2) -> u8 {
+        let a = delta.abs().as_uvec2();
+        if a.x >= self.side || a.y >= self.side {
             return COST_FREE;
         }
-        self.costs[ady * self.side + adx]
+        self.costs[(a.y * self.side + a.x) as usize]
     }
 
     #[inline]
-    pub fn distance_lookup(&self, dx: i32, dy: i32) -> f32 {
-        let adx = dx.unsigned_abs() as usize;
-        let ady = dy.unsigned_abs() as usize;
-        if adx >= self.side || ady >= self.side {
+    pub fn distance_lookup(&self, delta: IVec2) -> f32 {
+        let a = delta.abs().as_uvec2();
+        if a.x >= self.side || a.y >= self.side {
             return f32::MAX;
         }
-        self.distances[ady * self.side + adx]
+        self.distances[(a.y * self.side + a.x) as usize]
     }
 
+    /// Lookup the distance level for a given distance delta.
+    ///
+    /// If the distance delta is outside the cache, returns the max level + 1.
     #[inline]
-    fn dist_level(&self, dx: i32, dy: i32) -> u32 {
-        let r = self.cell_inflation_radius as i32 + 2;
-        let ix = dx + r;
-        let iy = dy + r;
-        if ix < 0 || iy < 0 {
+    fn dist_level(&self, delta: IVec2) -> u32 {
+        let r = self.side as i32;
+        let shifted = delta + r;
+        let i = shifted.as_uvec2();
+        if i.x >= self.level_side || i.y >= self.level_side {
             return self.max_level + 1;
         }
-        let ix = ix as usize;
-        let iy = iy as usize;
-        if ix >= self.level_side || iy >= self.level_side {
-            return self.max_level + 1;
-        }
-        self.distance_levels[iy * self.level_side + ix]
+        self.distance_levels[(i.y * self.level_side + i.x) as usize]
     }
 
     #[inline]
     pub fn cell_inflation_radius(&self) -> u32 {
-        self.cell_inflation_radius
+        self.radius.ceil() as u32
     }
 
     #[inline]
@@ -267,11 +278,19 @@ impl InflationCache {
 
     #[inline]
     fn radius_f(&self) -> f32 {
-        self.cell_inflation_radius as f32
+        self.radius
     }
 }
 
-/// Options for inflation write and seed behaviour (Nav2 parity).
+/// Cardinal neighbour offsets for 4-connected wavefront propagation.
+const CARDINAL_OFFSETS: [IVec2; 4] = [
+    IVec2::new(-1, 0),
+    IVec2::new(1, 0),
+    IVec2::new(0, -1),
+    IVec2::new(0, 1),
+];
+
+/// Options for inflation write and seed behaviour.
 #[derive(Clone, Copy, Default)]
 pub struct InflateOptions {
     /// When true, allow overwriting unknown cells with inflation cost if cost > FREE.
@@ -280,171 +299,58 @@ pub struct InflateOptions {
     pub inflate_around_unknown: bool,
 }
 
-/// Inflate lethal (and optionally unknown) cells in place using wavefront propagation.
-///
-/// `seen` is a reusable buffer; it is resized to `width * height` if needed and cleared on use.
-fn inflate_wavefront(
-    grid: &mut Grid2d<u8>,
-    region: CellRegion,
-    cache: &InflationCache,
-    options: InflateOptions,
-    seen: &mut Vec<bool>,
-) {
-    let w = region.max.x.saturating_sub(region.min.x);
-    let h = region.max.y.saturating_sub(region.min.y);
-    if w == 0 || h == 0 {
-        return;
-    }
-
-    let radius_cells = cache.cell_inflation_radius();
-    let width = grid.width();
-    let height = grid.height();
-    let size = (width * height) as usize;
-    let radius_f = cache.radius_f();
-    let max_level = cache.max_level();
-
-    if seen.len() != size {
-        seen.resize(size, false);
-    } else {
-        seen.fill(false);
-    }
-
-    let search_min_x = region.min.x.saturating_sub(radius_cells);
-    let search_min_y = region.min.y.saturating_sub(radius_cells);
-    let search_max_x = (region.max.x + radius_cells).min(width);
-    let search_max_y = (region.max.y + radius_cells).min(height);
-
-    let mut seeds = Vec::new();
-    for y in search_min_y..search_max_y {
-        for x in search_min_x..search_max_x {
-            let pos = UVec2::new(x, y);
-            let cost = grid.get(pos).copied().unwrap_or(COST_FREE);
-            if cost == COST_LETHAL {
-                seeds.push(CellData { pos, src: pos });
-            } else if options.inflate_around_unknown && cost == COST_UNKNOWN {
-                seeds.push(CellData { pos, src: pos });
-            }
-        }
-    }
-
-    if seeds.is_empty() {
-        return;
-    }
-
-    let mut inflation_cells: Vec<Vec<CellData>> = vec![Vec::new(); (max_level + 1) as usize];
-    inflation_cells[0] = seeds;
-
-    let mut enqueue_ctx = EnqueueContext {
-        cache,
-        inflation_cells: &mut inflation_cells,
-        seen: seen.as_mut_slice(),
-        width,
-        size,
-        radius_f,
-        max_level,
-    };
-
-    for level in 0..=max_level {
-        let level_usize = level as usize;
-        let mut i = 0;
-        while i < enqueue_ctx.inflation_cells[level_usize].len() {
-            let cell = enqueue_ctx.inflation_cells[level_usize][i];
-            i += 1;
-
-            let index = (cell.pos.y * enqueue_ctx.width + cell.pos.x) as usize;
-            if index >= enqueue_ctx.size || enqueue_ctx.seen[index] {
-                continue;
-            }
-            enqueue_ctx.seen[index] = true;
-
-            if region.contains(cell.pos) {
-                let dx = cell.pos.x as i32 - cell.src.x as i32;
-                let dy = cell.pos.y as i32 - cell.src.y as i32;
-                let cost = cache.cost_lookup(dx, dy);
-                let current = grid.get(cell.pos).copied().unwrap_or(COST_FREE);
-
-                let new_cost = if current == COST_UNKNOWN {
-                    // Nav2: when inflate_unknown, overwrite if cost > FREE; else overwrite if cost >= INSCRIBED
-                    if options.inflate_unknown {
-                        if cost > COST_FREE { Some(cost) } else { None }
-                    } else if cost >= COST_INSCRIBED {
-                        Some(cost)
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(cost.max(current))
-                };
-
-                if let Some(c) = new_cost {
-                    let _ = grid.set(cell.pos, c);
-                }
-            }
-
-            if cell.pos.x > 0 {
-                try_enqueue_neighbour(
-                    &mut enqueue_ctx,
-                    UVec2::new(cell.pos.x - 1, cell.pos.y),
-                    cell.src,
-                );
-            }
-            if cell.pos.y > 0 {
-                try_enqueue_neighbour(
-                    &mut enqueue_ctx,
-                    UVec2::new(cell.pos.x, cell.pos.y - 1),
-                    cell.src,
-                );
-            }
-            if cell.pos.x + 1 < width {
-                try_enqueue_neighbour(
-                    &mut enqueue_ctx,
-                    UVec2::new(cell.pos.x + 1, cell.pos.y),
-                    cell.src,
-                );
-            }
-            if cell.pos.y + 1 < height {
-                try_enqueue_neighbour(
-                    &mut enqueue_ctx,
-                    UVec2::new(cell.pos.x, cell.pos.y + 1),
-                    cell.src,
-                );
-            }
-        }
-    }
-}
-
 /// Mutable state used when enqueueing neighbours in the wavefront. Keeps
 /// `try_enqueue_neighbour` to three arguments instead of many.
 struct EnqueueContext<'a> {
     cache: &'a InflationCache,
     inflation_cells: &'a mut [Vec<CellData>],
     seen: &'a mut [bool],
-    width: u32,
+    width: usize,
     size: usize,
     radius_f: f32,
     max_level: u32,
 }
 
-#[inline]
-fn try_enqueue_neighbour(ctx: &mut EnqueueContext<'_>, np: UVec2, src: UVec2) {
-    let idx = (np.y * ctx.width + np.x) as usize;
-    if idx >= ctx.size || ctx.seen[idx] {
-        return;
+impl EnqueueContext<'_> {
+    #[inline]
+    fn enqueue_neighbour(&mut self, neighbour: UVec2, src: UVec2) {
+        if self.is_seen(neighbour) {
+            return;
+        }
+        let delta = neighbour.as_ivec2() - src.as_ivec2();
+        let dist = self.cache.distance_lookup(delta);
+        if dist > self.radius_f {
+            return;
+        }
+        let lvl = self.cache.dist_level(delta);
+        if lvl <= self.max_level {
+            self.inflation_cells[lvl as usize].push(CellData {
+                pos: neighbour,
+                src,
+            });
+        }
     }
-    let dx = np.x as i32 - src.x as i32;
-    let dy = np.y as i32 - src.y as i32;
-    let dist = ctx.cache.distance_lookup(dx, dy);
-    if dist > ctx.radius_f {
-        return;
+
+    fn is_seen(&self, pos: UVec2) -> bool {
+        let idx = pos.as_usizevec2();
+        let index = idx.y * self.width + idx.x;
+        index >= self.size || self.seen[index]
     }
-    let lvl = ctx.cache.dist_level(dx, dy);
-    if lvl <= ctx.max_level {
-        ctx.inflation_cells[lvl as usize].push(CellData { pos: np, src });
+
+    /// Mark a cell as seen, returning true if it was not already seen.
+    fn mark_seen(&mut self, pos: UVec2) -> bool {
+        let idx = pos.as_usizevec2();
+        let index = idx.y * self.width + idx.x;
+        if index >= self.size || self.seen[index] {
+            return false;
+        }
+        self.seen[index] = true;
+        true
     }
 }
 
 impl Grid2d<u8> {
-    /// Inflate lethal obstacles in place using inscribed exponential decay (Nav2-style).
+    /// Inflate lethal obstacles in place using inscribed exponential decay.
     ///
     /// All parameters are in meters. `inscribed_radius_m` is the radius within which
     /// cost stays `COST_INSCRIBED`; `cost_scaling_factor` controls the decay beyond that.
@@ -455,23 +361,125 @@ impl Grid2d<u8> {
         cost_scaling_factor: f32,
     ) {
         let resolution = self.info().resolution;
-        let radius_cells = inflation_radius_to_cells(radius_m, resolution);
-        if radius_cells == 0 {
-            return;
-        }
-        let inscribed_radius_cells = if resolution > 0.0 {
-            inscribed_radius_m / resolution
-        } else {
-            0.0
-        };
-        let cache =
-            InflationCache::build(radius_cells, inscribed_radius_cells, cost_scaling_factor);
+        let cache = InflationCache::build(
+            radius_m,
+            inscribed_radius_m,
+            resolution,
+            cost_scaling_factor,
+        );
         let region = CellRegion {
             min: UVec2::ZERO,
             max: UVec2::new(self.width(), self.height()),
         };
         let mut seen = Vec::new();
-        inflate_wavefront(self, region, &cache, InflateOptions::default(), &mut seen);
+        self.inflate_wavefront(region, &cache, InflateOptions::default(), &mut seen);
+    }
+
+    /// Inflate lethal (and optionally unknown) cells in place using wavefront propagation.
+    ///
+    /// `seen` is a reusable buffer; it is resized to `width * height` if needed and cleared on use.
+    fn inflate_wavefront(
+        &mut self,
+        region: CellRegion,
+        cache: &InflationCache,
+        options: InflateOptions,
+        seen: &mut Vec<bool>,
+    ) {
+        let size = region.max.saturating_sub(region.min);
+        if size.x == 0 || size.y == 0 {
+            return;
+        }
+
+        let radius_cells = cache.cell_inflation_radius();
+        let width = self.width();
+        let height = self.height();
+        let size = (width * height) as usize;
+        let radius_f = cache.radius_f();
+        let max_level = cache.max_level();
+
+        if seen.len() != size {
+            seen.resize(size, false);
+        } else {
+            seen.fill(false);
+        }
+
+        let search_min = region.min.saturating_sub(UVec2::splat(radius_cells));
+        let search_max = (region.max + UVec2::splat(radius_cells)).min(UVec2::new(width, height));
+
+        let mut seeds = Vec::new();
+        for y in search_min.y..search_max.y {
+            for x in search_min.x..search_max.x {
+                let pos = UVec2::new(x, y);
+                let cost = self.get(pos).copied().unwrap_or(COST_FREE);
+                if cost == COST_LETHAL {
+                    seeds.push(CellData { pos, src: pos });
+                } else if options.inflate_around_unknown && cost == COST_UNKNOWN {
+                    seeds.push(CellData { pos, src: pos });
+                }
+            }
+        }
+
+        if seeds.is_empty() {
+            return;
+        }
+
+        let mut inflation_cells: Vec<Vec<CellData>> = vec![Vec::new(); (max_level + 1) as usize];
+        inflation_cells[0] = seeds;
+
+        let mut enqueue_ctx = EnqueueContext {
+            cache,
+            inflation_cells: &mut inflation_cells,
+            seen: seen.as_mut_slice(),
+            width: width as usize,
+            size,
+            radius_f,
+            max_level,
+        };
+
+        for level in 0..=max_level {
+            let level_usize = level as usize;
+            let mut i = 0;
+            while i < enqueue_ctx.inflation_cells[level_usize].len() {
+                let cell = enqueue_ctx.inflation_cells[level_usize][i];
+                i += 1;
+
+                if !enqueue_ctx.mark_seen(cell.pos) {
+                    continue;
+                }
+
+                if region.contains(cell.pos) {
+                    let delta = cell.pos.as_ivec2() - cell.src.as_ivec2();
+                    let cost = cache.cost_lookup(delta);
+                    let current = self.get(cell.pos).copied().unwrap_or(COST_FREE);
+
+                    let new_cost = if current == COST_UNKNOWN {
+                        // Nav2: when inflate_unknown, overwrite if cost > FREE; else overwrite if cost >= INSCRIBED
+                        if options.inflate_unknown {
+                            if cost > COST_FREE { Some(cost) } else { None }
+                        } else if cost >= COST_INSCRIBED {
+                            Some(cost)
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(cost.max(current))
+                    };
+
+                    if let Some(c) = new_cost {
+                        // Cell is within region, so set succeeds.
+                        let _ = self.set(cell.pos, c);
+                    }
+                }
+
+                for offset in CARDINAL_OFFSETS {
+                    let neighbour = cell.pos.as_ivec2() + offset;
+                    let neighbour = neighbour.as_uvec2();
+                    if neighbour.x < width && neighbour.y < height {
+                        enqueue_ctx.enqueue_neighbour(neighbour, cell.src);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -489,21 +497,8 @@ pub struct InflationLayer {
 }
 
 impl InflationLayer {
-    /// Create a layer with inscribed exponential decay (Nav2-style).
-    ///
-    /// All parameters in meters.
-    pub fn new(inflation_radius_m: f32, inscribed_radius_m: f32, cost_scaling_factor: f32) -> Self {
-        Self::from_config(InflationConfig {
-            enabled: true,
-            inflate_unknown: false,
-            inflate_around_unknown: false,
-            inflation_radius_m,
-            cost_scaling_factor,
-            inscribed_radius_m,
-        })
-    }
-
-    /// Create a layer from full config (Nav2 parity).
+    /// Create a layer from config.
+    #[must_use]
     pub fn from_config(config: InflationConfig) -> Self {
         Self {
             config,
@@ -514,31 +509,18 @@ impl InflationLayer {
         }
     }
 
-    /// Builder: set enabled. When false, update_costs returns immediately.
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.config.enabled = enabled;
-        self
-    }
-
-    /// Builder: set inflate_unknown.
-    pub fn inflate_unknown(mut self, inflate_unknown: bool) -> Self {
-        self.config.inflate_unknown = inflate_unknown;
-        self
-    }
-
-    /// Builder: set inflate_around_unknown.
-    pub fn inflate_around_unknown(mut self, inflate_around_unknown: bool) -> Self {
-        self.config.inflate_around_unknown = inflate_around_unknown;
-        self
+    /// Clear cache and seen buffer so the next update rebuilds.
+    fn invalidate_cache(&mut self) {
+        self.cache = None;
+        self.cached_radius_cells = None;
+        self.cached_resolution = None;
+        self.seen.clear();
     }
 }
 
 impl Layer for InflationLayer {
     fn reset(&mut self) {
-        self.cache = None;
-        self.cached_radius_cells = None;
-        self.cached_resolution = None;
-        self.seen.clear();
+        self.invalidate_cache();
     }
 
     fn is_clearable(&self) -> bool {
@@ -550,10 +532,7 @@ impl Layer for InflationLayer {
     }
 
     fn match_size(&mut self, _info: &MapInfo) {
-        self.cache = None;
-        self.cached_radius_cells = None;
-        self.cached_resolution = None;
-        self.seen.clear();
+        self.invalidate_cache();
     }
 
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
@@ -573,13 +552,13 @@ impl Layer for InflationLayer {
             .map_or(true, |cached| cached != radius_cells)
             || self
                 .cached_resolution
-                .map_or(false, |r| (r - resolution).abs() > 1e-9);
+                .map_or(false, |r| (r - resolution).abs() > RESOLUTION_EPSILON);
 
         if need_rebuild {
-            self.cache = Some(InflationCache::build_world(
-                radius_cells,
-                resolution,
+            self.cache = Some(InflationCache::build(
+                self.config.inflation_radius_m,
                 self.config.inscribed_radius_m,
+                resolution,
                 self.config.cost_scaling_factor,
             ));
             self.cached_radius_cells = Some(radius_cells);
@@ -591,7 +570,7 @@ impl Layer for InflationLayer {
                 inflate_unknown: self.config.inflate_unknown,
                 inflate_around_unknown: self.config.inflate_around_unknown,
             };
-            inflate_wavefront(master, region, cache, options, &mut self.seen);
+            master.inflate_wavefront(region, cache, options, &mut self.seen);
         }
     }
 }
@@ -635,6 +614,12 @@ mod tests {
         let cost = inscribed_inflation_cost(3.0, 1.0, 1.0);
         assert!(cost < crate::types::COST_INSCRIBED);
         assert!(cost > 0);
+    }
+
+    #[test]
+    fn inflation_cache_build() {
+        let cache = InflationCache::build(1.0, 0.1, 0.1, 3.0);
+        println!("{:?}", cache);
     }
 
     fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Grid2d<u8> {
@@ -707,7 +692,12 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, 0, false);
         layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(InflationLayer::new(0.5, 0.2, 3.0)));
+        layered.add_layer(Box::new(InflationLayer::from_config(InflationConfig {
+            inflation_radius_m: 0.5,
+            inscribed_radius_m: 0.2,
+            cost_scaling_factor: 3.0,
+            ..Default::default()
+        })));
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,
@@ -767,7 +757,13 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
         layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(InflationLayer::new(0.5, 0.4, 3.0).enabled(false)));
+        layered.add_layer(Box::new(InflationLayer::from_config(InflationConfig {
+            enabled: false,
+            inflation_radius_m: 0.5,
+            inscribed_radius_m: 0.4,
+            cost_scaling_factor: 3.0,
+            ..Default::default()
+        })));
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,
@@ -804,9 +800,13 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, COST_UNKNOWN, false);
         layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(
-            InflationLayer::new(0.5, 0.4, 3.0).inflate_unknown(true),
-        ));
+        layered.add_layer(Box::new(InflationLayer::from_config(InflationConfig {
+            inflate_unknown: true,
+            inflation_radius_m: 0.5,
+            inscribed_radius_m: 0.4,
+            cost_scaling_factor: 3.0,
+            ..Default::default()
+        })));
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,
@@ -848,9 +848,13 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
         layered.add_layer(Box::new(OneUnknownLayer));
-        layered.add_layer(Box::new(
-            InflationLayer::new(0.5, 0.4, 3.0).inflate_around_unknown(true),
-        ));
+        layered.add_layer(Box::new(InflationLayer::from_config(InflationConfig {
+            inflation_radius_m: 0.5,
+            inscribed_radius_m: 0.4,
+            cost_scaling_factor: 3.0,
+            inflate_around_unknown: true,
+            ..Default::default()
+        })));
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,

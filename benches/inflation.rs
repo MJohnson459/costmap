@@ -3,9 +3,12 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
-use costmap::grid::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
 use costmap::types::{COST_FREE, COST_LETHAL, MapInfo};
 use costmap::{Grid2d, InflationLayer};
+use costmap::{
+    InflationConfig,
+    grid::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2},
+};
 
 #[derive(Clone, Copy)]
 enum LethalPattern {
@@ -188,7 +191,12 @@ fn bench_inflation(c: &mut Criterion) {
             .flat_map(|y| (0..256).step_by(32).map(move |x| UVec2::new(x, y)))
             .collect();
         let static_layer = StaticLethalsLayer { positions, info };
-        let inflation_layer = InflationLayer::new(0.5, 0.1, 1.0);
+        let inflation_layer = InflationLayer::from_config(InflationConfig {
+            inflation_radius_m: 0.5,
+            inscribed_radius_m: 0.1,
+            cost_scaling_factor: 1.0,
+            ..Default::default()
+        });
         let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
         layered.add_layer(Box::new(static_layer));
         layered.add_layer(Box::new(inflation_layer));

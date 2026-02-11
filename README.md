@@ -135,7 +135,7 @@ Complete local costmap workflow for mobile robot navigation. Shows how to:
 ### Costmap
 
 - [x] Costmap constants (free / inscribed / lethal / unknown)
-- [x] Inflation with Nav2-style inscribed exponential decay
+- [x] Inflation with inscribed exponential decay
 - [x] Unknown-cell preservation through inflation
 - [x] Polygon iterators and footprint cost queries
 - [ ] Full Nav2 layer lifecycle (initialize, reset, update bounds/costs)
