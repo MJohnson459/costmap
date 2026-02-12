@@ -25,7 +25,6 @@ approx = { version = "0.5.1", default-features = false }
 [features]
 default = []
 viewer = ["pixels", "winit"]
-nav2_compat = []
 voxel3d = []
 rerun = ["dep:rerun"]
 

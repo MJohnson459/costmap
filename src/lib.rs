@@ -9,9 +9,6 @@ pub mod visualization;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
-#[cfg(feature = "nav2_compat")]
-pub mod nav2_compat;
-
 pub use grid::{Grid, Grid2d, Layer, LayeredGrid2d};
 pub use layers::{InflationConfig, InflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
