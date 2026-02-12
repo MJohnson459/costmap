@@ -11,6 +11,7 @@
 //! [`InflationLayer`] implements the layered costmap [`Layer`](crate::grid::Layer)
 //! trait so it can be used inside [`LayeredGrid2d`](crate::grid::LayeredGrid2d).
 
+use bitvec::prelude::*;
 use glam::{IVec2, UVec2};
 
 use crate::Grid2d;
@@ -189,7 +190,7 @@ struct WavefrontInflation {
     /// Reusable buffer for wavefront visitation; resized when grid size changes.
     inflation_cells: Vec<Vec<CellData>>,
     /// Reusable buffer for wavefront visitation; resized when grid size changes.
-    seen: Vec<bool>,
+    seen: BitVec<usize, Lsb0>,
     /// Width of the grid
     width: usize,
     /// Height of the grid
@@ -237,7 +238,7 @@ impl WavefrontInflation {
             level_side,
             max_level,
             inflation_cells,
-            seen: Vec::new(),
+            seen: BitVec::new(),
             width: 0,
             height: 0,
             size: 0,
@@ -444,7 +445,7 @@ impl WavefrontInflation {
         if index >= self.size || self.seen[index] {
             return false;
         }
-        self.seen[index] = true;
+        self.seen.set(index, true);
         true
     }
 }

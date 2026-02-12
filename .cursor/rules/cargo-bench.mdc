@@ -1,0 +1,7 @@
+---
+description: Don't run cargo bench
+alwaysApply: true
+---
+
+Cargo bench gives a diff with the previous run. Don't run it automatically as
+this removes the results for me.

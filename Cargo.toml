@@ -9,6 +9,7 @@ keywords = ["costmap", "occupancy-grid", "raycasting", "robotics", "nav2"]
 categories = ["science", "algorithms", "simulation"]
 
 [dependencies]
+bitvec = "1.0"
 glam = "0.30"
 image = "0.25"
 pixels = { version = "0.15", optional = true }
