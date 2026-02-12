@@ -63,6 +63,10 @@ pub struct CellRegion {
 }
 
 impl CellRegion {
+    pub fn new(min: UVec2, max: UVec2) -> Self {
+        Self { min, max }
+    }
+
     /// Returns true if the cell position is inside this region (half-open bounds).
     #[inline]
     pub fn contains(&self, pos: UVec2) -> bool {

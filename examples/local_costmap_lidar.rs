@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_range_m: MAX_RANGE_M,
         n_beams: N_BEAMS,
     }));
-    layered.add_layer(Box::new(InflationLayer::from_config(InflationConfig {
+    layered.add_layer(Box::new(InflationLayer::new(InflationConfig {
         inflation_radius_m: 0.9,
         inscribed_radius_m: 0.15,
         cost_scaling_factor: 3.0,

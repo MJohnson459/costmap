@@ -40,7 +40,7 @@ const Z_FOOTPRINT: f32 = 0.08;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut costmap = create_funnel_costmap();
-    costmap.inflate_inscribed(0.15, 0.1, 3.0);
+    costmap.inflate(0.15, 0.1, 3.0);
 
     let footprint = Footprint::rectangle(ROBOT_LENGTH, ROBOT_WIDTH);
     let info = costmap.info();

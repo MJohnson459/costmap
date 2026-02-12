@@ -106,7 +106,7 @@ fn bench_inflation(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate_inscribed(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
@@ -119,7 +119,7 @@ fn bench_inflation(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate_inscribed(0.0, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(0.0, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
@@ -132,7 +132,7 @@ fn bench_inflation(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate_inscribed(0.05, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(0.05, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
@@ -145,7 +145,7 @@ fn bench_inflation(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate_inscribed(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
@@ -158,7 +158,7 @@ fn bench_inflation(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate_inscribed(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
@@ -171,7 +171,7 @@ fn bench_inflation(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate_inscribed(1.0, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(1.0, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
@@ -191,7 +191,7 @@ fn bench_inflation(c: &mut Criterion) {
             .flat_map(|y| (0..256).step_by(32).map(move |x| UVec2::new(x, y)))
             .collect();
         let static_layer = StaticLethalsLayer { positions, info };
-        let inflation_layer = InflationLayer::from_config(InflationConfig {
+        let inflation_layer = InflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
             inscribed_radius_m: 0.1,
             cost_scaling_factor: 1.0,
