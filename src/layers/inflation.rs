@@ -25,8 +25,6 @@ const CACHE_PADDING: u32 = 3;
 /// Groups parameters that control inflation behaviour. Defaults match Nav2.
 #[derive(Debug, Clone)]
 pub struct InflationConfig {
-    /// When false, `update_costs` returns immediately without inflating.
-    pub enabled: bool,
     /// When true, allow overwriting unknown cells with inflation cost if cost > FREE.
     pub inflate_unknown: bool,
     /// When true, treat COST_UNKNOWN cells as obstacle seeds (same as lethal).
@@ -42,7 +40,6 @@ pub struct InflationConfig {
 impl Default for InflationConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             inflate_unknown: false,
             inflate_around_unknown: false,
             inflation_radius_m: 0.55,
@@ -95,10 +92,6 @@ impl Layer for InflationLayer {
     }
 
     fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
-        if !self.config.enabled {
-            return;
-        }
-
         let resolution = master.info().resolution;
         let radius_cells = cell_distance(self.config.inflation_radius_m, resolution);
 
@@ -321,7 +314,6 @@ impl WavefrontInflation {
                     let current = grid.get(cell.pos).copied().unwrap_or(COST_FREE);
 
                     let new_cost = if current == COST_UNKNOWN {
-                        // When inflate_unknown, overwrite if cost > FREE; else overwrite if cost >= INSCRIBED
                         if options.inflate_unknown {
                             if cost > COST_FREE { Some(cost) } else { None }
                         } else if cost >= COST_INSCRIBED {
@@ -710,49 +702,6 @@ mod tests {
         assert_eq!(dest.get(UVec2::new(0, 2)).copied(), Some(COST_FREE));
         assert_eq!(dest.get(UVec2::new(4, 2)).copied(), Some(COST_LETHAL));
         assert!(dest.get(UVec2::new(3, 2)).copied().unwrap_or(0) > COST_FREE);
-    }
-
-    #[test]
-    fn inflation_layer_disabled_does_not_inflate() {
-        let info = MapInfo {
-            width: 5,
-            height: 5,
-            resolution: 0.2,
-            ..Default::default()
-        };
-
-        struct OneLethalLayer;
-        impl Layer for OneLethalLayer {
-            fn reset(&mut self) {}
-            fn is_clearable(&self) -> bool {
-                true
-            }
-            fn update_bounds(&mut self, robot: Pose2, bounds: &mut crate::grid::Bounds) {
-                bounds.expand_to_include(robot.position);
-                bounds.expand_by(1.0);
-            }
-            fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
-                let _ = master.set(UVec2::new(2, 2), COST_LETHAL);
-            }
-        }
-
-        let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
-        layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(InflationLayer::new(InflationConfig {
-            enabled: false,
-            inflation_radius_m: 0.5,
-            inscribed_radius_m: 0.4,
-            cost_scaling_factor: 3.0,
-            ..Default::default()
-        })));
-        layered.update_map(Pose2 {
-            position: Vec2::new(0.5, 0.5),
-            yaw: 0.0,
-        });
-
-        let m = layered.master();
-        assert_eq!(m.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
-        assert_eq!(m.get(UVec2::new(3, 2)).copied(), Some(COST_FREE));
     }
 
     #[test]
