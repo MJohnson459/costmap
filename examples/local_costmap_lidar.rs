@@ -24,12 +24,12 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::time::Duration;
 
-use costmap::grid::merge_overwrite;
 use costmap::raycast::RayHit2D;
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
 use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
 use costmap::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
 use costmap::{Grid2d, InflationLayer, MapInfo, OccupancyGrid, RosMapLoader};
+use costmap::{InflationConfig, grid::merge_overwrite};
 use glam::{Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
@@ -122,11 +122,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_range_m: MAX_RANGE_M,
         n_beams: N_BEAMS,
     }));
-    layered.add_layer(Box::new(InflationLayer::new(
-        0.9,  // inflation_radius_m
-        0.15, // inscribed_radius_m
-        3.0,  // cost_scaling_factor (lower = softer decay)
-    )));
+    layered.add_layer(Box::new(InflationLayer::from_config(InflationConfig {
+        inflation_radius_m: 0.9,
+        inscribed_radius_m: 0.15,
+        cost_scaling_factor: 3.0,
+        ..Default::default()
+    })));
 
     let (segment_lengths, total_length) = build_segments(&waypoints);
 
