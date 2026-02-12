@@ -14,72 +14,80 @@ const INF: f32 = f32::MAX / 2.0;
 // 1D Distance Transform — the core building block
 // ---------------------------------------------------------------------------
 
-/// Compute the 1D squared-distance transform of `input` into `output`.
+/// Compute the 1D squared-distance transform of `f` in-place.
 ///
-/// `input[i]` should be 0.0 for obstacle cells and INF for free cells.
-/// After this call, `output[i]` contains the minimum of
-///   input[j] + (i - j)^2
-/// over all j — i.e. the squared distance to the nearest zero in `input`,
-/// propagated through any non-zero costs already present.
+/// `f[i]` should be 0.0 for obstacle cells and INF for free cells.
+/// After this call, `f[i]` contains the minimum of
+///   f_orig[j] + (i - j)^2
+/// over all j.
 ///
-/// Both slices must have the same length. Uses O(n) scratch space via the
-/// `v`, `z` buffers (parabola vertices and intersection points).
-fn dt_1d(input: &[f32], output: &mut [f32], v: &mut [usize], z: &mut [f32]) {
-    let n = input.len();
+/// `v` must have length >= n, `z` must have length >= n+1, `d` must have
+/// length >= n, where n = f.len().
+///
+/// This follows the original Felzenszwalb & Huttenlocher reference
+/// implementation closely, using unsafe indexing to eliminate bounds checks
+/// in the hot loop.
+///
+/// # Safety
+/// `v`, `z`, `d` must be at least as large as documented above.
+fn dt_1d(f: &[f32], d: &mut [f32], v: &mut [i32], z: &mut [f32]) {
+    let n = f.len();
     if n == 0 {
         return;
     }
 
-    // v[i] = index of the i-th parabola in the lower envelope
-    // z[i] = left boundary of the region where the i-th parabola is minimal
-    // k    = index of the rightmost parabola in the envelope so far
+    // SAFETY: all indices are bounded by n (for f, d, v) or n+1 (for z).
+    // k is bounded by q which is bounded by n-1, and v[k] is always a
+    // previously assigned q value, also bounded by n-1. The while loop
+    // in the envelope construction can decrement k to -1, but z[0] = -INF
+    // guarantees s > z[0] so we never read z at a negative index after the
+    // first iteration — we use k >= 0 as the while guard to match the
+    // reference impl safely.
+    unsafe {
+        let f = f.as_ptr();
+        let d = d.as_mut_ptr();
+        let v = v.as_mut_ptr();
+        let z = z.as_mut_ptr();
 
-    let mut k: usize = 0;
-    v[0] = 0;
-    z[0] = f32::NEG_INFINITY;
-    z[1] = f32::INFINITY;
+        #[inline(always)]
+        unsafe fn sq(x: f32) -> f32 {
+            x * x
+        }
 
-    for q in 1..n {
-        // Intersection of parabola at q with parabola at v[k]:
-        //   input[q] + (x - q)^2 = input[v[k]] + (x - v[k])^2
-        // Solving for x gives:
-        //   s = ((input[q] + q^2) - (input[v[k]] + v[k]^2)) / (2q - 2·v[k])
-        loop {
-            let vk = v[k];
-            let s = ((input[q] + (q as f32) * (q as f32))
-                - (input[vk] + (vk as f32) * (vk as f32)))
-                / (2.0 * (q as f32) - 2.0 * (vk as f32));
+        let mut k: i32 = 0;
+        *v.add(0) = 0;
+        *z.add(0) = -INF;
+        *z.add(1) = INF;
 
-            if s > z[k] {
-                // New parabola extends the envelope — add it
-                k += 1;
-                v[k] = q;
-                z[k] = s;
-                z[k + 1] = f32::INFINITY;
-                break;
-            } else {
-                // Previous parabola is entirely hidden — remove it and retry
-                if k == 0 {
-                    // Edge case: we're replacing the very first parabola
-                    v[0] = q;
-                    z[0] = f32::NEG_INFINITY;
-                    z[1] = f32::INFINITY;
-                    break;
-                }
+        for q in 1..n as i32 {
+            let qf = q as f32;
+            let fq = *f.add(q as usize);
+
+            let mut s = ((fq + sq(qf))
+                - (*f.add(*v.add(k as usize) as usize) + sq(*v.add(k as usize) as f32)))
+                / (2.0 * qf - 2.0 * *v.add(k as usize) as f32);
+
+            while s <= *z.add(k as usize) {
                 k -= 1;
+                s = ((fq + sq(qf))
+                    - (*f.add(*v.add(k as usize) as usize) + sq(*v.add(k as usize) as f32)))
+                    / (2.0 * qf - 2.0 * *v.add(k as usize) as f32);
             }
-        }
-    }
 
-    // Read off the lower envelope to fill output
-    k = 0;
-    for q in 0..n {
-        while z[k + 1] < q as f32 {
             k += 1;
+            *v.add(k as usize) = q;
+            *z.add(k as usize) = s;
+            *z.add(k as usize + 1) = INF;
         }
-        let vk = v[k];
-        let dist = (q as f32) - (vk as f32);
-        output[q] = input[vk] + dist * dist;
+
+        k = 0;
+        for q in 0..n as i32 {
+            while *z.add(k as usize + 1) < q as f32 {
+                k += 1;
+            }
+            let vk = *v.add(k as usize);
+            *d.add(q as usize) = sq(q as f32 - vk as f32) + *f.add(vk as usize);
+        }
     }
 }
 
@@ -113,43 +121,36 @@ impl DistanceField {
             data[i] = if occupied[i] { 0.0 } else { INF };
         }
 
+        let max_dim = width.max(height);
+        let mut v = vec![0i32; max_dim];
+        let mut z = vec![0.0f32; max_dim + 1];
+        let mut buf = vec![0.0f32; max_dim];
+
         // --- Pass 1: horizontal (along each row) ---
-        // Each row is independent and sequential in memory.
-        {
-            let max_dim = width.max(height);
-            let mut v = vec![0usize; max_dim];
-            let mut z = vec![0.0f32; max_dim + 1];
-            let mut buf = vec![0.0f32; max_dim];
+        for y in 0..height {
+            let row_start = y * width;
+            let row = &data[row_start..row_start + width];
 
-            for y in 0..height {
-                let row_start = y * width;
-                let row = &data[row_start..row_start + width];
+            dt_1d(row, &mut buf[..width], &mut v, &mut z);
 
-                dt_1d(row, &mut buf[..width], &mut v, &mut z);
-
-                data[row_start..row_start + width].copy_from_slice(&buf[..width]);
-            }
-
-            // --- Pass 2: vertical (along each column) ---
-            // We pull each column into a contiguous buffer, transform it,
-            // then scatter back. For very large grids you'd transpose instead,
-            // but this is simpler and the column-gather is the main cost.
-            let mut col_in = vec![0.0f32; height];
-
-            for x in 0..width {
-                // Gather column
-                for y in 0..height {
-                    col_in[y] = data[y * width + x];
-                }
-
-                dt_1d(&col_in, &mut buf[..height], &mut v, &mut z);
-
-                // Scatter back
-                for y in 0..height {
-                    data[y * width + x] = buf[y];
-                }
-            }
+            data[row_start..row_start + width].copy_from_slice(&buf[..width]);
         }
+
+        // --- Pass 2: vertical (along each column) ---
+        // Transpose so columns become contiguous rows, transform, transpose back.
+        let mut transposed = vec![0.0f32; n];
+        transpose_blocked(&data, &mut transposed, width, height);
+
+        for x in 0..width {
+            let row_start = x * height;
+            let row = &transposed[row_start..row_start + height];
+
+            dt_1d(row, &mut buf[..height], &mut v, &mut z);
+
+            transposed[row_start..row_start + height].copy_from_slice(&buf[..height]);
+        }
+
+        transpose_blocked(&transposed, &mut data, height, width);
 
         DistanceField {
             width,
@@ -309,7 +310,7 @@ pub mod parallel {
 
             // Pass 1: transform each row in parallel
             data.par_chunks_mut(width).for_each(|row| {
-                let mut v = vec![0usize; width];
+                let mut v = vec![0i32; width];
                 let mut z = vec![0.0f32; width + 1];
                 let mut buf = vec![0.0f32; width];
                 dt_1d(row, &mut buf, &mut v, &mut z);
@@ -318,16 +319,12 @@ pub mod parallel {
 
             // Transpose: (width × height) → (height × width)
             let mut transposed = vec![0.0f32; n];
-            for y in 0..height {
-                for x in 0..width {
-                    transposed[x * height + y] = data[y * width + x];
-                }
-            }
+            transpose_blocked(&data, &mut transposed, width, height);
 
             // Pass 2: transform each "row" of the transposed grid in parallel
             // (these are the original columns)
             transposed.par_chunks_mut(height).for_each(|col| {
-                let mut v = vec![0usize; height];
+                let mut v = vec![0i32; height];
                 let mut z = vec![0.0f32; height + 1];
                 let mut buf = vec![0.0f32; height];
                 dt_1d(col, &mut buf, &mut v, &mut z);
@@ -335,16 +332,27 @@ pub mod parallel {
             });
 
             // Transpose back
-            for y in 0..height {
-                for x in 0..width {
-                    data[y * width + x] = transposed[x * height + y];
-                }
-            }
+            transpose_blocked(&transposed, &mut data, height, width);
 
             DistanceField {
                 width,
                 height,
                 data,
+            }
+        }
+    }
+}
+
+fn transpose_blocked(src: &[f32], dst: &mut [f32], w: usize, h: usize) {
+    const BLOCK: usize = 64; // tuned to L1 cache line count
+    for by in (0..h).step_by(BLOCK) {
+        for bx in (0..w).step_by(BLOCK) {
+            let y_end = (by + BLOCK).min(h);
+            let x_end = (bx + BLOCK).min(w);
+            for y in by..y_end {
+                for x in bx..x_end {
+                    dst[x * h + y] = src[y * w + x];
+                }
             }
         }
     }

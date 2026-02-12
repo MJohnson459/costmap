@@ -3,6 +3,7 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
+use costmap::layers::inflation::DistanceField;
 use costmap::types::{COST_FREE, COST_LETHAL, MapInfo};
 use costmap::{Grid2d, WavefrontInflationLayer};
 use costmap::{
@@ -60,6 +61,39 @@ fn grid_with_lethals(
     grid
 }
 
+/// Build occupancy as bool vec (true = obstacle) for EDT from the same pattern.
+fn occupied_from_pattern(width: u32, height: u32, pattern: LethalPattern) -> Vec<bool> {
+    let size = (width * height) as usize;
+    let mut occupied = vec![false; size];
+
+    match pattern {
+        LethalPattern::Empty => {}
+        LethalPattern::SingleCenter => {
+            let cx = width / 2;
+            let cy = height / 2;
+            occupied[(cy * width + cx) as usize] = true;
+        }
+        LethalPattern::Sparse(step) => {
+            let step = step.max(1);
+            for y in (0..height).step_by(step as usize) {
+                for x in (0..width).step_by(step as usize) {
+                    occupied[(y * width + x) as usize] = true;
+                }
+            }
+        }
+        LethalPattern::Dense(step) => {
+            let step = step.max(1);
+            for y in (0..height).step_by(step as usize) {
+                for x in (0..width).step_by(step as usize) {
+                    occupied[(y * width + x) as usize] = true;
+                }
+            }
+        }
+    }
+
+    occupied
+}
+
 /// Layer that sets a fixed set of cells to COST_LETHAL (for benchmarking inflation).
 struct StaticLethalsLayer {
     positions: Vec<UVec2>,
@@ -99,9 +133,14 @@ fn bench_inflation(c: &mut Criterion) {
 
     const INSCRIBED_RADIUS_M: f32 = 0.1; // 2 cells at 0.05 m/cell
     const COST_SCALING: f32 = 3.0;
+    const INSCRIBED_RADIUS_CELLS: f32 = 2.0; // 0.1m @ 0.05
+    const INFLATION_RADIUS_CELLS: f32 = 10.0; // 0.5m @ 0.05
 
-    // Best: empty grid — scan only, no halo stamping
-    c.bench_function("inflate_empty", |b| {
+    // Groups: empty_256, single_center_64, sparse_256, dense_256, sparse_512, sparse_4000
+    // Each group has wavefront + edt with matching names
+
+    let mut group = c.benchmark_group("empty_256");
+    group.bench_function("wavefront", |b| {
         let grid = grid_with_lethals(256, 256, res_005, LethalPattern::Empty);
         b.iter_batched(
             || grid.clone(),
@@ -112,35 +151,48 @@ fn bench_inflation(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
+    group.bench_function("edt", |b| {
+        let occupied = occupied_from_pattern(256, 256, LethalPattern::Empty);
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy(256, 256, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
 
-    // Best: zero radius — early return
-    c.bench_function("inflate_zero_radius", |b| {
+    let mut group = c.benchmark_group("single_center_64");
+    group.bench_function("wavefront", |b| {
         let grid = grid_with_lethals(64, 64, res_005, LethalPattern::SingleCenter);
         b.iter_batched(
             || grid.clone(),
             |mut g| {
-                g.inflate(0.0, INSCRIBED_RADIUS_M, COST_SCALING);
+                g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
             },
             BatchSize::SmallInput,
         );
     });
-
-    // Best: single lethal, minimal halo
-    c.bench_function("inflate_single_lethal_minimal", |b| {
-        let grid = grid_with_lethals(64, 64, res_005, LethalPattern::SingleCenter);
+    group.bench_function("edt", |b| {
+        let occupied = occupied_from_pattern(64, 64, LethalPattern::SingleCenter);
         b.iter_batched(
-            || grid.clone(),
-            |mut g| {
-                g.inflate(0.05, INSCRIBED_RADIUS_M, COST_SCALING);
-                black_box(&g);
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy(64, 64, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
             },
             BatchSize::SmallInput,
         );
     });
+    group.finish();
 
-    // Typical: sparse lethals, 0.5m radius
-    c.bench_function("inflate_typical_sparse", |b| {
+    let mut group = c.benchmark_group("sparse_256");
+    group.bench_function("wavefront", |b| {
         let grid = grid_with_lethals(256, 256, res_005, LethalPattern::Sparse(32));
         b.iter_batched(
             || grid.clone(),
@@ -151,9 +203,22 @@ fn bench_inflation(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
+    group.bench_function("edt", |b| {
+        let occupied = occupied_from_pattern(256, 256, LethalPattern::Sparse(32));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy(256, 256, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
 
-    // Worst: dense lethals (every 4th cell)
-    c.bench_function("inflate_worst_dense", |b| {
+    let mut group = c.benchmark_group("dense_256");
+    group.bench_function("wavefront", |b| {
         let grid = grid_with_lethals(256, 256, res_005, LethalPattern::Dense(4));
         b.iter_batched(
             || grid.clone(),
@@ -164,9 +229,138 @@ fn bench_inflation(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
+    group.bench_function("edt", |b| {
+        let occupied = occupied_from_pattern(256, 256, LethalPattern::Dense(4));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy(256, 256, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    #[cfg(feature = "rayon")]
+    group.bench_function("edt_rayon", |b| {
+        let occupied = occupied_from_pattern(256, 256, LethalPattern::Dense(4));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy_par(256, 256, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
 
-    // Worst: large radius (50 cells at 0.02 res)
-    c.bench_function("inflate_worst_large_radius", |b| {
+    let mut group = c.benchmark_group("sparse_512");
+    group.bench_function("wavefront", |b| {
+        let grid = grid_with_lethals(512, 512, res_005, LethalPattern::Sparse(64));
+        b.iter_batched(
+            || grid.clone(),
+            |mut g| {
+                g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
+                black_box(&g);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("edt", |b| {
+        let occupied = occupied_from_pattern(512, 512, LethalPattern::Sparse(64));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy(512, 512, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    #[cfg(feature = "rayon")]
+    group.bench_function("edt_rayon", |b| {
+        let occupied = occupied_from_pattern(512, 512, LethalPattern::Sparse(64));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy_par(512, 512, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
+
+    // Large grid — 4000×4000 (16M cells) for scaling comparison
+    let mut group = c.benchmark_group("sparse_4096");
+    group.sample_size(20); // Fewer samples — each iteration is slow
+    group.bench_function("wavefront", |b| {
+        let grid = grid_with_lethals(4096, 4096, res_005, LethalPattern::Sparse(64));
+        b.iter_batched(
+            || grid.clone(),
+            |mut g| {
+                g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
+                black_box(&g);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("edt", |b| {
+        let occupied = occupied_from_pattern(4096, 4096, LethalPattern::Sparse(64));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy(4096, 4096, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    #[cfg(feature = "rayon")]
+    group.bench_function("edt_rayon", |b| {
+        let occupied = occupied_from_pattern(4096, 4096, LethalPattern::Sparse(64));
+        b.iter_batched(
+            || occupied.clone(),
+            |occ| {
+                let df = DistanceField::from_occupancy_par(4096, 4096, &occ);
+                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
+                black_box(costmap);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
+
+    // Wavefront-only scenarios (EDT has no equivalent)
+    let mut group = c.benchmark_group("wavefront_only");
+    group.bench_function("zero_radius", |b| {
+        let grid = grid_with_lethals(64, 64, res_005, LethalPattern::SingleCenter);
+        b.iter_batched(
+            || grid.clone(),
+            |mut g| {
+                g.inflate(0.0, INSCRIBED_RADIUS_M, COST_SCALING);
+                black_box(&g);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("minimal_radius", |b| {
+        let grid = grid_with_lethals(64, 64, res_005, LethalPattern::SingleCenter);
+        b.iter_batched(
+            || grid.clone(),
+            |mut g| {
+                g.inflate(0.05, INSCRIBED_RADIUS_M, COST_SCALING);
+                black_box(&g);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("large_radius", |b| {
         let grid = grid_with_lethals(256, 256, res_002, LethalPattern::Sparse(12));
         b.iter_batched(
             || grid.clone(),
@@ -177,9 +371,7 @@ fn bench_inflation(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
-
-    // InflationLayer via LayeredGrid2d — inscribed curve (typical)
-    c.bench_function("inflation_layer_inscribed_typical", |b| {
+    group.bench_function("inflation_layer_typical", |b| {
         let info = MapInfo {
             width: 256,
             height: 256,
@@ -209,6 +401,7 @@ fn bench_inflation(c: &mut Criterion) {
             black_box(layered.master());
         });
     });
+    group.finish();
 }
 
 criterion_group!(benches, bench_inflation);

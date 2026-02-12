@@ -1,6 +1,7 @@
-mod edt;
+pub mod edt;
 mod wavefront;
 
+pub use edt::DistanceField;
 pub use wavefront::WavefrontInflationLayer;
 
 /// Configuration for the inflation layer.

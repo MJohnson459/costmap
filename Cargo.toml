@@ -17,6 +17,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 thiserror = "2.0"
 winit = { version = "0.30", optional = true }
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 criterion = "0.8"
@@ -27,6 +28,10 @@ default = []
 viewer = ["pixels", "winit"]
 voxel3d = []
 rerun = ["dep:rerun"]
+rayon = ["dep:rayon"]
+
+[profile.release]
+debug = true
 
 [[bin]]
 name = "viewer"
@@ -47,6 +52,10 @@ required-features = ["rerun"]
 name = "occupancy_raycast"
 path = "examples/occupancy_raycast.rs"
 required-features = ["rerun"]
+
+[[example]]
+name = "profile_edt"
+path = "examples/profile_edt.rs"
 
 [[bench]]
 name = "load_warehouse"
