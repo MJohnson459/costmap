@@ -1,3 +1,3 @@
 pub mod inflation;
 
-pub use inflation::{InflationConfig, InflationLayer};
+pub use inflation::{InflationConfig, WavefrontInflationLayer};

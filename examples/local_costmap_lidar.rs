@@ -28,7 +28,7 @@ use costmap::raycast::RayHit2D;
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
 use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
 use costmap::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
-use costmap::{Grid2d, InflationLayer, MapInfo, OccupancyGrid, RosMapLoader};
+use costmap::{Grid2d, MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
 use costmap::{InflationConfig, grid::merge_overwrite};
 use glam::{Vec2, Vec3};
 
@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_range_m: MAX_RANGE_M,
         n_beams: N_BEAMS,
     }));
-    layered.add_layer(Box::new(InflationLayer::new(InflationConfig {
+    layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
         inflation_radius_m: 0.9,
         inscribed_radius_m: 0.15,
         cost_scaling_factor: 3.0,

@@ -17,48 +17,21 @@ use crate::Grid2d;
 use crate::grid::{Bounds, CellRegion, Layer, Pose2};
 use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, MapInfo};
 
+use super::InflationConfig;
+
 /// Padding added to the cache so that it contains more of the exponential decay curve.
 const CACHE_PADDING: u32 = 3;
-
-/// Configuration for the inflation layer.
-///
-/// Groups parameters that control inflation behaviour. Defaults match Nav2.
-#[derive(Debug, Clone)]
-pub struct InflationConfig {
-    /// When true, allow overwriting unknown cells with inflation cost if cost > FREE.
-    pub inflate_unknown: bool,
-    /// When true, treat COST_UNKNOWN cells as obstacle seeds (same as lethal).
-    pub inflate_around_unknown: bool,
-    /// Inflation radius in meters.
-    pub inflation_radius_m: f32,
-    /// Cost scaling factor for exponential decay (world units).
-    pub cost_scaling_factor: f32,
-    /// Inscribed radius in meters (inside this, cost is COST_INSCRIBED).
-    pub inscribed_radius_m: f32,
-}
-
-impl Default for InflationConfig {
-    fn default() -> Self {
-        Self {
-            inflate_unknown: false,
-            inflate_around_unknown: false,
-            inflation_radius_m: 0.55,
-            cost_scaling_factor: 10.0,
-            inscribed_radius_m: 0.0,
-        }
-    }
-}
 
 /// Layer that inflates lethal obstacles within the update region.
 ///
 /// Use [`InflationLayer::new`] or [`InflationLayer::from_config`] to construct.
 /// Uses wavefront propagation with a precomputed inscribed cost cache.
-pub struct InflationLayer {
+pub struct WavefrontInflationLayer {
     config: InflationConfig,
     wavefront: Option<WavefrontInflation>,
 }
 
-impl InflationLayer {
+impl WavefrontInflationLayer {
     /// Create a new inflation layer with the given configuration.
     #[must_use]
     pub fn new(config: InflationConfig) -> Self {
@@ -74,7 +47,7 @@ impl InflationLayer {
     }
 }
 
-impl Layer for InflationLayer {
+impl Layer for WavefrontInflationLayer {
     fn reset(&mut self) {
         self.invalidate_cache();
     }
@@ -128,7 +101,7 @@ impl Grid2d<u8> {
     ///
     /// Note this is a convenience method and is not as efficient as using the `InflationLayer` directly.
     pub fn inflate(&mut self, radius_m: f32, inscribed_radius_m: f32, cost_scaling_factor: f32) {
-        let mut inflation = InflationLayer::new(InflationConfig {
+        let mut inflation = WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: radius_m,
             inscribed_radius_m,
             cost_scaling_factor,
@@ -660,7 +633,7 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, 0, false);
         layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(InflationLayer::new(InflationConfig {
+        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
             inscribed_radius_m: 0.2,
             cost_scaling_factor: 3.0,
@@ -730,7 +703,7 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, COST_UNKNOWN, false);
         layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(InflationLayer::new(InflationConfig {
+        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
             inflate_unknown: true,
             inflation_radius_m: 0.5,
             inscribed_radius_m: 0.4,
@@ -778,7 +751,7 @@ mod tests {
 
         let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
         layered.add_layer(Box::new(OneUnknownLayer));
-        layered.add_layer(Box::new(InflationLayer::new(InflationConfig {
+        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
             inscribed_radius_m: 0.4,
             cost_scaling_factor: 3.0,

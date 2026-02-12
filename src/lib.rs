@@ -10,7 +10,7 @@ pub mod visualization;
 pub mod rerun_viz;
 
 pub use grid::{Grid, Grid2d, Layer, LayeredGrid2d};
-pub use layers::{InflationConfig, InflationLayer};
+pub use layers::{InflationConfig, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use types::{Bounds, CellRegion, Footprint, MapInfo, Pose2, VoxelError};
 

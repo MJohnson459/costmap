@@ -4,7 +4,7 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
 use costmap::types::{COST_FREE, COST_LETHAL, MapInfo};
-use costmap::{Grid2d, InflationLayer};
+use costmap::{Grid2d, WavefrontInflationLayer};
 use costmap::{
     InflationConfig,
     grid::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2},
@@ -191,7 +191,7 @@ fn bench_inflation(c: &mut Criterion) {
             .flat_map(|y| (0..256).step_by(32).map(move |x| UVec2::new(x, y)))
             .collect();
         let static_layer = StaticLethalsLayer { positions, info };
-        let inflation_layer = InflationLayer::new(InflationConfig {
+        let inflation_layer = WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
             inscribed_radius_m: 0.1,
             cost_scaling_factor: 1.0,
