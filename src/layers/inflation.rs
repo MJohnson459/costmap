@@ -14,11 +14,10 @@
 use bitvec::prelude::*;
 use glam::{IVec2, UVec2};
 
-use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, MapInfo};
-use crate::{
-    Costmap,
-    grid::{Bounds, CellRegion, Layer, Pose2},
+use crate::types::{
+    Bounds, COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, CellRegion, MapInfo, Pose2,
 };
+use crate::{Costmap, Layer};
 
 /// Padding added to the cache so that it contains more of the exponential decay curve.
 const CACHE_PADDING: u32 = 3;
@@ -540,7 +539,8 @@ struct InflateOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::{CellRegion, Layer, LayeredCostmap, Pose2};
+    use crate::types::{CellRegion, Pose2};
+    use crate::{Layer, LayeredCostmap};
     use crate::{MapInfo, types::COST_UNKNOWN};
     use glam::Vec2;
 
@@ -653,7 +653,7 @@ mod tests {
             fn is_clearable(&self) -> bool {
                 true
             }
-            fn update_bounds(&mut self, robot: Pose2, bounds: &mut crate::grid::Bounds) {
+            fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds) {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(1.0);
             }
@@ -723,7 +723,7 @@ mod tests {
             fn is_clearable(&self) -> bool {
                 true
             }
-            fn update_bounds(&mut self, robot: Pose2, bounds: &mut crate::grid::Bounds) {
+            fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds) {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(1.0);
             }
@@ -771,7 +771,7 @@ mod tests {
             fn is_clearable(&self) -> bool {
                 true
             }
-            fn update_bounds(&mut self, robot: Pose2, bounds: &mut crate::grid::Bounds) {
+            fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds) {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(1.0);
             }

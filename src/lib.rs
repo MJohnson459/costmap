@@ -1,3 +1,4 @@
+pub mod costmap;
 pub mod grid;
 pub mod iterators;
 pub mod layers;
@@ -9,9 +10,8 @@ pub mod visualization;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
-pub use grid::{Grid2d, Layer, LayeredCostmap};
+pub use costmap::{Costmap, Layer, LayeredCostmap};
+pub use grid::Grid2d;
 pub use layers::{InflationConfig, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
-pub use types::{
-    Bounds, CellRegion, Costmap, Footprint, MapInfo, OccupancyGrid, Pose2, VoxelError,
-};
+pub use types::{MapInfo, OccupancyGrid, VoxelError};

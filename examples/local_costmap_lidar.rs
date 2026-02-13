@@ -25,11 +25,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
-use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
-use costmap::{Bounds, CellRegion, Layer, LayeredCostmap, Pose2};
+use costmap::types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, Pose2};
 use costmap::{Costmap, raycast::RayHit2D};
 use costmap::{Grid2d, MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
-use costmap::{InflationConfig, grid::merge_overwrite};
+use costmap::{InflationConfig, costmap::merge_overwrite};
+use costmap::{Layer, LayeredCostmap};
 use glam::{Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";

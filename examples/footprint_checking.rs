@@ -17,12 +17,9 @@ use std::error::Error;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 
-use costmap::types::{COST_FREE, COST_UNKNOWN};
-use costmap::{Footprint, Grid2d, MapInfo};
-use costmap::{
-    Pose2,
-    rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon},
-};
+use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
+use costmap::types::{COST_FREE, COST_UNKNOWN, Footprint, Pose2};
+use costmap::{Grid2d, MapInfo};
 use glam::Vec2;
 
 // Funnel map dimensions

@@ -1,4 +1,5 @@
-use super::{Footprint, Grid2d, Pose2};
+use super::Grid2d;
+use crate::types::{Footprint, Pose2};
 
 impl<T> Grid2d<T> {
     /// Get the maximum cost value under a robot footprint at a given pose.
@@ -22,7 +23,7 @@ impl<T> Grid2d<T> {
     ///
     /// ```
     /// use costmap::{Grid2d, MapInfo};
-    /// use costmap::types::COST_LETHAL;
+    /// use costmap::types::{COST_LETHAL, Footprint, Pose2};
     /// use glam::Vec2;
     ///
     /// let info = MapInfo {
@@ -30,20 +31,14 @@ impl<T> Grid2d<T> {
     ///     height: 100,
     ///     ..Default::default()
     /// };
-    /// let costmap = Grid2d::<u8>::empty(info);
+    /// let costmap = Grid2d::<u8>::new(info);
     ///
     /// // Define a rectangular robot footprint (0.6m x 0.4m)
-    /// let footprint = vec![
-    ///     Vec2::new(0.3, 0.2),   // front-right
-    ///     Vec2::new(0.3, -0.2),  // rear-right
-    ///     Vec2::new(-0.3, -0.2), // rear-left
-    ///     Vec2::new(-0.3, 0.2),  // front-left
-    /// ];
+    /// let footprint = Footprint::rectangle(0.6, 0.4);
     ///
     /// // Check cost at a specific pose
-    /// let position = Vec2::new(5.0, 5.0);
-    /// let yaw = 0.0;
-    /// let max_cost = costmap.footprint_cost(position, yaw, &footprint);
+    /// let pose = Pose2::new(Vec2::new(5.0, 5.0), 0.0);
+    /// let max_cost = costmap.footprint_cost(pose, &footprint);
     ///
     /// // Use in planning: reject poses with high cost
     /// if max_cost < COST_LETHAL {

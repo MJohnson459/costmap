@@ -3,15 +3,8 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
-use costmap::WavefrontInflationLayer;
-use costmap::{
-    Costmap,
-    types::{COST_FREE, COST_LETHAL, MapInfo},
-};
-use costmap::{
-    InflationConfig,
-    grid::{Bounds, CellRegion, Layer, LayeredCostmap, Pose2},
-};
+use costmap::types::{Bounds, COST_FREE, COST_LETHAL, CellRegion, MapInfo, Pose2};
+use costmap::{Costmap, InflationConfig, Layer, LayeredCostmap, WavefrontInflationLayer};
 
 #[derive(Clone, Copy)]
 enum LethalPattern {

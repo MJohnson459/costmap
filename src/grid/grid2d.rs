@@ -6,7 +6,7 @@
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
 
-use glam::{IVec2, UVec2, Vec2};
+use glam::{IVec2, USizeVec2, UVec2, Vec2};
 use std::{
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
@@ -282,20 +282,22 @@ impl<T> Grid2d<T> {
 
         let old_origin = self.info.origin;
         let cell_offset = ((origin - old_origin) / resolution).floor().as_ivec2();
-        let grid_size = IVec2::new(self.info.width as i32, self.info.height as i32);
+        let grid_size = USizeVec2::new(self.info.width as usize, self.info.height as usize);
 
-        let overlap_min = cell_offset.clamp(IVec2::ZERO, grid_size);
-        let overlap_max = (cell_offset + grid_size).clamp(IVec2::ZERO, grid_size);
+        let overlap_min = cell_offset.clamp(IVec2::ZERO, grid_size.as_ivec2());
+        let overlap_max =
+            (cell_offset + grid_size.as_ivec2()).clamp(IVec2::ZERO, grid_size.as_ivec2());
         let overlap_size = (overlap_max - overlap_min).max(IVec2::ZERO).as_usizevec2();
 
         let mut new_data =
             vec![self.fill_value.clone(); grid_size.x as usize * grid_size.y as usize];
-        let start = overlap_min - cell_offset;
+        let start = (overlap_min - cell_offset).as_usizevec2();
         if overlap_size.x > 0 && overlap_size.y > 0 {
             for y in 0..overlap_size.y {
-                let dst_start = (start.y as usize + y) * (grid_size.x as usize) + start.x as usize;
+                let dst_start = (start.y + y) * grid_size.x + start.x;
                 let dst_end = dst_start + overlap_size.x;
-                let src_start = y * overlap_size.x;
+                let src_start =
+                    (overlap_min.y as usize + y) * (grid_size.x as usize) + overlap_min.x as usize;
                 let src_end = src_start + overlap_size.x;
                 new_data[dst_start..dst_end].clone_from_slice(&self.data[src_start..src_end]);
             }
