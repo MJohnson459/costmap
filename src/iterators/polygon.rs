@@ -171,7 +171,7 @@ impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
 }
 
 impl<T> Grid2d<T> {
-    pub fn polygon<'a>(&'a self, points: &[Vec2]) -> Option<PolygonIterator> {
+    pub fn polygon(&self, points: &[Vec2]) -> Option<PolygonIterator> {
         PolygonIterator::new(self, points)
     }
 

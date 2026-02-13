@@ -105,7 +105,7 @@ impl Layer for WavefrontInflationLayer {
         let need_rebuild = self
             .wavefront
             .as_ref()
-            .map_or(true, |cache| cache.resolution != resolution);
+            .is_none_or(|cache| cache.resolution != resolution);
 
         if need_rebuild {
             self.wavefront = Some(WavefrontInflation::build(
@@ -187,10 +187,8 @@ fn inscribed_inflation_cost(distance: f32, inscribed_radius: f32, cost_scaling_f
     if distance <= inscribed_radius {
         return COST_INSCRIBED;
     }
-    let value = ((-cost_scaling_factor * (distance - inscribed_radius)).exp()
-        * (COST_INSCRIBED as f32 - 1.0))
-        .round() as u8;
-    value.max(COST_FREE)
+    ((-cost_scaling_factor * (distance - inscribed_radius)).exp() * (COST_INSCRIBED as f32 - 1.0))
+        .round() as u8
 }
 
 /// Precomputed cost, distance, and integer-level cache for wavefront inflation.
@@ -285,7 +283,7 @@ impl WavefrontInflation {
 
         self.width = grid.info().width as usize;
         self.height = grid.info().height as usize;
-        self.size = (self.width * self.height) as usize;
+        self.size = self.width * self.height;
 
         if self.seen.len() != self.size {
             self.seen.resize(self.size, false);
@@ -412,9 +410,7 @@ impl WavefrontInflation {
             for x in search_min.x..search_max.x {
                 let pos = UVec2::new(x, y);
                 let cost = grid.get(pos).copied().unwrap_or(COST_FREE);
-                if cost == COST_LETHAL {
-                    seeds.push(CellData::new(pos, pos));
-                } else if options.inflate_around_unknown && cost == COST_UNKNOWN {
+                if cost == COST_LETHAL || (options.inflate_around_unknown && cost == COST_UNKNOWN) {
                     seeds.push(CellData::new(pos, pos));
                 }
             }

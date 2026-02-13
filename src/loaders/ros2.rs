@@ -133,7 +133,7 @@ fn load_occupancy_grid_from_memory(
     image: image::DynamicImage,
     metadata: &RosMapMetadata,
 ) -> Result<OccupancyGrid, VoxelError> {
-    let (data, width, height) = map_image_to_data(image, &metadata)?;
+    let (data, width, height) = map_image_to_data(image, metadata)?;
     let info = MapInfo {
         width,
         height,

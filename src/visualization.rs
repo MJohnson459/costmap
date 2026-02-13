@@ -41,7 +41,7 @@ fn occupancy_to_gray(value: i8) -> u8 {
         return 205;
     }
 
-    let v = (value as i16).clamp(0, 100) as i16;
+    let v = (value as i16).clamp(0, 100);
     // 0 (free) -> 254, 100 (occupied) -> 0
     let gray = 254 - ((v * 254) / 100);
     gray as u8
