@@ -289,15 +289,13 @@ impl<T> Grid2d<T> {
             (cell_offset + grid_size.as_ivec2()).clamp(IVec2::ZERO, grid_size.as_ivec2());
         let overlap_size = (overlap_max - overlap_min).max(IVec2::ZERO).as_usizevec2();
 
-        let mut new_data =
-            vec![self.fill_value.clone(); grid_size.x * grid_size.y];
+        let mut new_data = vec![self.fill_value.clone(); grid_size.x * grid_size.y];
         let start = (overlap_min - cell_offset).as_usizevec2();
         if overlap_size.x > 0 && overlap_size.y > 0 {
             for y in 0..overlap_size.y {
                 let dst_start = (start.y + y) * grid_size.x + start.x;
                 let dst_end = dst_start + overlap_size.x;
-                let src_start =
-                    (overlap_min.y as usize + y) * grid_size.x + overlap_min.x as usize;
+                let src_start = (overlap_min.y as usize + y) * grid_size.x + overlap_min.x as usize;
                 let src_end = src_start + overlap_size.x;
                 new_data[dst_start..dst_end].clone_from_slice(&self.data[src_start..src_end]);
             }

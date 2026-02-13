@@ -15,9 +15,10 @@ pub fn merge_overwrite(master: &mut Costmap, source: &Costmap, region: CellRegio
         for x in region.min.x..region.max.x {
             let cell = UVec2::new(x, y);
             if let Some(&cost) = source.get(cell)
-                && cost != COST_UNKNOWN {
-                    let _ = master.set(cell, cost);
-                }
+                && cost != COST_UNKNOWN
+            {
+                let _ = master.set(cell, cost);
+            }
         }
     }
 }
