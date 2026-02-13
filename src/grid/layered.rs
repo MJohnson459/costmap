@@ -6,8 +6,10 @@
 
 use glam::{UVec2, Vec2};
 
-use crate::grid::Grid2d;
-use crate::types::{Bounds, CellRegion, Footprint, MapInfo, Pose2};
+use crate::{
+    Costmap,
+    types::{Bounds, CellRegion, Footprint, MapInfo, Pose2},
+};
 
 /// Layer plugin interface. Layers are called in order: each may expand bounds,
 /// then each writes into the master grid within the computed region.
@@ -23,7 +25,7 @@ pub trait Layer {
     fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds);
 
     /// Write into the master grid only within `region`.
-    fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion);
+    fn update_costs(&mut self, master: &mut Costmap, region: CellRegion);
 
     /// Called when the robot footprint changes. Default: no-op.
     fn on_footprint_changed(&mut self, _footprint: &Footprint) {}
@@ -34,14 +36,14 @@ pub trait Layer {
 
 /// Container of layers and a master costmap. Runs update_bounds then update_costs
 /// in order each time `update_map` is called.
-pub struct LayeredGrid2d {
-    master: Grid2d<u8>,
+pub struct LayeredCostmap {
+    master: Costmap,
     layers: Vec<Box<dyn Layer>>,
     rolling_window: bool,
     updated_bounds: Bounds,
 }
 
-impl LayeredGrid2d {
+impl LayeredCostmap {
     /// Create a layered costmap with a new master grid of the given size and default value.
     ///
     /// The master is created with `Grid2d::filled(info, fill_value)`. The updated region
@@ -51,7 +53,7 @@ impl LayeredGrid2d {
     /// [`update_map`](Self::update_map), so the costmap stays fixed in size but moves
     /// with the robot (local costmap). If false, the grid is fixed in world frame.
     pub fn new(info: MapInfo, fill_value: u8, rolling_window: bool) -> Self {
-        let master = Grid2d::new_with_value(info, fill_value);
+        let master = Costmap::new_with_value(info, fill_value);
         Self {
             master,
             layers: Vec::new(),
@@ -66,12 +68,12 @@ impl LayeredGrid2d {
     }
 
     /// Immutable reference to the master grid.
-    pub fn master(&self) -> &Grid2d<u8> {
+    pub fn master(&self) -> &Costmap {
         &self.master
     }
 
     /// Mutable reference to the master grid.
-    pub fn master_mut(&mut self) -> &mut Grid2d<u8> {
+    pub fn master_mut(&mut self) -> &mut Costmap {
         &mut self.master
     }
 
@@ -185,10 +187,10 @@ mod tests {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(self.margin);
             }
-            fn update_costs(&mut self, _master: &mut Grid2d<u8>, _region: CellRegion) {}
+            fn update_costs(&mut self, _master: &mut Costmap, _region: CellRegion) {}
         }
 
-        let mut layered = LayeredGrid2d::new(default_info(), 0, false);
+        let mut layered = LayeredCostmap::new(default_info(), 0, false);
         layered.add_layer(Box::new(BoundsLayer { margin: 0.5 }));
 
         layered.update_map(Pose2 {

@@ -9,9 +9,9 @@ pub mod visualization;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
-pub use grid::{Grid2d, Layer, LayeredGrid2d};
+pub use grid::{Grid2d, Layer, LayeredCostmap};
 pub use layers::{InflationConfig, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
-pub use types::{Bounds, CellRegion, Footprint, MapInfo, Pose2, VoxelError};
-
-pub type OccupancyGrid = Grid2d<i8>;
+pub use types::{
+    Bounds, CellRegion, Costmap, Footprint, MapInfo, OccupancyGrid, Pose2, VoxelError,
+};

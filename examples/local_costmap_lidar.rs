@@ -24,10 +24,10 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::time::Duration;
 
-use costmap::raycast::RayHit2D;
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
 use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
-use costmap::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2};
+use costmap::{Bounds, CellRegion, Layer, LayeredCostmap, Pose2};
+use costmap::{Costmap, raycast::RayHit2D};
 use costmap::{Grid2d, MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
 use costmap::{InflationConfig, grid::merge_overwrite};
 use glam::{Vec2, Vec3};
@@ -58,7 +58,7 @@ const Z_ROBOT: f32 = 0.35;
 struct SimLidarLayer {
     global_grid: Arc<OccupancyGrid>,
     /// Internal costmap that persists between updates (Nav2-style layer costmap_).
-    obstacle_grid: Grid2d<u8>,
+    obstacle_grid: Costmap,
     last_robot: Pose2,
     max_range_m: f32,
     n_beams: usize,
@@ -79,7 +79,7 @@ impl Layer for SimLidarLayer {
         bounds.expand_by(self.max_range_m);
     }
 
-    fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
+    fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
         // 1) Update internal grid origin (rolling window) and draw new rays into it.
         self.obstacle_grid.update_center(self.last_robot.position);
         let beam_step = TAU / self.n_beams as f32;
@@ -114,7 +114,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
     let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
-    let mut layered = LayeredGrid2d::new(local_info.clone(), COST_FREE, true);
+    let mut layered = LayeredCostmap::new(local_info.clone(), COST_FREE, true);
     layered.add_layer(Box::new(SimLidarLayer {
         global_grid: Arc::clone(&global_grid),
         obstacle_grid: Grid2d::<u8>::new_with_value(local_info.clone(), COST_UNKNOWN),

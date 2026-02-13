@@ -3,11 +3,14 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
-use costmap::types::{COST_FREE, COST_LETHAL, MapInfo};
-use costmap::{Grid2d, WavefrontInflationLayer};
+use costmap::WavefrontInflationLayer;
+use costmap::{
+    Costmap,
+    types::{COST_FREE, COST_LETHAL, MapInfo},
+};
 use costmap::{
     InflationConfig,
-    grid::{Bounds, CellRegion, Layer, LayeredGrid2d, Pose2},
+    grid::{Bounds, CellRegion, Layer, LayeredCostmap, Pose2},
 };
 
 #[derive(Clone, Copy)]
@@ -18,19 +21,14 @@ enum LethalPattern {
     Dense(u32),
 }
 
-fn grid_with_lethals(
-    width: u32,
-    height: u32,
-    resolution: f32,
-    pattern: LethalPattern,
-) -> Grid2d<u8> {
+fn grid_with_lethals(width: u32, height: u32, resolution: f32, pattern: LethalPattern) -> Costmap {
     let info = MapInfo {
         width,
         height,
         resolution,
         ..Default::default()
     };
-    let mut grid = Grid2d::<u8>::new_with_value(info, COST_FREE);
+    let mut grid = Costmap::new_with_value(info, COST_FREE);
 
     match pattern {
         LethalPattern::Empty => {}
@@ -80,7 +78,7 @@ impl Layer for StaticLethalsLayer {
         );
     }
 
-    fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
+    fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
         for &pos in &self.positions {
             if pos.x >= region.min.x
                 && pos.x < region.max.x
@@ -242,7 +240,7 @@ fn bench_inflation(c: &mut Criterion) {
             cost_scaling_factor: 1.0,
             ..Default::default()
         });
-        let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
+        let mut layered = LayeredCostmap::new(info, COST_FREE, false);
         layered.add_layer(Box::new(static_layer));
         layered.add_layer(Box::new(inflation_layer));
         let robot = Pose2 {

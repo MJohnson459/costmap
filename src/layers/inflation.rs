@@ -14,9 +14,11 @@
 use bitvec::prelude::*;
 use glam::{IVec2, UVec2};
 
-use crate::Grid2d;
-use crate::grid::{Bounds, CellRegion, Layer, Pose2};
 use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, MapInfo};
+use crate::{
+    Costmap,
+    grid::{Bounds, CellRegion, Layer, Pose2},
+};
 
 /// Padding added to the cache so that it contains more of the exponential decay curve.
 const CACHE_PADDING: u32 = 3;
@@ -93,7 +95,7 @@ impl Layer for WavefrontInflationLayer {
         self.invalidate_cache();
     }
 
-    fn update_costs(&mut self, master: &mut Grid2d<u8>, region: CellRegion) {
+    fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
         let resolution = master.info().resolution;
         let radius_cells = cell_distance(self.config.inflation_radius_m, resolution);
 
@@ -125,7 +127,7 @@ impl Layer for WavefrontInflationLayer {
     }
 }
 
-impl Grid2d<u8> {
+impl Costmap {
     /// Inflate the grid with the given radius and inscribed radius.
     ///
     /// Note this is a convenience method and is not as efficient as using the `InflationLayer` directly.
@@ -276,7 +278,7 @@ impl WavefrontInflation {
     /// Inflate lethal (and optionally unknown) cells in place using wavefront propagation.
     ///
     /// `seen` is a reusable buffer; it is resized to `width * height` if needed and cleared on use.
-    pub fn inflate(&mut self, grid: &mut Grid2d<u8>, region: CellRegion, options: InflateOptions) {
+    pub fn inflate(&mut self, grid: &mut Costmap, region: CellRegion, options: InflateOptions) {
         let size = region.max.saturating_sub(region.min);
         if size.x == 0 || size.y == 0 {
             return;
@@ -393,7 +395,7 @@ impl WavefrontInflation {
     /// Returns true if any seeds were generated.
     fn generate_seeds(
         &mut self,
-        grid: &Grid2d<u8>,
+        grid: &Costmap,
         region: CellRegion,
         options: InflateOptions,
     ) -> bool {
@@ -538,7 +540,7 @@ struct InflateOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::{CellRegion, Layer, LayeredGrid2d, Pose2};
+    use crate::grid::{CellRegion, Layer, LayeredCostmap, Pose2};
     use crate::{MapInfo, types::COST_UNKNOWN};
     use glam::Vec2;
 
@@ -582,8 +584,8 @@ mod tests {
         println!("{:?}", cache);
     }
 
-    fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Grid2d<u8> {
-        Grid2d::init(
+    fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Costmap {
+        Costmap::init(
             MapInfo {
                 width,
                 height,
@@ -617,7 +619,7 @@ mod tests {
 
     #[test]
     fn inflate_empty_grid_stays_free() {
-        let source = Grid2d::<u8>::new(MapInfo {
+        let source = Costmap::new(MapInfo {
             width: 10,
             height: 10,
             resolution: 0.5,
@@ -655,12 +657,12 @@ mod tests {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(1.0);
             }
-            fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
+            fn update_costs(&mut self, master: &mut Costmap, _region: CellRegion) {
                 let _ = master.set(UVec2::new(2, 2), COST_LETHAL);
             }
         }
 
-        let mut layered = LayeredGrid2d::new(info, 0, false);
+        let mut layered = LayeredCostmap::new(info, 0, false);
         layered.add_layer(Box::new(OneLethalLayer));
         layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
@@ -725,12 +727,12 @@ mod tests {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(1.0);
             }
-            fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
+            fn update_costs(&mut self, master: &mut Costmap, _region: CellRegion) {
                 let _ = master.set(UVec2::new(2, 2), COST_LETHAL);
             }
         }
 
-        let mut layered = LayeredGrid2d::new(info, COST_UNKNOWN, false);
+        let mut layered = LayeredCostmap::new(info, COST_UNKNOWN, false);
         layered.add_layer(Box::new(OneLethalLayer));
         layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
             inflate_unknown: true,
@@ -773,12 +775,12 @@ mod tests {
                 bounds.expand_to_include(robot.position);
                 bounds.expand_by(1.0);
             }
-            fn update_costs(&mut self, master: &mut Grid2d<u8>, _region: CellRegion) {
+            fn update_costs(&mut self, master: &mut Costmap, _region: CellRegion) {
                 let _ = master.set(UVec2::new(2, 2), COST_UNKNOWN);
             }
         }
 
-        let mut layered = LayeredGrid2d::new(info, COST_FREE, false);
+        let mut layered = LayeredCostmap::new(info, COST_FREE, false);
         layered.add_layer(Box::new(OneUnknownLayer));
         layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
