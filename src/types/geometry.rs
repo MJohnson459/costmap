@@ -97,16 +97,20 @@ impl Footprint {
     }
 
     /// Transform footprint points from robot-local frame to world frame.
-    pub fn transform(&self, position: Vec2, yaw: f32) -> Vec<Vec2> {
-        let cos_yaw = yaw.cos();
-        let sin_yaw = yaw.sin();
+    pub fn transform(&self, pose: Pose2) -> Vec<Vec2> {
+        let cos_yaw = pose.yaw.cos();
+        let sin_yaw = pose.yaw.sin();
         self.points
             .iter()
             .map(|p| {
                 let rotated =
                     Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
-                position + rotated
+                pose.position + rotated
             })
             .collect()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.points.len() >= 3
     }
 }

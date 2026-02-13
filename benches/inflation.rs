@@ -30,7 +30,7 @@ fn grid_with_lethals(
         resolution,
         ..Default::default()
     };
-    let mut grid = Grid2d::<u8>::filled(info, COST_FREE);
+    let mut grid = Grid2d::<u8>::new_with_value(info, COST_FREE);
 
     match pattern {
         LethalPattern::Empty => {}

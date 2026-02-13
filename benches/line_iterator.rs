@@ -63,7 +63,7 @@ fn build_empty_grid(width: usize, height: usize, resolution: f32) -> costmap::Oc
         resolution,
         ..Default::default()
     };
-    costmap::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::init(info, data).expect("grid should build")
 }
 
 fn build_rays() -> Vec<(Vec2, Vec2, f32)> {

@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut layered = LayeredGrid2d::new(local_info.clone(), COST_FREE, true);
     layered.add_layer(Box::new(SimLidarLayer {
         global_grid: Arc::clone(&global_grid),
-        obstacle_grid: Grid2d::<u8>::filled(local_info.clone(), COST_UNKNOWN),
+        obstacle_grid: Grid2d::<u8>::new_with_value(local_info.clone(), COST_UNKNOWN),
         last_robot: Pose2::default(),
         max_range_m: MAX_RANGE_M,
         n_beams: N_BEAMS,

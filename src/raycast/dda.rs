@@ -57,7 +57,7 @@ mod tests {
             origin,
         };
 
-        OccupancyGrid::new(info, data).expect("grid should build")
+        OccupancyGrid::init(info, data).expect("grid should build")
     }
 
     #[test]

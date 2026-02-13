@@ -83,7 +83,7 @@ mod tests {
             origin: glam::Vec2::ZERO,
         };
 
-        OccupancyGrid::new(info, data).expect("grid should build")
+        OccupancyGrid::init(info, data).expect("grid should build")
     }
 
     #[test]

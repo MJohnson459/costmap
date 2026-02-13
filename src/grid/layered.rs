@@ -51,7 +51,7 @@ impl LayeredGrid2d {
     /// [`update_map`](Self::update_map), so the costmap stays fixed in size but moves
     /// with the robot (local costmap). If false, the grid is fixed in world frame.
     pub fn new(info: MapInfo, fill_value: u8, rolling_window: bool) -> Self {
-        let master = Grid2d::filled(info, fill_value);
+        let master = Grid2d::new_with_value(info, fill_value);
         Self {
             master,
             layers: Vec::new(),

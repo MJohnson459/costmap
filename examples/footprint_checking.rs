@@ -17,9 +17,12 @@ use std::error::Error;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 
-use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
 use costmap::types::{COST_FREE, COST_UNKNOWN};
 use costmap::{Footprint, Grid2d, MapInfo};
+use costmap::{
+    Pose2,
+    rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon},
+};
 use glam::Vec2;
 
 // Funnel map dimensions
@@ -73,9 +76,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         let position = Vec2::new(center.x, start_y + t * (end_y - start_y));
+        let pose = Pose2::new(position, yaw);
 
-        let cost = costmap.footprint_cost(position, yaw, &footprint.points);
-        let world_footprint = footprint.transform(position, yaw);
+        let cost = costmap.footprint_cost(pose, &footprint);
+        let world_footprint = footprint.transform(pose);
         // Use costmap palette, but white when cost matches background (free=blue, unknown=teal)
         let color = if cost == COST_UNKNOWN || cost == COST_FREE {
             rerun::Color::from_rgb(255, 255, 255)
@@ -116,7 +120,7 @@ fn create_funnel_costmap() -> Grid2d<u8> {
     let left_at_top = 22u32;
     let right_at_top = 28u32;
 
-    Grid2d::from_fn(info, |x, y| {
+    Grid2d::new_with(info, |x, y| {
         let t = y as f32 / (HEIGHT - 1).max(1) as f32;
         let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as u32;
         let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as u32;

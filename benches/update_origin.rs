@@ -12,7 +12,7 @@ fn bench_update_origin(c: &mut Criterion) {
         height: 256,
         ..Default::default()
     };
-    let grid = Grid2d::<u8>::empty(info);
+    let grid = Grid2d::<u8>::new(info);
 
     c.bench_function("grid2d_update_origin_shift", |b| {
         b.iter_batched(

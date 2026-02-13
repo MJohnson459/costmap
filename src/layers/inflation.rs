@@ -583,7 +583,7 @@ mod tests {
     }
 
     fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Grid2d<u8> {
-        Grid2d::new(
+        Grid2d::init(
             MapInfo {
                 width,
                 height,
@@ -617,7 +617,7 @@ mod tests {
 
     #[test]
     fn inflate_empty_grid_stays_free() {
-        let source = Grid2d::<u8>::empty(MapInfo {
+        let source = Grid2d::<u8>::new(MapInfo {
             width: 10,
             height: 10,
             resolution: 0.5,
@@ -631,7 +631,7 @@ mod tests {
             InflateOptions::default(),
         );
 
-        for (_, cost) in dest.iter_cells() {
+        for (_, cost) in dest.indexed_iter() {
             assert_eq!(*cost, COST_FREE);
         }
     }

@@ -140,7 +140,7 @@ fn load_occupancy_grid_from_memory(
         resolution: metadata.resolution,
         origin: metadata.origin.truncate(),
     };
-    OccupancyGrid::new(info, data)
+    OccupancyGrid::init(info, data)
 }
 
 fn resolve_image_path(yaml_path: &Path, image_ref: &Path) -> PathBuf {

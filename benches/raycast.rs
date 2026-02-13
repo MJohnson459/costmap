@@ -135,7 +135,7 @@ fn build_grid(width: usize, height: usize, resolution: f32) -> costmap::Occupanc
         ..Default::default()
     };
 
-    costmap::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::init(info, data).expect("grid should build")
 }
 
 fn build_empty_grid(width: usize, height: usize, resolution: f32) -> costmap::OccupancyGrid {
@@ -146,7 +146,7 @@ fn build_empty_grid(width: usize, height: usize, resolution: f32) -> costmap::Oc
         resolution,
         ..Default::default()
     };
-    costmap::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::init(info, data).expect("grid should build")
 }
 
 fn build_grid_with_occupied_column(
@@ -167,7 +167,7 @@ fn build_grid_with_occupied_column(
         resolution,
         ..Default::default()
     };
-    costmap::Grid2d::new(info, data).expect("grid should build")
+    costmap::Grid2d::init(info, data).expect("grid should build")
 }
 
 fn build_rays() -> Vec<(Vec2, Vec2, f32)> {

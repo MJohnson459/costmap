@@ -14,7 +14,7 @@ fn bench_polygon_iter(c: &mut Criterion) {
         resolution: 1.0,
         ..Default::default()
     };
-    let grid = Grid2d::<u8>::empty(info);
+    let grid = Grid2d::<u8>::new(info);
 
     let points = vec![
         Vec2::new(10.0, 10.0),

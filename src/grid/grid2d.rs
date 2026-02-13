@@ -7,7 +7,10 @@
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
 
 use glam::{IVec2, UVec2, Vec2};
-use std::ops::{Index, IndexMut};
+use std::{
+    ops::{Index, IndexMut},
+    slice::{Iter, IterMut},
+};
 
 use crate::types::{MapInfo, VoxelError};
 
@@ -20,24 +23,11 @@ pub struct Grid2d<T> {
 
 impl<T> Grid2d<T> {
     /// Create a grid from existing data, using `T::default()` as the fill value.
-    pub fn new(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
+    pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
     where
         T: Default,
     {
-        let expected_len = (info.width as usize) * (info.height as usize);
-        if data.len() != expected_len {
-            return Err(VoxelError::InvalidMetadata(format!(
-                "data length {} does not match map size {}",
-                data.len(),
-                expected_len
-            )));
-        }
-
-        Ok(Self {
-            info,
-            data,
-            fill_value: T::default(),
-        })
+        Self::init_with_value(info, data, T::default())
     }
 
     /// Create a grid from existing data with an explicit fill value.
@@ -45,7 +35,7 @@ impl<T> Grid2d<T> {
     /// The fill value is used by [`clear`](Self::clear), [`update_origin`](Self::update_origin),
     /// [`resize_map`](Self::resize_map), and [`reset_map`](Self::reset_map) when new or
     /// reset cells need a value.
-    pub fn new_with_fill(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
+    pub fn init_with_value(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
         let expected_len = (info.width as usize) * (info.height as usize);
         if data.len() != expected_len {
             return Err(VoxelError::InvalidMetadata(format!(
@@ -60,6 +50,49 @@ impl<T> Grid2d<T> {
             data,
             fill_value,
         })
+    }
+
+    /// Create an empty grid filled with `T::default()`.
+    pub fn new(info: MapInfo) -> Self
+    where
+        T: Default + Clone,
+    {
+        Self::new_with_value(info, T::default())
+    }
+
+    /// Create a grid where every cell is initialised to `fill_value`.
+    ///
+    /// The same value is used by [`clear`](Self::clear),
+    /// [`update_origin`](Self::update_origin), [`resize_map`](Self::resize_map),
+    /// and [`reset_map`](Self::reset_map) when new or reset cells need a value.
+    pub fn new_with_value(info: MapInfo, fill_value: T) -> Self
+    where
+        T: Clone,
+    {
+        let expected_len = (info.width as usize) * (info.height as usize);
+        Self {
+            data: vec![fill_value.clone(); expected_len],
+            info,
+            fill_value,
+        }
+    }
+
+    /// Create a grid by calling `f(x, y)` for each cell in row-major order.
+    pub fn new_with(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
+    where
+        T: Default,
+    {
+        let mut data = Vec::with_capacity((info.width * info.height) as usize);
+        for y in 0..info.height {
+            for x in 0..info.width {
+                data.push(f(x, y));
+            }
+        }
+        Self {
+            info,
+            data,
+            fill_value: T::default(),
+        }
     }
 
     pub fn info(&self) -> &MapInfo {
@@ -106,9 +139,11 @@ impl<T> Grid2d<T> {
     }
 
     #[inline]
-    pub fn get_mut(&mut self, pos: UVec2) -> &mut T {
-        let idx = self.index(pos);
-        &mut self.data[idx]
+    pub fn get_mut(&mut self, pos: UVec2) -> Option<&mut T> {
+        if pos.x >= self.info.width || pos.y >= self.info.height {
+            return None;
+        }
+        Some(unsafe { self.get_unchecked_mut(pos) })
     }
 
     #[inline]
@@ -156,16 +191,22 @@ impl<T> Grid2d<T> {
         Some(Vec2::new(mx, my))
     }
 
-    pub fn data(&self) -> &[T] {
-        &self.data
+    /// Iterate over all cells in row-major order.
+    pub fn iter(&self) -> Iter<'_, T> {
+        self.data.iter()
+    }
+
+    /// Iterate over all cells in row-major order, yielding mutably.
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.data.iter_mut()
     }
 
     /// Iterate over all cells in row-major order, yielding `(cell, value)`.
     ///
     /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
-    pub fn iter_cells(&self) -> impl Iterator<Item = (UVec2, &T)> {
+    pub fn indexed_iter(&self) -> impl Iterator<Item = (UVec2, &T)> {
         let width = self.info.width as usize;
-        self.data.iter().enumerate().map(move |(idx, v)| {
+        self.iter().enumerate().map(move |(idx, v)| {
             let x = (idx % width) as u32;
             let y = (idx / width) as u32;
             (UVec2::new(x, y), v)
@@ -175,56 +216,13 @@ impl<T> Grid2d<T> {
     /// Iterate over all cells in row-major order, yielding `(cell, value)` mutably.
     ///
     /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
-    pub fn iter_cells_mut(&mut self) -> impl Iterator<Item = (UVec2, &mut T)> {
+    pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item = (UVec2, &mut T)> {
         let width = self.info.width as usize;
-        self.data.iter_mut().enumerate().map(move |(idx, v)| {
+        self.iter_mut().enumerate().map(move |(idx, v)| {
             let x = (idx % width) as u32;
             let y = (idx / width) as u32;
             (UVec2::new(x, y), v)
         })
-    }
-
-    /// Create an empty grid filled with `T::default()`.
-    pub fn empty(info: MapInfo) -> Self
-    where
-        T: Default + Clone,
-    {
-        Self::filled(info, T::default())
-    }
-
-    /// Create a grid where every cell is initialised to `fill_value`.
-    ///
-    /// The same value is used by [`clear`](Self::clear),
-    /// [`update_origin`](Self::update_origin), [`resize_map`](Self::resize_map),
-    /// and [`reset_map`](Self::reset_map) when new or reset cells need a value.
-    pub fn filled(info: MapInfo, fill_value: T) -> Self
-    where
-        T: Clone,
-    {
-        let expected_len = (info.width as usize) * (info.height as usize);
-        Self {
-            data: vec![fill_value.clone(); expected_len],
-            info,
-            fill_value,
-        }
-    }
-
-    /// Create a grid by calling `f(x, y)` for each cell in row-major order.
-    pub fn from_fn(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
-    where
-        T: Default,
-    {
-        let mut data = Vec::with_capacity((info.width * info.height) as usize);
-        for y in 0..info.height {
-            for x in 0..info.width {
-                data.push(f(x, y));
-            }
-        }
-        Self {
-            info,
-            data,
-            fill_value: T::default(),
-        }
     }
 
     /// Reset all cells to the grid's fill value.
@@ -233,11 +231,6 @@ impl<T> Grid2d<T> {
         T: Clone,
     {
         self.data.fill(self.fill_value.clone());
-    }
-
-    /// Return the fill value used for new / reset cells.
-    pub fn fill_value(&self) -> &T {
-        &self.fill_value
     }
 
     /// Resize the map and update resolution/origin.
@@ -281,26 +274,34 @@ impl<T> Grid2d<T> {
     }
 
     /// Updates the origin of the grid.
-    ///
-    /// # Arguments
-    ///
-    /// * `origin` - The desired origin of the grid in world coordinates.
     pub fn update_origin(&mut self, origin: Vec2)
     where
         T: Clone,
     {
         let resolution = self.info.resolution;
-        if resolution <= 0.0 {
-            self.info.origin = origin;
-            self.data = vec![self.fill_value.clone(); self.data.len()];
-            return;
-        }
 
         let old_origin = self.info.origin;
         let cell_offset = ((origin - old_origin) / resolution).floor().as_ivec2();
         let grid_size = IVec2::new(self.info.width as i32, self.info.height as i32);
 
-        self.data = self.copy_overlapping_region(grid_size, grid_size, cell_offset);
+        let overlap_min = cell_offset.clamp(IVec2::ZERO, grid_size);
+        let overlap_max = (cell_offset + grid_size).clamp(IVec2::ZERO, grid_size);
+        let overlap_size = (overlap_max - overlap_min).max(IVec2::ZERO).as_usizevec2();
+
+        let mut new_data =
+            vec![self.fill_value.clone(); grid_size.x as usize * grid_size.y as usize];
+        let start = overlap_min - cell_offset;
+        if overlap_size.x > 0 && overlap_size.y > 0 {
+            for y in 0..overlap_size.y {
+                let dst_start = (start.y as usize + y) * (grid_size.x as usize) + start.x as usize;
+                let dst_end = dst_start + overlap_size.x;
+                let src_start = y * overlap_size.x;
+                let src_end = src_start + overlap_size.x;
+                new_data[dst_start..dst_end].clone_from_slice(&self.data[src_start..src_end]);
+            }
+        }
+
+        self.data = new_data;
 
         self.info.origin = Vec2::new(
             old_origin.x + cell_offset.x as f32 * resolution,
@@ -325,136 +326,6 @@ impl<T> Grid2d<T> {
         self.update_origin(origin);
     }
 
-    /// Get the maximum cost value under a robot footprint at a given pose.
-    ///
-    /// This is a fundamental operation for path planning, collision checking, and pose validation.
-    /// It checks what the highest cost is anywhere under the robot's footprint when placed
-    /// at the specified pose.
-    ///
-    /// # Arguments
-    ///
-    /// * `position` - Robot position (x, y) in world coordinates (meters)
-    /// * `yaw` - Robot orientation in radians
-    /// * `footprint` - Footprint polygon vertices relative to robot center (meters)
-    ///
-    /// # Returns
-    ///
-    /// The maximum cost value found under the footprint. Returns `T::default()` if the
-    /// footprint is completely outside the map bounds.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use costmap::{Grid2d, MapInfo};
-    /// use costmap::types::COST_LETHAL;
-    /// use glam::Vec2;
-    ///
-    /// let info = MapInfo {
-    ///     width: 100,
-    ///     height: 100,
-    ///     ..Default::default()
-    /// };
-    /// let costmap = Grid2d::<u8>::empty(info);
-    ///
-    /// // Define a rectangular robot footprint (0.6m x 0.4m)
-    /// let footprint = vec![
-    ///     Vec2::new(0.3, 0.2),   // front-right
-    ///     Vec2::new(0.3, -0.2),  // rear-right
-    ///     Vec2::new(-0.3, -0.2), // rear-left
-    ///     Vec2::new(-0.3, 0.2),  // front-left
-    /// ];
-    ///
-    /// // Check cost at a specific pose
-    /// let position = Vec2::new(5.0, 5.0);
-    /// let yaw = 0.0;
-    /// let max_cost = costmap.footprint_cost(position, yaw, &footprint);
-    ///
-    /// // Use in planning: reject poses with high cost
-    /// if max_cost < COST_LETHAL {
-    ///     // This pose is safe for the robot
-    /// }
-    /// ```
-    pub fn footprint_cost(&self, position: Vec2, yaw: f32, footprint: &[Vec2]) -> T
-    where
-        T: Default + Ord + Copy,
-    {
-        if footprint.is_empty() {
-            return T::default();
-        }
-
-        // Transform footprint points from robot frame to world frame
-        let cos_yaw = yaw.cos();
-        let sin_yaw = yaw.sin();
-
-        let transformed_footprint: Vec<Vec2> = footprint
-            .iter()
-            .map(|p| {
-                // Rotate point by yaw
-                let rotated =
-                    Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
-                // Translate to world position
-                position + rotated
-            })
-            .collect();
-
-        // Iterate over all cells inside the transformed footprint polygon
-        // and find the maximum cost
-        let mut max_cost = T::default();
-
-        if let Some(iter) = self.polygon_value(&transformed_footprint) {
-            for cost in iter {
-                if *cost > max_cost {
-                    max_cost = *cost;
-                }
-            }
-        }
-
-        max_cost
-    }
-
-    fn copy_overlapping_region(
-        &self,
-        old_size: IVec2,
-        new_size: IVec2,
-        cell_offset: IVec2,
-    ) -> Vec<T>
-    where
-        T: Clone,
-    {
-        let overlap_min = cell_offset.clamp(IVec2::ZERO, old_size);
-        let overlap_max = (cell_offset + new_size).clamp(IVec2::ZERO, old_size);
-        let overlap_size = (overlap_max - overlap_min).max(IVec2::ZERO);
-
-        let cell_size_x = overlap_size.x as usize;
-        let cell_size_y = overlap_size.y as usize;
-
-        let mut local = vec![self.fill_value.clone(); cell_size_x * cell_size_y];
-        if cell_size_x > 0 && cell_size_y > 0 {
-            for y in 0..cell_size_y {
-                let src_start =
-                    (overlap_min.y as usize + y) * (old_size.x as usize) + overlap_min.x as usize;
-                let src_end = src_start + cell_size_x;
-                let dst_start = y * cell_size_x;
-                local[dst_start..dst_start + cell_size_x]
-                    .clone_from_slice(&self.data[src_start..src_end]);
-            }
-        }
-
-        let mut new_data = vec![self.fill_value.clone(); new_size.x as usize * new_size.y as usize];
-        let start = overlap_min - cell_offset;
-        if cell_size_x > 0 && cell_size_y > 0 {
-            for y in 0..cell_size_y {
-                let dst_start = (start.y as usize + y) * (new_size.x as usize) + start.x as usize;
-                let dst_end = dst_start + cell_size_x;
-                let src_start = y * cell_size_x;
-                let src_end = src_start + cell_size_x;
-                new_data[dst_start..dst_end].clone_from_slice(&local[src_start..src_end]);
-            }
-        }
-
-        new_data
-    }
-
     #[inline]
     fn index(&self, pos: UVec2) -> usize {
         (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
@@ -466,26 +337,24 @@ impl<T> Index<UVec2> for Grid2d<T> {
 
     #[inline]
     fn index(&self, index: UVec2) -> &Self::Output {
-        if index.x >= self.info.width || index.y >= self.info.height {
+        self.get(index).unwrap_or_else(|| {
             panic!(
                 "grid index ({}, {}) out of bounds for grid {}x{}",
                 index.x, index.y, self.info.width, self.info.height
-            );
-        }
-        unsafe { self.get_unchecked(index) }
+            )
+        })
     }
 }
 
 impl<T> IndexMut<UVec2> for Grid2d<T> {
     #[inline]
     fn index_mut(&mut self, index: UVec2) -> &mut Self::Output {
-        if index.x >= self.info.width || index.y >= self.info.height {
+        self.get_mut(index).unwrap_or_else(|| {
             panic!(
-                "grid index ({}, {}) out of bounds for grid {}x{}",
-                index.x, index.y, self.info.width, self.info.height
+                "grid index ({}, {}) out of bounds for grid",
+                index.x, index.y
             );
-        }
-        unsafe { self.get_unchecked_mut(index) }
+        })
     }
 }
 
@@ -500,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_world_to_map_to_world() {
-        let grid = Grid2d::<i8>::new(
+        let grid = Grid2d::<i8>::init(
             MapInfo {
                 width: 10,
                 height: 10,
@@ -547,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_update_origin_shifts_data() {
-        let mut grid = Grid2d::<i8>::new(
+        let mut grid = Grid2d::<i8>::init(
             MapInfo {
                 width: 4,
                 height: 4,
@@ -567,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_resize_map_clears_data() {
-        let mut grid = Grid2d::<i8>::new(
+        let mut grid = Grid2d::<i8>::init(
             MapInfo {
                 width: 4,
                 height: 4,
@@ -586,7 +455,7 @@ mod tests {
 
     #[test]
     fn iter_cells_row_major_order() {
-        let grid = Grid2d::<u8>::new(
+        let grid = Grid2d::<u8>::init(
             MapInfo {
                 width: 3,
                 height: 2,
@@ -597,7 +466,7 @@ mod tests {
         )
         .unwrap();
 
-        let cells: Vec<(UVec2, u8)> = grid.iter_cells().map(|(p, v)| (p, *v)).collect();
+        let cells: Vec<(UVec2, u8)> = grid.indexed_iter().map(|(p, v)| (p, *v)).collect();
         assert_eq!(
             cells,
             vec![
@@ -613,7 +482,7 @@ mod tests {
 
     #[test]
     fn iter_cells_mut_writes_values() {
-        let mut grid = Grid2d::<u8>::new(
+        let mut grid = Grid2d::<u8>::init(
             MapInfo {
                 width: 2,
                 height: 2,
@@ -623,7 +492,7 @@ mod tests {
         )
         .unwrap();
 
-        for (pos, v) in grid.iter_cells_mut() {
+        for (pos, v) in grid.indexed_iter_mut() {
             *v = (pos.x + 10 * pos.y) as u8;
         }
 

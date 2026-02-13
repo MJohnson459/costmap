@@ -66,7 +66,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let grid = OccupancyGrid::new(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
+        let grid = OccupancyGrid::init(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
         // Sanity check the layout we intend (row-major, y=0 first).
         assert_eq!(grid.get(UVec2::new(0, 0)).copied(), Some(UNKNOWN));

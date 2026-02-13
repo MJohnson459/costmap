@@ -239,7 +239,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let grid = OccupancyGrid::new(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
+        let grid = OccupancyGrid::init(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
         let (width, height, rgb) = occupancy_to_rgb_bytes(&grid);
         assert_eq!(width, 2);
@@ -263,7 +263,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let costmap = Grid2d::new(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
+        let costmap = Grid2d::init(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
 
         let (width, height, rgb) = costmap_to_rgb_bytes(&costmap);
         assert_eq!(width, 2);

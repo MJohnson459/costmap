@@ -1,4 +1,5 @@
 pub mod grid2d;
+pub mod helpers;
 pub mod layered;
 pub mod merge;
 

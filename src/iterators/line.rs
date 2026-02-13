@@ -247,7 +247,7 @@ mod tests {
             origin,
         };
 
-        Grid2d::new(info, data).expect("grid should build")
+        Grid2d::init(info, data).expect("grid should build")
     }
 
     #[test]

@@ -203,7 +203,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let grid = Grid2d::<u8>::empty(info);
+        let grid = Grid2d::<u8>::new(info);
         let points = vec![
             Vec2::new(1.0, 1.0),
             Vec2::new(4.0, 1.0),
@@ -224,7 +224,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let mut grid = Grid2d::<u8>::empty(info);
+        let mut grid = Grid2d::<u8>::new(info);
         grid.set(UVec2::new(2, 2), 100).unwrap();
 
         let points = vec![
@@ -250,7 +250,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let mut grid = Grid2d::<u8>::empty(info);
+        let mut grid = Grid2d::<u8>::new(info);
         let points = vec![
             Vec2::new(1.0, 1.0),
             Vec2::new(4.0, 1.0),
