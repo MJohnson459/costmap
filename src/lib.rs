@@ -9,7 +9,7 @@ pub mod visualization;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
-pub use grid::{Grid, Grid2d, Layer, LayeredGrid2d};
+pub use grid::{Grid2d, Layer, LayeredGrid2d};
 pub use layers::{InflationConfig, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use types::{Bounds, CellRegion, Footprint, MapInfo, Pose2, VoxelError};

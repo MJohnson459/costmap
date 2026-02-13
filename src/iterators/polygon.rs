@@ -170,6 +170,23 @@ impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
     }
 }
 
+impl<T> Grid2d<T> {
+    pub fn polygon<'a>(&'a self, points: &[Vec2]) -> Option<PolygonIterator> {
+        PolygonIterator::new(self, points)
+    }
+
+    pub fn polygon_value<'a>(&'a self, points: &[Vec2]) -> Option<PolygonValueIterator<'a, T>> {
+        PolygonValueIterator::new(self, points)
+    }
+
+    pub fn polygon_value_mut<'a>(
+        &'a mut self,
+        points: &[Vec2],
+    ) -> Option<PolygonValueMutIterator<'a, T>> {
+        PolygonValueMutIterator::new(self, points)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use glam::{UVec2, Vec2};

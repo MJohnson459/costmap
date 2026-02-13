@@ -7,7 +7,7 @@ use costmap::iterators::line::{LineIterator, LineValueIterator, LineValueMutIter
 use costmap::types::{FREE, MapInfo};
 
 fn bench_line_iterator(c: &mut Criterion) {
-    let mut grid = build_empty_grid(256, 256, 0.05);
+    let grid = build_empty_grid(256, 256, 0.05);
     let rays = build_rays();
 
     c.bench_function("line_iterator_steps_only", |b| {

@@ -1864,7 +1864,6 @@ dependencies = [
  "glam",
  "image",
  "pixels",
- "rayon",
  "rerun",
  "serde",
  "serde_yaml",

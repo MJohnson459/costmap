@@ -6,20 +6,10 @@
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
 
-use glam::{IVec2, UVec2, UVec3, Vec2};
+use glam::{IVec2, UVec2, Vec2};
 use std::ops::{Index, IndexMut};
 
-use crate::{
-    grid::Grid,
-    iterators::{
-        line::{LineIterator, LineValueIterator},
-        polygon::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator},
-    },
-};
-use crate::{
-    iterators::line::LineValueMutIterator,
-    types::{MapInfo, VoxelError},
-};
+use crate::types::{MapInfo, VoxelError};
 
 #[derive(Debug, Clone)]
 pub struct Grid2d<T> {
@@ -199,12 +189,7 @@ impl<T> Grid2d<T> {
     where
         T: Default + Clone,
     {
-        let expected_len = (info.width as usize) * (info.height as usize);
-        Self {
-            info,
-            data: vec![T::default(); expected_len],
-            fill_value: T::default(),
-        }
+        Self::filled(info, T::default())
     }
 
     /// Create a grid where every cell is initialised to `fill_value`.
@@ -338,72 +323,6 @@ impl<T> Grid2d<T> {
                 self.info.height as f32 * self.info.resolution,
             ) * 0.5;
         self.update_origin(origin);
-    }
-
-    pub fn line(&self, origin: Vec2, dir: Vec2, max_t: f32) -> Option<LineIterator> {
-        LineIterator::new(self, origin, dir, max_t)
-    }
-
-    pub fn line_value<'a>(
-        &'a self,
-        origin: Vec2,
-        dir: Vec2,
-        max_t: f32,
-    ) -> Option<LineValueIterator<'a, T>> {
-        LineValueIterator::new(self, origin, dir, max_t)
-    }
-
-    pub fn line_value_mut<'a>(
-        &'a mut self,
-        origin: Vec2,
-        dir: Vec2,
-        max_t: f32,
-    ) -> Option<LineValueMutIterator<'a, T>> {
-        LineValueMutIterator::new(self, origin, dir, max_t)
-    }
-
-    /// Clear all cells along a ray and optionally mark the endpoint.
-    ///
-    /// Every cell traversed by the ray from `origin` in direction `dir` for
-    /// `distance` world units is set to `clear_value`. If `endpoint_value` is
-    /// `Some`, the cell at the end of the ray is then set to that value.
-    pub fn clear_ray(
-        &mut self,
-        origin: Vec2,
-        dir: Vec2,
-        distance: f32,
-        clear_value: T,
-        endpoint_value: Option<T>,
-    ) where
-        T: Clone,
-    {
-        if let Some(mut iter) = self.line_value_mut(origin, dir, distance) {
-            for cell in &mut iter {
-                *cell = clear_value.clone();
-            }
-        }
-
-        if let Some(endpoint) = endpoint_value {
-            let end_world = origin + dir * distance;
-            if let Some(cell) = self.world_to_map(end_world) {
-                let _ = self.set(cell, endpoint);
-            }
-        }
-    }
-
-    pub fn polygon<'a>(&'a self, points: &[Vec2]) -> Option<PolygonIterator> {
-        PolygonIterator::new(self, points)
-    }
-
-    pub fn polygon_value<'a>(&'a self, points: &[Vec2]) -> Option<PolygonValueIterator<'a, T>> {
-        PolygonValueIterator::new(self, points)
-    }
-
-    pub fn polygon_value_mut<'a>(
-        &'a mut self,
-        points: &[Vec2],
-    ) -> Option<PolygonValueMutIterator<'a, T>> {
-        PolygonValueMutIterator::new(self, points)
     }
 
     /// Get the maximum cost value under a robot footprint at a given pose.
@@ -567,25 +486,6 @@ impl<T> IndexMut<UVec2> for Grid2d<T> {
             );
         }
         unsafe { self.get_unchecked_mut(index) }
-    }
-}
-
-impl<T> Grid for Grid2d<T> {
-    type Cell = T;
-
-    #[inline]
-    fn info(&self) -> &MapInfo {
-        self.info()
-    }
-
-    #[inline]
-    fn get(&self, pos: UVec3) -> Option<&Self::Cell> {
-        Grid2d::get(self, pos.truncate())
-    }
-
-    #[inline]
-    fn set(&mut self, pos: UVec3, value: Self::Cell) -> Result<(), VoxelError> {
-        Grid2d::set(self, pos.truncate(), value)
     }
 }
 

@@ -3,7 +3,6 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
-use costmap::layers::inflation::DistanceField;
 use costmap::types::{COST_FREE, COST_LETHAL, MapInfo};
 use costmap::{Grid2d, WavefrontInflationLayer};
 use costmap::{
@@ -61,39 +60,6 @@ fn grid_with_lethals(
     grid
 }
 
-/// Build occupancy as bool vec (true = obstacle) for EDT from the same pattern.
-fn occupied_from_pattern(width: u32, height: u32, pattern: LethalPattern) -> Vec<bool> {
-    let size = (width * height) as usize;
-    let mut occupied = vec![false; size];
-
-    match pattern {
-        LethalPattern::Empty => {}
-        LethalPattern::SingleCenter => {
-            let cx = width / 2;
-            let cy = height / 2;
-            occupied[(cy * width + cx) as usize] = true;
-        }
-        LethalPattern::Sparse(step) => {
-            let step = step.max(1);
-            for y in (0..height).step_by(step as usize) {
-                for x in (0..width).step_by(step as usize) {
-                    occupied[(y * width + x) as usize] = true;
-                }
-            }
-        }
-        LethalPattern::Dense(step) => {
-            let step = step.max(1);
-            for y in (0..height).step_by(step as usize) {
-                for x in (0..width).step_by(step as usize) {
-                    occupied[(y * width + x) as usize] = true;
-                }
-            }
-        }
-    }
-
-    occupied
-}
-
 /// Layer that sets a fixed set of cells to COST_LETHAL (for benchmarking inflation).
 struct StaticLethalsLayer {
     positions: Vec<UVec2>,
@@ -133,8 +99,6 @@ fn bench_inflation(c: &mut Criterion) {
 
     const INSCRIBED_RADIUS_M: f32 = 0.1; // 2 cells at 0.05 m/cell
     const COST_SCALING: f32 = 3.0;
-    const INSCRIBED_RADIUS_CELLS: f32 = 2.0; // 0.1m @ 0.05
-    const INFLATION_RADIUS_CELLS: f32 = 10.0; // 0.5m @ 0.05
 
     // Groups: empty_256, single_center_64, sparse_256, dense_256, sparse_512, sparse_4000
     // Each group has wavefront + edt with matching names
@@ -147,18 +111,6 @@ fn bench_inflation(c: &mut Criterion) {
             |mut g| {
                 g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    group.bench_function("edt", |b| {
-        let occupied = occupied_from_pattern(256, 256, LethalPattern::Empty);
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy(256, 256, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
             },
             BatchSize::SmallInput,
         );
@@ -177,18 +129,6 @@ fn bench_inflation(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
-    group.bench_function("edt", |b| {
-        let occupied = occupied_from_pattern(64, 64, LethalPattern::SingleCenter);
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy(64, 64, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
-            },
-            BatchSize::SmallInput,
-        );
-    });
     group.finish();
 
     let mut group = c.benchmark_group("sparse_256");
@@ -199,18 +139,6 @@ fn bench_inflation(c: &mut Criterion) {
             |mut g| {
                 g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    group.bench_function("edt", |b| {
-        let occupied = occupied_from_pattern(256, 256, LethalPattern::Sparse(32));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy(256, 256, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
             },
             BatchSize::SmallInput,
         );
@@ -229,31 +157,6 @@ fn bench_inflation(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
-    group.bench_function("edt", |b| {
-        let occupied = occupied_from_pattern(256, 256, LethalPattern::Dense(4));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy(256, 256, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    #[cfg(feature = "rayon")]
-    group.bench_function("edt_rayon", |b| {
-        let occupied = occupied_from_pattern(256, 256, LethalPattern::Dense(4));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy_par(256, 256, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
-            },
-            BatchSize::SmallInput,
-        );
-    });
     group.finish();
 
     let mut group = c.benchmark_group("sparse_512");
@@ -264,31 +167,6 @@ fn bench_inflation(c: &mut Criterion) {
             |mut g| {
                 g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    group.bench_function("edt", |b| {
-        let occupied = occupied_from_pattern(512, 512, LethalPattern::Sparse(64));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy(512, 512, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    #[cfg(feature = "rayon")]
-    group.bench_function("edt_rayon", |b| {
-        let occupied = occupied_from_pattern(512, 512, LethalPattern::Sparse(64));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy_par(512, 512, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
             },
             BatchSize::SmallInput,
         );
@@ -305,31 +183,6 @@ fn bench_inflation(c: &mut Criterion) {
             |mut g| {
                 g.inflate(0.5, INSCRIBED_RADIUS_M, COST_SCALING);
                 black_box(&g);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    group.bench_function("edt", |b| {
-        let occupied = occupied_from_pattern(4096, 4096, LethalPattern::Sparse(64));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy(4096, 4096, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-    #[cfg(feature = "rayon")]
-    group.bench_function("edt_rayon", |b| {
-        let occupied = occupied_from_pattern(4096, 4096, LethalPattern::Sparse(64));
-        b.iter_batched(
-            || occupied.clone(),
-            |occ| {
-                let df = DistanceField::from_occupancy_par(4096, 4096, &occ);
-                let costmap = df.to_costmap(INSCRIBED_RADIUS_CELLS, INFLATION_RADIUS_CELLS);
-                black_box(costmap);
             },
             BatchSize::SmallInput,
         );
