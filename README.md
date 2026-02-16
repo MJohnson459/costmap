@@ -8,7 +8,9 @@ A Rust library for 2D costmaps, occupancy grids, and raycasting — aimed at rob
 
 The goal is to provide a standalone, composable alternative to [costmap_2d](https://github.com/ros-navigation/navigation2/tree/main/nav2_costmap_2d) from Nav2, implemented as an independent Rust crate with no ROS dependency. The Rust robotics ecosystem needs more self-contained libraries that can be mixed and matched outside of any single framework.
 
-> **Status:** Work in progress. The core grid, raycasting, coordinate transforms, inflation, and ROS2 map loading are functional. The Nav2 compatibility layer and advanced costmap features are partially stubbed.
+> **AI Disclaimer:** I have been using this project as a way to test different workflows with AI generation. The majority of the code has been written by AI using a mix of Cursor Composer/Auto and Claude Opus 4.6. In all cases I had them generate a plan before implementation began. After generation, I have reviewed all code, however there are still many "odd decisions" that have embedded themselves in the code. Contributions in code or experience are welcome!
+
+> **Status:** Work in progress. The core grid, raycasting, coordinate transforms, inflation, and ROS2 map loading are functional.
 
 ## Goals
 
@@ -108,59 +110,6 @@ Complete local costmap workflow for mobile robot navigation. Shows how to:
 - Move the costmap origin to follow the robot
 
 ![Costmap example](docs/images/rerun_costmap.png)
-
-## Roadmap
-
-### Core
-
-- [x] 2D grid storage with bounds-checked access
-- [x] World / map coordinate transforms
-- [x] Row-major cell iterators (immutable and mutable)
-- [x] Origin updates with data preservation (rolling window)
-- [x] Configurable fill value for new / reset cells
-- [x] Map resize and region reset
-- [ ] Sparse active-cell iterators
-- [ ] Region queries (rect, circle)
-- [ ] Resolution resampling
-
-### Raycasting
-
-- [x] Grid-step raycast (2D)
-- [x] DDA raycast (2D)
-- [x] Line iterators (position, value, mutable value)
-- [x] `clear_ray` — clear along a ray with optional endpoint marking
-- [ ] 3D raycast variants
-- [ ] Configurable hit thresholds
-
-### Costmap
-
-- [x] Costmap constants (free / inscribed / lethal / unknown)
-- [x] Inflation with inscribed exponential decay
-- [x] Unknown-cell preservation through inflation
-- [x] Polygon iterators and footprint cost queries
-- [ ] Full Nav2 layer lifecycle (initialize, reset, update bounds/costs)
-- [ ] Obstacle clearing by footprint
-- [ ] Cost queries at pose
-
-### Layers
-
-- [x] Layered grid wrapper with metadata
-- [x] Aggregation policy trait
-- [ ] Per-layer get/set by index and name
-- [ ] Layer masks and filtering
-
-### IO
-
-- [x] ROS2 map loader (YAML + image)
-- [ ] ROS2 map writer
-- [ ] Other formats (PGM/PNG with metadata sidecar)
-
-### Visualisation
-
-- [x] Greyscale image export for occupancy grids
-- [x] Rerun: log occupancy grids and costmaps as textured planes
-- [x] Rerun: RViz-compatible costmap colour palette
-- [ ] Pixel-buffer viewer (optional `viewer` feature)
 
 ## Contributing
 

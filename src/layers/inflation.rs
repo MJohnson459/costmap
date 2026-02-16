@@ -86,6 +86,7 @@ impl Layer for WavefrontInflationLayer {
     }
 
     fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
+        // TODO: I think this should use the robot?
         bounds.expand_by(self.config.inflation_radius_m);
     }
 
