@@ -31,11 +31,6 @@ rerun = ["dep:rerun"]
 [profile.release]
 debug = true
 
-[[bin]]
-name = "viewer"
-path = "src/bin/viewer.rs"
-required-features = ["viewer"]
-
 [[example]]
 name = "footprint_checking"
 path = "examples/footprint_checking.rs"
