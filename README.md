@@ -45,10 +45,10 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-costmap = "0.1.0"
+costmap = "0.2.0"
 
 # Optional features
-costmap = { version = "0.1.0", features = ["rerun"] }
+costmap = { version = "0.2.0", features = ["rerun"] }
 ```
 
 ## Quick start

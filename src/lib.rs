@@ -5,7 +5,6 @@ pub mod layers;
 pub mod loaders;
 pub mod raycast;
 pub mod types;
-pub mod visualization;
 
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;

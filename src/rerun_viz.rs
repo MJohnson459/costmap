@@ -2,41 +2,68 @@ use std::error::Error;
 
 use glam::{Vec2, Vec3};
 
-use crate::{Grid2d, OccupancyGrid, visualization::occupancy_grid_to_image};
+use crate::{Costmap, OccupancyGrid, types::UNKNOWN};
 
 // Re-export cost constants so existing `use costmap::rerun_viz::COST_LETHAL` still works.
 pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
 
-pub fn occupancy_to_rgb_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
-    let gray = occupancy_grid_to_image(grid);
-    let (width, height) = (gray.width(), gray.height());
-    let gray_bytes = gray.into_raw();
-    let rgb_bytes = gray_to_rgb(&gray_bytes);
-    (width, height, rgb_bytes)
+/// Log a `Costmap` as a textured 3D plane in Rerun.
+///
+/// Converts the costmap to an RGB texture using the standard costmap colour
+/// palette and places it at the grid's world-space origin at the given z height.
+pub fn log_costmap(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    costmap: &Costmap,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    let info = costmap.info();
+    let (width, height, rgb_bytes) = costmap_to_rgb_bytes(costmap);
+    log_textured_plane_mesh3d(
+        rec,
+        entity_path,
+        info.origin,
+        info.world_width(),
+        info.world_height(),
+        z_world,
+        width,
+        height,
+        rgb_bytes,
+    )
 }
 
-pub fn costmap_to_rgb_bytes(grid: &Grid2d<u8>) -> (u32, u32, Vec<u8>) {
-    let width = grid.width();
-    let height = grid.height();
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-
-    for y_img in 0..height {
-        let y_grid = height - 1 - y_img;
-        for x in 0..width {
-            let cost = grid
-                .get(glam::UVec2::new(x, y_grid))
-                .copied()
-                .unwrap_or(COST_UNKNOWN);
-            let [r, g, b] = cost_to_rgb(cost);
-            rgb.push(r);
-            rgb.push(g);
-            rgb.push(b);
-        }
-    }
-
-    (width, height, rgb)
+/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a textured 3D plane in Rerun.
+///
+/// Converts the occupancy grid to a greyscale RGB texture and places it at the
+/// grid's world-space origin at the given z height.
+pub fn log_occupancy_grid(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    grid: &OccupancyGrid,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    let info = grid.info();
+    let (width, height, rgb_bytes) = occupancy_to_rgb_bytes(grid);
+    log_textured_plane_mesh3d(
+        rec,
+        entity_path,
+        info.origin,
+        info.world_width(),
+        info.world_height(),
+        z_world,
+        width,
+        height,
+        rgb_bytes,
+    )
 }
 
+/// Log a textured 3D plane mesh in Rerun.
+///
+/// `origin_xy_world` is the origin of the plane in world XY coordinates (meters).
+/// `width_world` and `height_world` are the width and height of the plane in world units (meters).
+/// `z_world` is the height of the plane in world coordinates (meters).
+/// `texture_width` and `texture_height` are the width and height of the texture in pixels.
+/// `rgb_bytes` are the RGB bytes of the texture.
 pub fn log_textured_plane_mesh3d(
     rec: &rerun::RecordingStream,
     entity_path: &str,
@@ -141,14 +168,63 @@ pub fn log_footprint_polygon(
     Ok(())
 }
 
-fn gray_to_rgb(gray: &[u8]) -> Vec<u8> {
-    let mut rgb = Vec::with_capacity(gray.len() * 3);
-    for &v in gray {
-        rgb.push(v);
-        rgb.push(v);
-        rgb.push(v);
+fn occupancy_to_rgb_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
+    let width = grid.width();
+    let height = grid.height();
+    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+
+    for y_img in 0..height {
+        // Flip vertically to match the ROS loader’s map coordinate convention.
+        let y_grid = height - 1 - y_img;
+        for x in 0..width {
+            let value = grid
+                .get(glam::UVec2::new(x, y_grid))
+                .copied()
+                .unwrap_or(UNKNOWN);
+            let px = occupancy_to_gray(value);
+            rgb.push(px); // R
+            rgb.push(px); // G
+            rgb.push(px); // B
+        }
     }
-    rgb
+    (width, height, rgb)
+}
+
+fn costmap_to_rgb_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
+    let width = grid.width();
+    let height = grid.height();
+    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+
+    for y_img in 0..height {
+        let y_grid = height - 1 - y_img;
+        for x in 0..width {
+            let cost = grid
+                .get(glam::UVec2::new(x, y_grid))
+                .copied()
+                .unwrap_or(COST_UNKNOWN);
+            let [r, g, b] = cost_to_rgb(cost);
+            rgb.push(r);
+            rgb.push(g);
+            rgb.push(b);
+        }
+    }
+
+    (width, height, rgb)
+}
+
+fn occupancy_to_gray(value: i8) -> u8 {
+    // Common ROS-ish palette for quick previews:
+    // - unknown: ~205
+    // - free: white
+    // - occupied: black
+    if value == UNKNOWN {
+        return 205;
+    }
+
+    let v = (value as i16).clamp(0, 100);
+    // 0 (free) -> 254, 100 (occupied) -> 0
+    let gray = 254 - ((v * 254) / 100);
+    gray as u8
 }
 
 /// Convert a costmap cost value to a Rerun color matching the RViz costmap palette.
@@ -175,56 +251,6 @@ fn cost_to_rgb(cost: u8) -> [u8; 3] {
     }
 }
 
-/// Log a `Grid2d<u8>` costmap as a textured 3D plane in Rerun.
-///
-/// Converts the costmap to an RGB texture using the standard costmap colour
-/// palette and places it at the grid's world-space origin at the given z height.
-pub fn log_costmap(
-    rec: &rerun::RecordingStream,
-    entity_path: &str,
-    costmap: &Grid2d<u8>,
-    z_world: f32,
-) -> Result<(), Box<dyn Error>> {
-    let info = costmap.info();
-    let (width, height, rgb_bytes) = costmap_to_rgb_bytes(costmap);
-    log_textured_plane_mesh3d(
-        rec,
-        entity_path,
-        info.origin,
-        info.world_width(),
-        info.world_height(),
-        z_world,
-        width,
-        height,
-        rgb_bytes,
-    )
-}
-
-/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a textured 3D plane in Rerun.
-///
-/// Converts the occupancy grid to a greyscale RGB texture and places it at the
-/// grid's world-space origin at the given z height.
-pub fn log_occupancy_grid(
-    rec: &rerun::RecordingStream,
-    entity_path: &str,
-    grid: &OccupancyGrid,
-    z_world: f32,
-) -> Result<(), Box<dyn Error>> {
-    let info = grid.info();
-    let (width, height, rgb_bytes) = occupancy_to_rgb_bytes(grid);
-    log_textured_plane_mesh3d(
-        rec,
-        entity_path,
-        info.origin,
-        info.world_width(),
-        info.world_height(),
-        z_world,
-        width,
-        height,
-        rgb_bytes,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,8 +272,8 @@ mod tests {
         assert_eq!(height, 2);
         assert_eq!(rgb.len(), 2 * 2 * 3);
 
-        let gray = occupancy_grid_to_image(&grid).into_raw();
-        for (idx, g) in gray.iter().enumerate() {
+        let (_width, _height, rgb) = occupancy_to_rgb_bytes(&grid);
+        for (idx, g) in rgb.iter().enumerate() {
             let base = idx * 3;
             assert_eq!(rgb[base], *g);
             assert_eq!(rgb[base + 1], *g);
@@ -263,7 +289,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let costmap = Grid2d::init(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
+        let costmap = Costmap::init(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
 
         let (width, height, rgb) = costmap_to_rgb_bytes(&costmap);
         assert_eq!(width, 2);
