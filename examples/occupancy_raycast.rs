@@ -1,10 +1,6 @@
 //! # Occupancy Grid Raycasting
 //!
-//! This example demonstrates 2D raycasting in an occupancy grid, a fundamental operation
-//! for robotics applications such as:
-//! - Laser range finder (lidar) simulation
-//! - Line-of-sight checks for visibility
-//! - Collision detection along a ray
+//! This example demonstrates 2D raycasting in an occupancy grid.
 //!
 //! This example loads a static map and continuously rotates a ray 360 degrees,
 //! visualizing hits and misses using Rerun for real-time debugging.

@@ -55,6 +55,9 @@ const Z_ROBOT: f32 = 0.35;
 /// Example-only layer: simulates lidar by raycasting on a global occupancy grid.
 /// Keeps an internal obstacle grid (like Nav2's layer costmap_) so observations
 /// persist across frames; each update we shift it, draw new rays, then write to master.
+///
+/// This would normally be done by listening to a laser scan topic which would
+/// update the obstacle layer.
 struct SimLidarLayer {
     global_grid: Arc<OccupancyGrid>,
     /// Internal costmap that persists between updates (Nav2-style layer costmap_).

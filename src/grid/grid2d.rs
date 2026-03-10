@@ -22,7 +22,7 @@ pub struct Grid2d<T> {
 }
 
 impl<T> Grid2d<T> {
-    /// Create a grid from existing data, using `T::default()` as the fill value.
+    /// Create a grid from existing data, using [`T::default`] as the fill value.
     pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
     where
         T: Default,
@@ -32,9 +32,9 @@ impl<T> Grid2d<T> {
 
     /// Create a grid from existing data with an explicit fill value.
     ///
-    /// The fill value is used by [`clear`](Self::clear), [`update_origin`](Self::update_origin),
-    /// [`resize_map`](Self::resize_map), and [`reset_map`](Self::reset_map) when new or
-    /// reset cells need a value.
+    /// The fill value is used by [`Self::clear`], [`Self::update_origin`],
+    /// [`Self::resize_map`], and [`Self::reset_map`] when new or reset cells
+    /// need a value.
     pub fn init_with_value(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
         let expected_len = (info.width as usize) * (info.height as usize);
         if data.len() != expected_len {
@@ -52,7 +52,7 @@ impl<T> Grid2d<T> {
         })
     }
 
-    /// Create an empty grid filled with `T::default()`.
+    /// Create an empty grid filled with [`T::default`].
     pub fn new(info: MapInfo) -> Self
     where
         T: Default + Clone,
@@ -60,11 +60,11 @@ impl<T> Grid2d<T> {
         Self::new_with_value(info, T::default())
     }
 
-    /// Create a grid where every cell is initialised to `fill_value`.
+    /// Create a grid where every cell is initialised to [`Self::fill_value`].
     ///
-    /// The same value is used by [`clear`](Self::clear),
-    /// [`update_origin`](Self::update_origin), [`resize_map`](Self::resize_map),
-    /// and [`reset_map`](Self::reset_map) when new or reset cells need a value.
+    /// The same value is used by [`Self::clear`], [`Self::update_origin`],
+    /// [`Self::resize_map`], and [`Self::reset_map`] when new or reset cells
+    /// need a value.
     pub fn new_with_value(info: MapInfo, fill_value: T) -> Self
     where
         T: Clone,

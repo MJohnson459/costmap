@@ -2,6 +2,8 @@ use glam::{IVec2, UVec2, Vec2};
 
 use crate::Grid2d;
 
+/// An iterator that steps along each cell in a line returning the cell index
+/// and the distance along the line to the cell [LineStep].
 pub struct LineIterator {
     max_t_grid: f32,
     /// Normalised step direction along each axis.
@@ -19,7 +21,9 @@ pub struct LineIterator {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LineStep {
+    /// The cell index
     pub cell: UVec2,
+    /// The distance along the line to the cell
     pub t: f32,
 }
 

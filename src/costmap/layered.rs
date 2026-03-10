@@ -1,8 +1,11 @@
-//! Layered costmap: container of layers that write into a master grid.
+//! A layered costmap is a container of layers that write into a base master
+//! grid.
 //!
-//! Uses Rust-native types (`glam::Vec2`, `UVec2`, `Grid2d<u8>`). The update loop
-//! aggregates bounds from all layers, resets the master region, then calls
-//! each layer's `update_costs` in order.
+//! Each layer is processed in order and updates are based on bounds passed from
+//! higher layers.
+//!
+//! The update loop aggregates bounds from all layers, resets the master region,
+//! then calls each layer's `update_costs` in order.
 
 use glam::{UVec2, Vec2};
 
@@ -11,8 +14,12 @@ use crate::{
     types::{Bounds, CellRegion, Footprint, MapInfo, Pose2},
 };
 
-/// Layer plugin interface. Layers are called in order: each may expand bounds,
-/// then each writes into the master grid within the computed region.
+/// A layer is a component which acts on the base master grid. It may contain
+/// its own grid but doesn't need to.
+///
+/// Each layer is processed in order.
+///
+/// Each update is limited by a set of bounds passed from higher layers.
 pub trait Layer {
     /// Reset the layer to its initial state.
     fn reset(&mut self);
@@ -46,7 +53,7 @@ pub struct LayeredCostmap {
 impl LayeredCostmap {
     /// Create a layered costmap with a new master grid of the given size and default value.
     ///
-    /// The master is created with `Grid2d::filled(info, fill_value)`. The updated region
+    /// The master is set uniformly to `fill_value` for all cells and the updated region
     /// is reset to `fill_value` each frame before layers write.
     ///
     /// If `rolling_window` is true, the grid origin is recentered on the robot each
