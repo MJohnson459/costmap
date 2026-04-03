@@ -12,7 +12,7 @@ categories = ["science", "algorithms", "simulation"]
 bitvec = "1.0"
 glam = "0.30"
 image = "0.25"
-pixels = { version = "0.15", optional = true }
+pixels = { version = "0.16", optional = true }
 rerun = { version = "0.29", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
