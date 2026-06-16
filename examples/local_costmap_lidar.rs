@@ -24,7 +24,7 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::time::Duration;
 
-use costmap::rerun_viz::{log_costmap, log_occupancy_grid, log_point3d};
+use costmap::rerun_viz::{log_costmap, log_occupancy_grid_static, log_point3d};
 use costmap::types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, Pose2};
 use costmap::{Costmap, raycast::RayHit2D};
 use costmap::{Grid2d, MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
@@ -116,7 +116,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
     let rec = rerun::RecordingStreamBuilder::new("costmap_local_costmap_lidar").spawn()?;
-    log_occupancy_grid(&rec, "world/global_map", global_grid.as_ref(), Z_GLOBAL)?;
+    // Static: the global map never changes, so log it on all timelines rather than at
+    // a single timepoint — otherwise it would only be visible before frame 0.
+    log_occupancy_grid_static(&rec, "world/global_map", global_grid.as_ref(), Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
     let waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();

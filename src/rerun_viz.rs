@@ -7,102 +7,141 @@ use crate::{Costmap, OccupancyGrid, types::UNKNOWN};
 // Re-export cost constants so existing `use costmap::rerun_viz::COST_LETHAL` still works.
 pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
 
-/// Log a `Costmap` as a textured 3D plane in Rerun.
+/// Log a `Costmap` as a native Rerun `GridMap` archetype.
 ///
-/// Converts the costmap to an RGB texture using the standard costmap colour
-/// palette and places it at the grid's world-space origin at the given z height.
+/// Cost values are translated to nav2's published cost convention (see
+/// [`cost_to_rviz_value`]) and logged as a single-channel (L/U8) grid coloured by
+/// Rerun's built-in `RvizCostmap` colormap, which matches the classic RViz costmap
+/// palette (blue→red gradient, highlight colours for special costs, transparent free
+/// space). The grid is anchored at its world-space origin (lower-left corner) and
+/// lifted to the given z height.
 pub fn log_costmap(
     rec: &rerun::RecordingStream,
     entity_path: &str,
     costmap: &Costmap,
     z_world: f32,
 ) -> Result<(), Box<dyn Error>> {
+    rec.log(entity_path, &costmap_grid_map(costmap, z_world))?;
+    Ok(())
+}
+
+/// Like [`log_costmap`], but logs the grid statically (on all timelines) instead of
+/// at the current time. Use this for a fixed background costmap that should stay
+/// visible across the whole recording rather than at a single timepoint.
+pub fn log_costmap_static(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    costmap: &Costmap,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    rec.log_static(entity_path, &costmap_grid_map(costmap, z_world))?;
+    Ok(())
+}
+
+/// Opacity logged for costmaps: below 1.0 on purpose, for two reasons.
+///
+/// First, it is *required* for transparency to work at all: `RvizCostmap` makes free
+/// cells (cost 0) fully transparent, but that alpha is produced by the colormap in
+/// the shader — the source texture is single-channel L/U8 with no alpha channel.
+/// Rerun's rectangle renderer only routes a grid into the blended (transparent) draw
+/// phase when the texture has an alpha channel *or* the opacity tint is < 1.0; at
+/// exactly 1.0 it takes the opaque path, blending is off, and the colormap's per-texel
+/// alpha is ignored, so free space would render as solid black.
+///
+/// Second, holding it a little below 1.0 gives the classic RViz costmap-over-map
+/// overlay: the coloured obstacle/inflation cells become slightly translucent so an
+/// underlying map (e.g. a static global map) shows through them too, not just through
+/// the free cells. This composites correctly because the costmap is a single
+/// transparent layer over an opaque base.
+const COSTMAP_OPACITY: f32 = 0.85;
+
+fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
     let info = costmap.info();
-    let (width, height, rgb_bytes) = costmap_to_rgb_bytes(costmap);
-    log_textured_plane_mesh3d(
-        rec,
-        entity_path,
+    let (width, height, cells) = costmap_to_l_bytes(costmap);
+    grid_map(
         info.origin,
-        info.world_width(),
-        info.world_height(),
+        info.resolution,
         z_world,
         width,
         height,
-        rgb_bytes,
+        cells,
+        rerun::components::Colormap::RvizCostmap,
     )
+    .with_opacity(COSTMAP_OPACITY)
 }
 
-/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a textured 3D plane in Rerun.
+/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a native Rerun `GridMap` archetype.
 ///
-/// Converts the occupancy grid to a greyscale RGB texture and places it at the
-/// grid's world-space origin at the given z height.
+/// The raw occupancy values (ROS `nav_msgs/OccupancyGrid` convention: -1 unknown,
+/// 0 free, 100 occupied) are logged as a single-channel (L/U8) grid and coloured by
+/// Rerun's built-in `RvizMap` colormap (white free → black occupied, green-blue
+/// unknown). The grid is anchored at its world-space origin (lower-left corner) and
+/// lifted to the given z height.
 pub fn log_occupancy_grid(
     rec: &rerun::RecordingStream,
     entity_path: &str,
     grid: &OccupancyGrid,
     z_world: f32,
 ) -> Result<(), Box<dyn Error>> {
+    rec.log(entity_path, &occupancy_grid_map(grid, z_world))?;
+    Ok(())
+}
+
+/// Like [`log_occupancy_grid`], but logs the grid statically (on all timelines)
+/// instead of at the current time. Use this for a fixed background map (e.g. a static
+/// global map) that should stay visible across the whole recording.
+pub fn log_occupancy_grid_static(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    grid: &OccupancyGrid,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    rec.log_static(entity_path, &occupancy_grid_map(grid, z_world))?;
+    Ok(())
+}
+
+fn occupancy_grid_map(grid: &OccupancyGrid, z_world: f32) -> rerun::GridMap {
     let info = grid.info();
-    let (width, height, rgb_bytes) = occupancy_to_rgb_bytes(grid);
-    log_textured_plane_mesh3d(
-        rec,
-        entity_path,
+    let (width, height, cells) = occupancy_to_l_bytes(grid);
+    grid_map(
         info.origin,
-        info.world_width(),
-        info.world_height(),
+        info.resolution,
         z_world,
         width,
         height,
-        rgb_bytes,
+        cells,
+        rerun::components::Colormap::RvizMap,
     )
 }
 
-/// Log a textured 3D plane mesh in Rerun.
+/// Build a `GridMap` archetype from a single-channel (L/U8) grid.
 ///
-/// `origin_xy_world` is the origin of the plane in world XY coordinates (meters).
-/// `width_world` and `height_world` are the width and height of the plane in world units (meters).
-/// `z_world` is the height of the plane in world coordinates (meters).
-/// `texture_width` and `texture_height` are the width and height of the texture in pixels.
-/// `rgb_bytes` are the RGB bytes of the texture.
-pub fn log_textured_plane_mesh3d(
-    rec: &rerun::RecordingStream,
-    entity_path: &str,
+/// `origin_xy_world` is the lower-left corner of the grid in world XY coordinates
+/// (meters); `cell_size` is the world size of one cell (meters/pixel); `z_world` is
+/// the height the grid is lifted to. `cells` are the raw u8 cell values laid out
+/// with row 0 at the top of the image (Rerun's image convention), and `colormap`
+/// selects how those values are coloured.
+#[allow(clippy::too_many_arguments)]
+fn grid_map(
     origin_xy_world: Vec2,
-    width_world: f32,
-    height_world: f32,
+    cell_size: f32,
     z_world: f32,
-    texture_width: u32,
-    texture_height: u32,
-    rgb_bytes: Vec<u8>,
-) -> Result<(), Box<dyn Error>> {
-    rec.log(
-        entity_path,
-        &rerun::Mesh3D::new([
-            [origin_xy_world.x, origin_xy_world.y + height_world, z_world],
-            [origin_xy_world.x + width_world, origin_xy_world.y, z_world],
-            [origin_xy_world.x, origin_xy_world.y, z_world],
-            [
-                origin_xy_world.x + width_world,
-                origin_xy_world.y + height_world,
-                z_world,
-            ],
-        ])
-        .with_vertex_normals([[0.0, 0.0, 1.0]])
-        .with_triangle_indices([[2, 1, 0], [3, 1, 0]])
-        // Flip V to match the viewer's texture coordinate convention.
-        .with_vertex_texcoords([[0.0, 0.0], [1.0, 1.0], [0.0, 1.0], [1.0, 0.0]])
-        .with_albedo_texture(
-            rerun::datatypes::ImageFormat {
-                width: texture_width,
-                height: texture_height,
-                color_model: Some(rerun::datatypes::ColorModel::RGB),
-                channel_datatype: Some(rerun::datatypes::ChannelDatatype::U8),
-                ..Default::default()
-            },
-            rgb_bytes,
+    width: u32,
+    height: u32,
+    cells: Vec<u8>,
+    colormap: rerun::components::Colormap,
+) -> rerun::GridMap {
+    rerun::GridMap::new(
+        cells,
+        rerun::components::ImageFormat::from_color_model(
+            [width, height],
+            rerun::ColorModel::L,
+            rerun::ChannelDatatype::U8,
         ),
-    )?;
-    Ok(())
+        cell_size,
+    )
+    .with_translation([origin_xy_world.x, origin_xy_world.y, z_world])
+    .with_colormap(colormap)
 }
 
 pub fn log_point3d(
@@ -168,32 +207,39 @@ pub fn log_footprint_polygon(
     Ok(())
 }
 
-fn occupancy_to_rgb_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
+/// Build a single-channel (L/U8) cell buffer from an `OccupancyGrid`.
+///
+/// Rows are flipped vertically so image row 0 is the grid's top row, matching
+/// Rerun's image convention (row 0 at the top, the `GridMap` origin at the
+/// lower-left corner). Raw ROS occupancy values are preserved: -1 unknown maps to
+/// 255, 0..=100 pass through unchanged, ready for the `RvizMap` colormap.
+fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
     let width = grid.width();
     let height = grid.height();
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+    let mut cells = Vec::with_capacity((width * height) as usize);
 
     for y_img in 0..height {
-        // Flip vertically to match the ROS loader’s map coordinate convention.
         let y_grid = height - 1 - y_img;
         for x in 0..width {
             let value = grid
                 .get(glam::UVec2::new(x, y_grid))
                 .copied()
                 .unwrap_or(UNKNOWN);
-            let px = occupancy_to_gray(value);
-            rgb.push(px); // R
-            rgb.push(px); // G
-            rgb.push(px); // B
+            cells.push(value as u8);
         }
     }
-    (width, height, rgb)
+    (width, height, cells)
 }
 
-fn costmap_to_rgb_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
+/// Build a single-channel (L/U8) cell buffer from a `Costmap`.
+///
+/// Rows are flipped vertically so image row 0 is the grid's top row, matching
+/// Rerun's image convention. Raw `costmap_2d` costs are translated to the value
+/// convention Rerun's `RvizCostmap` colormap expects (see [`cost_to_rviz_value`]).
+fn costmap_to_l_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
     let width = grid.width();
     let height = grid.height();
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+    let mut cells = Vec::with_capacity((width * height) as usize);
 
     for y_img in 0..height {
         let y_grid = height - 1 - y_img;
@@ -202,29 +248,31 @@ fn costmap_to_rgb_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
                 .get(glam::UVec2::new(x, y_grid))
                 .copied()
                 .unwrap_or(COST_UNKNOWN);
-            let [r, g, b] = cost_to_rgb(cost);
-            rgb.push(r);
-            rgb.push(g);
-            rgb.push(b);
+            cells.push(cost_to_rviz_value(cost));
         }
     }
 
-    (width, height, rgb)
+    (width, height, cells)
 }
 
-fn occupancy_to_gray(value: i8) -> u8 {
-    // Common ROS-ish palette for quick previews:
-    // - unknown: ~205
-    // - free: white
-    // - occupied: black
-    if value == UNKNOWN {
-        return 205;
+/// Translate a raw `costmap_2d` cost into the value convention Rerun's `RvizCostmap`
+/// colormap expects.
+///
+/// Rerun's `RvizCostmap` is a port of the RViz costmap palette, which is indexed by
+/// the *published* cost values nav2's `Costmap2DPublisher` emits (a costmap exposed
+/// as a `nav_msgs/OccupancyGrid`), not the raw 0..=255 `costmap_2d` cost. This applies
+/// nav2's cost translation table: free → 0, inscribed → 99, lethal → 100, unknown →
+/// 255, and the 1..=252 gradient linearly scaled into 1..=98. Without it, our raw
+/// special values (253/254) and gradient land on the colormap's 99/100/101-127 bands,
+/// producing spurious cyan/magenta/green artifacts.
+fn cost_to_rviz_value(cost: u8) -> u8 {
+    match cost {
+        COST_FREE => 0,
+        COST_INSCRIBED => 99,
+        COST_LETHAL => 100,
+        COST_UNKNOWN => 255,
+        c => (1 + 97 * (c as u16 - 1) / 251) as u8,
     }
-
-    let v = (value as i16).clamp(0, 100);
-    // 0 (free) -> 254, 100 (occupied) -> 0
-    let gray = 254 - ((v * 254) / 100);
-    gray as u8
 }
 
 /// Convert a costmap cost value to a Rerun color matching the RViz costmap palette.
@@ -258,58 +306,64 @@ mod tests {
     use crate::{MapInfo, types::OCCUPIED};
 
     #[test]
-    fn occupancy_to_rgb_matches_gray_image() {
+    fn occupancy_to_l_preserves_values_and_flips() {
         let info = MapInfo {
             width: 2,
             height: 2,
             resolution: 1.0,
             ..Default::default()
         };
+        // Grid data is row-major from the bottom row (ROS convention):
+        //   grid row 0 (bottom): [UNKNOWN, FREE]
+        //   grid row 1 (top):    [OCCUPIED, FREE]
         let grid = OccupancyGrid::init(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
-        let (width, height, rgb) = occupancy_to_rgb_bytes(&grid);
+        let (width, height, cells) = occupancy_to_l_bytes(&grid);
         assert_eq!(width, 2);
         assert_eq!(height, 2);
-        assert_eq!(rgb.len(), 2 * 2 * 3);
+        assert_eq!(cells.len(), 2 * 2);
 
-        let (_width, _height, rgb) = occupancy_to_rgb_bytes(&grid);
-        for (idx, g) in rgb.iter().enumerate() {
-            let base = idx * 3;
-            assert_eq!(rgb[base], *g);
-            assert_eq!(rgb[base + 1], *g);
-            assert_eq!(rgb[base + 2], *g);
-        }
+        // Image row 0 is the grid's top row; raw values pass through (-1 → 255).
+        assert_eq!(
+            cells,
+            vec![
+                OCCUPIED as u8, // img (0,0) = grid top-left
+                FREE as u8,     // img (1,0) = grid top-right
+                UNKNOWN as u8,  // img (0,1) = grid bottom-left → 255
+                FREE as u8,     // img (1,1) = grid bottom-right
+            ]
+        );
     }
 
     #[test]
-    fn costmap_to_rgb_respects_palette_and_flip() {
+    fn costmap_to_l_translates_values_and_flips() {
         let info = MapInfo {
             width: 2,
             height: 2,
             resolution: 1.0,
             ..Default::default()
         };
+        // grid row 0 (bottom): [0, 10], grid row 1 (top): [LETHAL, UNKNOWN]
         let costmap = Costmap::init(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
 
-        let (width, height, rgb) = costmap_to_rgb_bytes(&costmap);
+        let (width, height, cells) = costmap_to_l_bytes(&costmap);
         assert_eq!(width, 2);
         assert_eq!(height, 2);
-        assert_eq!(rgb.len(), 2 * 2 * 3);
+        assert_eq!(cells.len(), 2 * 2);
 
-        // cost 10: t = 10/252 ≈ 0.0397
-        let t = 10.0 / (COST_INSCRIBED - 1) as f32;
-        let r = (255.0 * t) as u8;
-        let b = (255.0 * (1.0 - t)) as u8;
-        let expected = [
-            [0, 255, 255], // y=1, x=0 (lethal → cyan)
-            [0, 97, 127],  // y=1, x=1 (unknown → teal-grey)
-            [0, 172, 230], // y=0, x=0 (free → light blue)
-            [r, 0, b],     // y=0, x=1 (low cost → blue-ish)
-        ];
+        // Image row 0 is the grid's top row; costs are translated to nav2's published
+        // convention: 0 → 0, 10 → 1 + 97*9/251 = 4, lethal → 100, unknown → 255.
+        assert_eq!(cells, vec![100, 255, 0, 4]);
+    }
 
-        for (idx, rgb_triplet) in expected.iter().enumerate() {
-            let base = idx * 3;
-            assert_eq!(&rgb[base..base + 3], rgb_triplet);
-        }
+    #[test]
+    fn cost_to_rviz_value_maps_special_and_gradient() {
+        assert_eq!(cost_to_rviz_value(COST_FREE), 0);
+        assert_eq!(cost_to_rviz_value(COST_INSCRIBED), 99);
+        assert_eq!(cost_to_rviz_value(COST_LETHAL), 100);
+        assert_eq!(cost_to_rviz_value(COST_UNKNOWN), 255);
+        // Gradient endpoints scale into 1..=98, staying clear of the 99/100 specials.
+        assert_eq!(cost_to_rviz_value(1), 1);
+        assert_eq!(cost_to_rviz_value(252), 98);
     }
 }
