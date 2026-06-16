@@ -109,6 +109,13 @@ impl<T> Grid2d<T> {
         self.info.height
     }
 
+    /// Check if this grid has the same layout (width, height, resolution, origin) as another grid.
+    ///
+    /// This is useful for validating that two grids can be safely merged or compared.
+    pub fn layout_matches<U>(&self, other: &Grid2d<U>) -> bool {
+        self.info() == other.info()
+    }
+
     /// Returns a reference to the cell at `pos` without bounds checking.
     ///
     /// # Safety
@@ -500,5 +507,87 @@ mod tests {
         assert_eq!(grid.get(UVec2::new(1, 0)), Some(&1));
         assert_eq!(grid.get(UVec2::new(0, 1)), Some(&10));
         assert_eq!(grid.get(UVec2::new(1, 1)), Some(&11));
+    }
+
+    #[test]
+    fn test_layout_matches_equal() {
+        let grid_u8 = Grid2d::<u8>::init(
+            MapInfo {
+                width: 10,
+                height: 20,
+                resolution: 0.5,
+                origin: Vec2::new(1.0, 2.0),
+            },
+            vec![0; 200],
+        )
+        .unwrap();
+
+        let grid_f32 = Grid2d::<f32>::init(
+            MapInfo {
+                width: 10,
+                height: 20,
+                resolution: 0.5,
+                origin: Vec2::new(1.0, 2.0),
+            },
+            vec![0.0; 200],
+        )
+        .unwrap();
+
+        assert!(grid_u8.layout_matches(&grid_f32));
+        assert!(grid_f32.layout_matches(&grid_u8));
+    }
+
+    #[test]
+    fn test_layout_matches_different_width() {
+        let grid_u8 = Grid2d::<u8>::init(
+            MapInfo {
+                width: 10,
+                height: 20,
+                resolution: 0.5,
+                origin: Vec2::ZERO,
+            },
+            vec![0; 200],
+        )
+        .unwrap();
+
+        let grid_f32 = Grid2d::<f32>::init(
+            MapInfo {
+                width: 15,
+                height: 20,
+                resolution: 0.5,
+                origin: Vec2::ZERO,
+            },
+            vec![0.0; 300],
+        )
+        .unwrap();
+
+        assert!(!grid_u8.layout_matches(&grid_f32));
+    }
+
+    #[test]
+    fn test_layout_matches_different_resolution() {
+        let grid_u8 = Grid2d::<u8>::init(
+            MapInfo {
+                width: 10,
+                height: 20,
+                resolution: 0.5,
+                origin: Vec2::ZERO,
+            },
+            vec![0; 200],
+        )
+        .unwrap();
+
+        let grid_f32 = Grid2d::<f32>::init(
+            MapInfo {
+                width: 10,
+                height: 20,
+                resolution: 0.1,
+                origin: Vec2::ZERO,
+            },
+            vec![0.0; 200],
+        )
+        .unwrap();
+
+        assert!(!grid_u8.layout_matches(&grid_f32));
     }
 }
