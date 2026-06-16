@@ -21,11 +21,27 @@ pub fn log_costmap(
     costmap: &Costmap,
     z_world: f32,
 ) -> Result<(), Box<dyn Error>> {
+    rec.log(entity_path, &costmap_grid_map(costmap, z_world))?;
+    Ok(())
+}
+
+/// Like [`log_costmap`], but logs the grid statically (on all timelines) instead of
+/// at the current time. Use this for a fixed background costmap that should stay
+/// visible across the whole recording rather than at a single timepoint.
+pub fn log_costmap_static(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    costmap: &Costmap,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    rec.log_static(entity_path, &costmap_grid_map(costmap, z_world))?;
+    Ok(())
+}
+
+fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
     let info = costmap.info();
     let (width, height, cells) = costmap_to_l_bytes(costmap);
-    log_grid_map(
-        rec,
-        entity_path,
+    grid_map(
         info.origin,
         info.resolution,
         z_world,
@@ -49,11 +65,27 @@ pub fn log_occupancy_grid(
     grid: &OccupancyGrid,
     z_world: f32,
 ) -> Result<(), Box<dyn Error>> {
+    rec.log(entity_path, &occupancy_grid_map(grid, z_world))?;
+    Ok(())
+}
+
+/// Like [`log_occupancy_grid`], but logs the grid statically (on all timelines)
+/// instead of at the current time. Use this for a fixed background map (e.g. a static
+/// global map) that should stay visible across the whole recording.
+pub fn log_occupancy_grid_static(
+    rec: &rerun::RecordingStream,
+    entity_path: &str,
+    grid: &OccupancyGrid,
+    z_world: f32,
+) -> Result<(), Box<dyn Error>> {
+    rec.log_static(entity_path, &occupancy_grid_map(grid, z_world))?;
+    Ok(())
+}
+
+fn occupancy_grid_map(grid: &OccupancyGrid, z_world: f32) -> rerun::GridMap {
     let info = grid.info();
     let (width, height, cells) = occupancy_to_l_bytes(grid);
-    log_grid_map(
-        rec,
-        entity_path,
+    grid_map(
         info.origin,
         info.resolution,
         z_world,
@@ -64,7 +96,7 @@ pub fn log_occupancy_grid(
     )
 }
 
-/// Log a single-channel (L/U8) grid as a Rerun `GridMap` archetype.
+/// Build a `GridMap` archetype from a single-channel (L/U8) grid.
 ///
 /// `origin_xy_world` is the lower-left corner of the grid in world XY coordinates
 /// (meters); `cell_size` is the world size of one cell (meters/pixel); `z_world` is
@@ -72,9 +104,7 @@ pub fn log_occupancy_grid(
 /// with row 0 at the top of the image (Rerun's image convention), and `colormap`
 /// selects how those values are coloured.
 #[allow(clippy::too_many_arguments)]
-fn log_grid_map(
-    rec: &rerun::RecordingStream,
-    entity_path: &str,
+fn grid_map(
     origin_xy_world: Vec2,
     cell_size: f32,
     z_world: f32,
@@ -82,22 +112,18 @@ fn log_grid_map(
     height: u32,
     cells: Vec<u8>,
     colormap: rerun::components::Colormap,
-) -> Result<(), Box<dyn Error>> {
-    rec.log(
-        entity_path,
-        &rerun::GridMap::new(
-            cells,
-            rerun::components::ImageFormat::from_color_model(
-                [width, height],
-                rerun::ColorModel::L,
-                rerun::ChannelDatatype::U8,
-            ),
-            cell_size,
-        )
-        .with_translation([origin_xy_world.x, origin_xy_world.y, z_world])
-        .with_colormap(colormap),
-    )?;
-    Ok(())
+) -> rerun::GridMap {
+    rerun::GridMap::new(
+        cells,
+        rerun::components::ImageFormat::from_color_model(
+            [width, height],
+            rerun::ColorModel::L,
+            rerun::ChannelDatatype::U8,
+        ),
+        cell_size,
+    )
+    .with_translation([origin_xy_world.x, origin_xy_world.y, z_world])
+    .with_colormap(colormap)
 }
 
 pub fn log_point3d(
