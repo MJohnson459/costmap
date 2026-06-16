@@ -9,7 +9,8 @@ pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
 
 /// Log a `Costmap` as a native Rerun `GridMap` archetype.
 ///
-/// The raw cost values are logged as a single-channel (L/U8) grid and coloured by
+/// Cost values are translated to nav2's published cost convention (see
+/// [`cost_to_rviz_value`]) and logged as a single-channel (L/U8) grid coloured by
 /// Rerun's built-in `RvizCostmap` colormap, which matches the classic RViz costmap
 /// palette (blue→red gradient, highlight colours for special costs, transparent free
 /// space). The grid is anchored at its world-space origin (lower-left corner) and
@@ -189,8 +190,8 @@ fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
 /// Build a single-channel (L/U8) cell buffer from a `Costmap`.
 ///
 /// Rows are flipped vertically so image row 0 is the grid's top row, matching
-/// Rerun's image convention. Raw cost values pass through unchanged, ready for the
-/// `RvizCostmap` colormap.
+/// Rerun's image convention. Raw `costmap_2d` costs are translated to the value
+/// convention Rerun's `RvizCostmap` colormap expects (see [`cost_to_rviz_value`]).
 fn costmap_to_l_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
     let width = grid.width();
     let height = grid.height();
@@ -203,11 +204,31 @@ fn costmap_to_l_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
                 .get(glam::UVec2::new(x, y_grid))
                 .copied()
                 .unwrap_or(COST_UNKNOWN);
-            cells.push(cost);
+            cells.push(cost_to_rviz_value(cost));
         }
     }
 
     (width, height, cells)
+}
+
+/// Translate a raw `costmap_2d` cost into the value convention Rerun's `RvizCostmap`
+/// colormap expects.
+///
+/// Rerun's `RvizCostmap` is a port of the RViz costmap palette, which is indexed by
+/// the *published* cost values nav2's `Costmap2DPublisher` emits (a costmap exposed
+/// as a `nav_msgs/OccupancyGrid`), not the raw 0..=255 `costmap_2d` cost. This applies
+/// nav2's cost translation table: free → 0, inscribed → 99, lethal → 100, unknown →
+/// 255, and the 1..=252 gradient linearly scaled into 1..=98. Without it, our raw
+/// special values (253/254) and gradient land on the colormap's 99/100/101-127 bands,
+/// producing spurious cyan/magenta/green artifacts.
+fn cost_to_rviz_value(cost: u8) -> u8 {
+    match cost {
+        COST_FREE => 0,
+        COST_INSCRIBED => 99,
+        COST_LETHAL => 100,
+        COST_UNKNOWN => 255,
+        c => (1 + 97 * (c as u16 - 1) / 251) as u8,
+    }
 }
 
 /// Convert a costmap cost value to a Rerun color matching the RViz costmap palette.
@@ -271,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn costmap_to_l_preserves_values_and_flips() {
+    fn costmap_to_l_translates_values_and_flips() {
         let info = MapInfo {
             width: 2,
             height: 2,
@@ -286,7 +307,19 @@ mod tests {
         assert_eq!(height, 2);
         assert_eq!(cells.len(), 2 * 2);
 
-        // Image row 0 is the grid's top row; raw cost values pass through unchanged.
-        assert_eq!(cells, vec![COST_LETHAL, COST_UNKNOWN, 0, 10]);
+        // Image row 0 is the grid's top row; costs are translated to nav2's published
+        // convention: 0 → 0, 10 → 1 + 97*9/251 = 4, lethal → 100, unknown → 255.
+        assert_eq!(cells, vec![100, 255, 0, 4]);
+    }
+
+    #[test]
+    fn cost_to_rviz_value_maps_special_and_gradient() {
+        assert_eq!(cost_to_rviz_value(COST_FREE), 0);
+        assert_eq!(cost_to_rviz_value(COST_INSCRIBED), 99);
+        assert_eq!(cost_to_rviz_value(COST_LETHAL), 100);
+        assert_eq!(cost_to_rviz_value(COST_UNKNOWN), 255);
+        // Gradient endpoints scale into 1..=98, staying clear of the 99/100 specials.
+        assert_eq!(cost_to_rviz_value(1), 1);
+        assert_eq!(cost_to_rviz_value(252), 98);
     }
 }
