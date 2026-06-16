@@ -9,8 +9,8 @@ pub mod types;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
-pub use costmap::{Costmap, Layer, LayeredCostmap};
+pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_into};
 pub use grid::Grid2d;
-pub use layers::{InflationConfig, WavefrontInflationLayer};
+pub use layers::{InflationConfig, ProjectionLayer, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
-pub use types::{MapInfo, OccupancyGrid, VoxelError};
+pub use types::{MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};

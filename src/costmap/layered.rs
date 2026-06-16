@@ -7,6 +7,8 @@
 //! The update loop aggregates bounds from all layers, resets the master region,
 //! then calls each layer's `update_costs` in order.
 
+use std::any::Any;
+
 use glam::{UVec2, Vec2};
 
 use crate::{
@@ -14,13 +16,24 @@ use crate::{
     types::{Bounds, CellRegion, Footprint, MapInfo, Pose2},
 };
 
+/// Identifier returned by [`LayeredCostmap::add_layer`], used to fetch a layer
+/// back by its concrete type with [`LayeredCostmap::layer`] /
+/// [`LayeredCostmap::layer_mut`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LayerId(usize);
+
 /// A layer is a component which acts on the base master grid. It may contain
 /// its own grid but doesn't need to.
 ///
 /// Each layer is processed in order.
 ///
 /// Each update is limited by a set of bounds passed from higher layers.
-pub trait Layer {
+///
+/// The `Any` supertrait enables [`LayeredCostmap::layer`] /
+/// [`LayeredCostmap::layer_mut`] to downcast a stored layer back to its concrete
+/// type so callers can ingest into or query a layer's internal grid after it has
+/// been added to the stack.
+pub trait Layer: Any {
     /// Reset the layer to its initial state.
     fn reset(&mut self);
 
@@ -70,8 +83,30 @@ impl LayeredCostmap {
     }
 
     /// Add a layer. Order matters: layers are updated in insertion order.
-    pub fn add_layer(&mut self, layer: Box<dyn Layer>) {
+    ///
+    /// Returns a [`LayerId`] that can be passed to [`Self::layer`] /
+    /// [`Self::layer_mut`] to access the layer by its concrete type later.
+    pub fn add_layer(&mut self, layer: Box<dyn Layer>) -> LayerId {
+        let id = LayerId(self.layers.len());
         self.layers.push(layer);
+        id
+    }
+
+    /// Borrow a previously added layer as its concrete type `T`.
+    ///
+    /// Returns `None` if the id is unknown or the layer is not a `T`.
+    pub fn layer<T: Layer>(&self, id: LayerId) -> Option<&T> {
+        let layer: &dyn Layer = self.layers.get(id.0)?.as_ref();
+        (layer as &dyn Any).downcast_ref::<T>()
+    }
+
+    /// Mutably borrow a previously added layer as its concrete type `T`.
+    ///
+    /// Returns `None` if the id is unknown or the layer is not a `T`. This is the
+    /// path used to ingest data into a layer's internal grid between updates.
+    pub fn layer_mut<T: Layer>(&mut self, id: LayerId) -> Option<&mut T> {
+        let layer: &mut dyn Layer = self.layers.get_mut(id.0)?.as_mut();
+        (layer as &mut dyn Any).downcast_mut::<T>()
     }
 
     /// Immutable reference to the master grid.
