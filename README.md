@@ -36,7 +36,7 @@ This library is designed for:
 - **2D occupancy grids & costmaps** — `Grid2d<i8>` and `Grid2d<u8>` with configurable resolution, origin, and coordinate transforms.
 - **Nav2-compatible semantics** — lethal / inscribed / free / unknown cost values matching costmap_2d conventions.
 - **ROS2 map loading** — load occupancy grids from the standard YAML + image format.
-- **Rerun visualisation** (optional) — log grids and costmaps as textured 3D planes with the RViz colour palette.
+- **Rerun visualisation** (optional) — log grids and costmaps as native `GridMap` archetypes with the built-in RViz colormaps.
 - **Nav2 compatibility layer** (optional) — a `Costmap2D`-like API surface for incremental migration.
 
 ## Installation
