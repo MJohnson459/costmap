@@ -38,6 +38,23 @@ pub fn log_costmap_static(
     Ok(())
 }
 
+/// Opacity logged for costmaps: below 1.0 on purpose, for two reasons.
+///
+/// First, it is *required* for transparency to work at all: `RvizCostmap` makes free
+/// cells (cost 0) fully transparent, but that alpha is produced by the colormap in
+/// the shader — the source texture is single-channel L/U8 with no alpha channel.
+/// Rerun's rectangle renderer only routes a grid into the blended (transparent) draw
+/// phase when the texture has an alpha channel *or* the opacity tint is < 1.0; at
+/// exactly 1.0 it takes the opaque path, blending is off, and the colormap's per-texel
+/// alpha is ignored, so free space would render as solid black.
+///
+/// Second, holding it a little below 1.0 gives the classic RViz costmap-over-map
+/// overlay: the coloured obstacle/inflation cells become slightly translucent so an
+/// underlying map (e.g. a static global map) shows through them too, not just through
+/// the free cells. This composites correctly because the costmap is a single
+/// transparent layer over an opaque base.
+const COSTMAP_OPACITY: f32 = 0.85;
+
 fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
     let info = costmap.info();
     let (width, height, cells) = costmap_to_l_bytes(costmap);
@@ -50,6 +67,7 @@ fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
         cells,
         rerun::components::Colormap::RvizCostmap,
     )
+    .with_opacity(COSTMAP_OPACITY)
 }
 
 /// Log an `OccupancyGrid` (`Grid2d<i8>`) as a native Rerun `GridMap` archetype.
