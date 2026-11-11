@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(metadata.origin, Vec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
-        assert_eq!(metadata.negate.is_negated(), false);
+        assert!(!metadata.negate.is_negated());
         assert!(matches!(metadata.mode, MapMode::Trinary));
     }
 
@@ -346,7 +346,7 @@ mod tests {
         assert_eq!(metadata.origin, Vec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
-        assert_eq!(metadata.negate.is_negated(), false);
+        assert!(!metadata.negate.is_negated());
         assert!(matches!(metadata.mode, MapMode::Trinary));
     }
 }

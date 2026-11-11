@@ -37,7 +37,6 @@ This library is designed for:
 - **Nav2-compatible semantics** — lethal / inscribed / free / unknown cost values matching costmap_2d conventions.
 - **ROS2 map loading** — load occupancy grids from the standard YAML + image format.
 - **Rerun visualisation** (optional) — log grids and costmaps as native `GridMap` archetypes with the built-in RViz colormaps.
-- **Nav2 compatibility layer** (optional) — a `Costmap2D`-like API surface for incremental migration.
 
 ## Installation
 
@@ -110,6 +109,26 @@ Complete local costmap workflow for mobile robot navigation. Shows how to:
 - Move the costmap origin to follow the robot
 
 ![Costmap example](docs/images/rerun_costmap.png)
+
+## Roadmap
+
+### Coordinate frame transforms (tf)
+
+Costmaps are inherently multi-frame: sensor data arrives in sensor frames, the
+local costmap rolls in an `odom`/`base_link` frame, and the global costmap lives
+in `map`. Fusing sensor readings, scrolling the rolling window (`update_origin`),
+and checking a footprint at a given pose all require relating frames over time —
+the job ROS2's `tf2` does for `costmap_2d`. Today this crate has no notion of
+named frames or time-stamped poses; callers must convert coordinates themselves.
+
+The plan is **not** to build a transform library. The
+[`transforms`](https://github.com/deniz-hofmeister/transforms) crate is an
+actively-maintained, pure-Rust, middleware-free tf2 equivalent (frame tree,
+time-buffered history, SLERP/lerp interpolation, static transforms). We intend
+to depend on it and add a thin adapter at the costmap boundary. The main
+integration cost is type conversion: `transforms` uses its own
+`Vector3`/`Quaternion` while this crate is glam-based, so the adapter bridges the
+two and exposes frame-aware costmap queries.
 
 ## Contributing
 
