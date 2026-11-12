@@ -4,8 +4,8 @@
   <name>costmap_ros</name>
   <version>0.3.0</version>
   <description>
-    Serves Nav2 a rolling window of a large map and routes across the whole of
-    it, over Zenoh. Takes the place of nav2_map_server.
+    Serves Nav2 a window of a large map around the robot and routes across the
+    whole of it, over Zenoh. Takes the place of nav2_map_server.
   </description>
   <maintainer email="mjohnson459@gmail.com">Michael Johnson</maintainer>
   <license>Apache-2.0</license>

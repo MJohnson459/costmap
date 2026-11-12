@@ -1,15 +1,15 @@
-"""Starts costmap_window_server and costmap_planner_server on one map.
+"""Serves a map window and routes across the whole map, from one process.
 
-    ros2 launch costmap_ros costmap.launch.py map:=/maps/site.tif
+    ros2 launch costmap_ros costmap.launch.py map:=/maps/site.yaml
 
-The two nodes take command-line options, not ROS parameters, so they are
-started as processes. `ros2 run costmap_ros costmap_window_server --help`
+costmap_window_server takes command-line options, not ROS parameters, so it is
+started as a process. `ros2 run costmap_ros costmap_window_server --help`
 lists every option.
 """
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackagePrefix
 
@@ -21,7 +21,7 @@ ARGUMENTS = [
     ("base_frame", "base_link", "Robot frame the window follows."),
     ("robot_radius_m", "0.3", "Robot radius routes keep clear of obstacles by, metres."),
     ("inflation_m", "1.5", "Distance over which routes are pushed from obstacles, metres."),
-    ("routes", "true", "Whether to start costmap_planner_server."),
+    ("routes", "true", "Whether to plan routes across the whole map as well."),
 ]
 
 
@@ -40,21 +40,23 @@ def generate_launch_description():
         for name, default, description in ARGUMENTS
     ]
     value = LaunchConfiguration
-    window_server = node(
-        "costmap_window_server",
+    window = [
         "--map", value("map"),
         "--window-m", value("window_m"),
         "--topic", value("map_topic"),
         "--map-frame", value("map_frame"),
         "--base-frame", value("base_frame"),
-    )
-    planner_server = node(
-        "costmap_planner_server",
-        "--map", value("map"),
-        "--map-frame", value("map_frame"),
-        "--base-frame", value("base_frame"),
+    ]
+    routes = [
+        "--routes",
         "--robot-radius-m", value("robot_radius_m"),
         "--inflation-m", value("inflation_m"),
-        condition=IfCondition(value("routes")),
+    ]
+    # One process serves both, on one /tf subscription.
+    with_routes = node(
+        "costmap_window_server", *window, *routes, condition=IfCondition(value("routes"))
     )
-    return LaunchDescription([*declared, window_server, planner_server])
+    window_only = node(
+        "costmap_window_server", *window, condition=UnlessCondition(value("routes"))
+    )
+    return LaunchDescription([*declared, with_routes, window_only])

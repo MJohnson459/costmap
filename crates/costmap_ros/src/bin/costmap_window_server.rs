@@ -5,9 +5,13 @@
 //!
 //! The robot pose is the latest `map_frame -> base_frame` transform. A new
 //! window goes out when the robot has moved `--min-move-m` since the last one,
-//! or `--keep-alive-s` after it.
+//! and `--keep-alive-s` after it if that is set.
+//!
+//! With `--routes` the process also plans routes across the whole map, as
+//! `costmap_planner_server` does, on the same `/tf` subscription.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -16,8 +20,11 @@ use clap::Parser;
 use costmap::types::Pose2;
 use costmap::{RosMapLoader, costmap_from_occupancy};
 use costmap_ros::republish::LastPublish;
+use costmap_ros::route_server::{RouteServerOptions, open_routes, serve_routes};
 use costmap_ros::tf::TfListener;
-use costmap_ros::{GeoTiffSource, MapSource, RepublishPolicy, occupancy_grid_from_costmap};
+use costmap_ros::{
+    GeoTiffSource, MapSource, RepublishPolicy, RouteOptions, occupancy_grid_from_costmap,
+};
 use glam::UVec2;
 use hiroz::Builder;
 use hiroz::context::ZContextBuilder;
@@ -56,11 +63,29 @@ struct Args {
     #[arg(long, default_value_t = 2.0)]
     rate_hz: f32,
     /// Distance the robot moves before a new window is published.
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = 5.0)]
     min_move_m: f32,
-    /// Seconds after which the window is republished even if the robot is still.
-    #[arg(long, default_value_t = 10.0)]
+    /// Seconds after which the window is republished even if the robot is
+    /// still; 0 never republishes it. The topic is transient local, so a late
+    /// subscriber receives the last window either way.
+    #[arg(long, default_value_t = 0.0)]
     keep_alive_s: f32,
+    /// Also plan routes across the whole map, as costmap_planner_server does.
+    #[arg(long)]
+    routes: bool,
+    /// With --routes: action the routes are served on.
+    #[arg(long, default_value = "compute_route_to_pose")]
+    route_action: String,
+    /// With --routes: topic each route is also published on.
+    #[arg(long, default_value = "route")]
+    route_topic: String,
+    /// With --routes: robot radius in metres.
+    #[arg(long, default_value_t = RouteOptions::default().robot_radius_m)]
+    robot_radius_m: f32,
+    /// With --routes: distance from obstacles over which routes are pushed
+    /// away, in metres.
+    #[arg(long, default_value_t = RouteOptions::default().inflation_m)]
+    inflation_m: f32,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -80,7 +105,11 @@ fn main() -> anyhow::Result<()> {
     }
     let policy = RepublishPolicy {
         min_move_m: args.min_move_m,
-        keep_alive: positive_seconds(args.keep_alive_s, "--keep-alive-s")?,
+        keep_alive: if args.keep_alive_s == 0.0 {
+            None
+        } else {
+            Some(positive_seconds(args.keep_alive_s, "--keep-alive-s")?)
+        },
     };
 
     let mut map = open_map(&args.map)?;
@@ -98,7 +127,33 @@ fn main() -> anyhow::Result<()> {
         .with_qos(map_qos())
         .build()
         .map_err(|e| anyhow!("creating publisher on {}: {e}", args.topic))?;
-    let tf = TfListener::new(&node).map_err(|e| anyhow!("subscribing to tf: {e}"))?;
+    let tf = Arc::new(TfListener::new(&node).map_err(|e| anyhow!("subscribing to tf: {e}"))?);
+
+    // Route goals run on this runtime's threads. The runtime and the server
+    // are held until shutdown; dropping the server ends it.
+    let runtime = tokio::runtime::Runtime::new().context("starting the async runtime")?;
+    let _route_server = if args.routes {
+        let options = RouteOptions {
+            robot_radius_m: args.robot_radius_m,
+            inflation_m: args.inflation_m,
+            ..RouteOptions::default()
+        };
+        let routes = open_routes(&args.map, options)?;
+        let _in_runtime = runtime.enter();
+        Some(serve_routes(
+            &node,
+            Arc::clone(&tf),
+            routes,
+            RouteServerOptions {
+                action: args.route_action.clone(),
+                route_topic: args.route_topic.clone(),
+                map_frame: args.map_frame.clone(),
+                base_frame: args.base_frame.clone(),
+            },
+        )?)
+    } else {
+        None
+    };
 
     let (stop_tx, stop_rx) = mpsc::channel();
     ctrlc::set_handler(move || {
@@ -109,7 +164,7 @@ fn main() -> anyhow::Result<()> {
 
     info!(
         "serving {} ({} m per cell) on {} as {}x{}-cell windows; robot {} in {}, \
-         check {} Hz, republish after {} m or {} s",
+         check {} Hz, republish after {} m{}",
         args.map.display(),
         map.resolution(),
         args.topic,
@@ -119,7 +174,9 @@ fn main() -> anyhow::Result<()> {
         args.map_frame,
         args.rate_hz,
         policy.min_move_m,
-        policy.keep_alive.as_secs_f32(),
+        policy
+            .keep_alive
+            .map_or(String::new(), |age| format!(" or {} s", age.as_secs_f32())),
     );
 
     let mut last: Option<LastPublish> = None;
