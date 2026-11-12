@@ -33,9 +33,9 @@ Measured against `nav2_map_server` with a global costmap of the whole map, on a 
 
 | | Nav2 alone | With this node |
 | --- | --- | --- |
-| Resident memory | 768 MB | 158 MB |
-| Plan of a 99 m trip, median | 316 ms | 4.9 ms |
-| CPU at rest, share of one core | 1.8 % | 3.2 % |
+| Resident memory | 762 MB | 157 MB |
+| Plan of a 99 m trip, median | 311 ms | 5.2 ms |
+| CPU at rest, share of one core | 2.65 % | 3.05 %, or 2.05 % with a pose topic |
 
 [`crates/costmap_ros`](crates/costmap_ros) has the install routes (release tarball, colcon, conda), the five steps to replace `map_server`, and the limits.
 

@@ -4,6 +4,8 @@
 # Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo/run.sh
 #
 # DRIVE_MAP is a cost GeoTIFF or a ROS map YAML.
+# DRIVE_SERVER_ARGS adds options to costmap_window_server, such as
+# "--pose-topic /pose", which the simulated robot publishes.
 #
 # costmap_window_server publishes a SERVER_WINDOW_M (default 50) metre window
 # of the map around the robot. Nav2's global costmap takes the size of each
@@ -53,7 +55,7 @@ start sim python -u "$HERE/sim_robot.py" --x "${DRIVE_START%,*}" --y "${DRIVE_ST
 wait_for "simulated robot" "$STAGE_TIMEOUT_S" log_has sim "sim: robot at"
 
 RUST_LOG="warn,costmap_window_server=debug,costmap_ros=debug" start server "$SERVER" \
-    --map "$DRIVE_MAP" --window-m "$SERVER_WINDOW_M" --routes
+    --map "$DRIVE_MAP" --window-m "$SERVER_WINDOW_M" --routes ${DRIVE_SERVER_ARGS:-}
 wait_for "routes" "$STAGE_TIMEOUT_S" log_has server "serving compute_route_to_pose"
 wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
 require_alive server "$server_pid"

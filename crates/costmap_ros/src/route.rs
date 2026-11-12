@@ -198,9 +198,9 @@ fn crop(grid: &Costmap, min: UVec2, size: UVec2) -> Result<Costmap, VoxelError> 
     Costmap::from_vec(info, data)
 }
 
-/// What a stored graph was built from: the raster's length, modification time
-/// and a hash of its first and last 64 KiB, the options that shape its costs,
-/// and this crate's version.
+/// What a stored graph was built from: the raster's length, modification
+/// time, inode and inode change time, a hash of its first and last 64 KiB, the
+/// options that shape its costs, and this crate's version.
 fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
@@ -211,6 +211,15 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
     bytes.extend(metadata.len().to_le_bytes());
     bytes.extend(ends_hash(map, metadata.len())?.to_le_bytes());
     bytes.extend(modified.as_nanos().to_le_bytes());
+    // A write changes the inode's change time even if the modification time
+    // is then set back, and a replaced file has another inode.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        bytes.extend(metadata.ino().to_le_bytes());
+        bytes.extend(metadata.ctime().to_le_bytes());
+        bytes.extend(metadata.ctime_nsec().to_le_bytes());
+    }
     bytes.extend(options.robot_radius_m.to_le_bytes());
     bytes.extend(options.inflation_m.to_le_bytes());
     bytes.extend(COST_SCALING.to_le_bytes());

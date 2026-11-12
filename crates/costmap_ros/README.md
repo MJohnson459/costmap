@@ -18,13 +18,14 @@ a 166 x 196 m survey at 0.03 m (36 M cells):
 
 | | Nav2 alone | With this node |
 | --- | --- | --- |
-| Resident memory | 768 MB | 158 MB |
-| Plan of a 99 m trip, median | 316 ms | 4.9 ms |
-| Plan of the next 15 m, median | 267 ms | 5.2 ms |
-| CPU at rest, share of one core | 1.8 % | 3.2 % |
+| Resident memory | 762 MB | 157 MB |
+| Plan of a 99 m trip, median | 311 ms | 5.2 ms |
+| Plan of the next 15 m, median | 267 ms | 4.7 ms |
+| CPU at rest, share of one core | 2.65 % | 3.05 %, or 2.05 % with a pose topic |
 
-CPU at rest is higher by 1.4 % of one core: the node subscribes to `/tf` for
-the robot pose, which `map_server` does not need.
+CPU at rest is higher by 0.4 % of one core with the defaults: the node
+subscribes to `/tf` for the robot pose, which `map_server` does not need.
+Given a pose topic instead (`pose_topic:=amcl_pose`) it is lower by 0.6 %.
 [nav2/README.md](nav2/README.md) has the method and the full table.
 
 ## Is it for you
@@ -179,6 +180,11 @@ colcon, so a release is possible if that changes or the crates are vendored.
    Skip this step and Nav2 still works, for goals inside the served window.
 
 5. **Keep publishing `map -> base_link` on `/tf`**, as Nav2 already needs.
+   If the robot's localisation also publishes its pose in the map frame as a
+   `geometry_msgs/PoseWithCovarianceStamped`, as AMCL does on `amcl_pose`,
+   pass `pose_topic:=amcl_pose`. The node then reads that topic and does not
+   subscribe to `/tf`, which takes its CPU at rest from 1.15 % of a core to
+   0.15 %.
 
 A `NavigateToPose` goal anywhere on the map now works.
 
@@ -289,10 +295,10 @@ own resolution, so a doorway the robot fits through stays open. For a GeoTIFF
 the first start builds the graph (5.5 s for 36 M cells on 16 cores) and
 stores it beside the raster as `site.tif.tilegraph` (0.7 MB); later starts
 read it. It is rebuilt when `--robot-radius-m`, `--inflation-m` or this
-package's version changes, or when the raster's length, modification time or
-first or last 64 KiB change. A raster edited in the middle with its length
-and time kept is not noticed; delete the `.tilegraph` file to force a
-rebuild. If the directory cannot be written, the
+package's version changes, or when the raster is written or replaced: its
+length, modification time, inode and inode change time are compared, with a
+hash of its first and last 64 KiB. A copy of the raster on another machine
+therefore builds its own graph. If the directory cannot be written, the
 node logs a warning and builds the graph at every start. For a ROS map the graph is built at every
 start: 4.4 s for the 30.5 M-cell warehouse map, with the node's memory
 peaking at 150 MB.
@@ -315,8 +321,8 @@ sees a cell resampled.
 
 With `--routes`, which the launch file passes, the same process serves the
 routes described under [costmap_planner_server](#costmap_planner_server). The
-two then share one `/tf` subscription and one copy of the program: 52 MB and
-1.25 % of a core at rest, against 78 MB and 2.45 % as two processes.
+two then share one `/tf` subscription and one copy of the program: 51 MB and
+1.15 % of a core at rest, against 78 MB and 2.45 % as two processes.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -325,6 +331,7 @@ two then share one `/tf` subscription and one copy of the program: 52 MB and
 | `--topic` | `map` | output topic |
 | `--map-frame` | `map` | frame of the map and of the published grid |
 | `--base-frame` | `base_link` | robot frame |
+| `--pose-topic` | none | take the robot pose from this `geometry_msgs/PoseWithCovarianceStamped` topic and do not subscribe to `/tf` |
 | `--rate-hz` | 2 | pose checks per second |
 | `--min-move-m` | 5 | movement that triggers a new window, metres |
 | `--keep-alive-s` | 0 | age at which the same window is sent again, seconds; 0 never sends it again |
@@ -418,7 +425,7 @@ at their defaults.
   window**, every `min_move_m`. Nav2 resets every layer of a costmap when it
   resizes. Keep sensor layers in the local costmap, or make the global one
   rolling.
-- **Robot pose.** The nodes use the latest transform of each frame, with no
+- **Robot pose.** From `/tf`, the nodes use the latest transform of each frame, with no
   interpolation to a common time and no history. That places a window, where
   a few centimetres do not matter. It is not a tf2 replacement.
 - **Every publish is a full window.** `map_msgs/OccupancyGridUpdate` patches a
@@ -429,7 +436,7 @@ at their defaults.
 
 [nav2/README.md](nav2/README.md) describes each of these and how to run it.
 
-- **Unit tests**, in CI: 49 in this crate, among them a route through a 0.9 m
+- **Unit tests**, in CI: 51 in this crate, among them a route through a 0.9 m
   doorway for a 0.3 m robot.
 - **colcon build**, in CI: builds the package in a scratch workspace and
   starts the node with `ros2 launch`.

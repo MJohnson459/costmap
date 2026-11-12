@@ -15,7 +15,7 @@ costmap = { path = "../..", features = ["geotiff"] }
 ctrlc = { version = "3", features = ["termination"] }
 glam = "0.33"
 hiroz = { version = "0.2.1", default-features = false, features = ["lyrical", "rmw-zenoh"] }
-hiroz-msgs = { version = "0.2.1", default-features = false, features = ["lyrical", "nav_msgs", "tf2_msgs"] }
+hiroz-msgs = { version = "0.2.1", default-features = false, features = ["lyrical", "geometry_msgs", "nav_msgs", "tf2_msgs"] }
 thiserror = "2"
 tracing = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }

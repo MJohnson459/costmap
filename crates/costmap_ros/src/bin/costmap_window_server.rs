@@ -3,12 +3,13 @@
 //! The map is a ROS map YAML, held whole in memory, or a cost GeoTIFF, of
 //! which only the chunks near the robot are held.
 //!
-//! The robot pose is the latest `map_frame -> base_frame` transform. A new
+//! The robot pose is the latest `map_frame -> base_frame` transform, or the
+//! latest message on `--pose-topic` if that is given. A new
 //! window goes out when the robot has moved `--min-move-m` since the last one,
 //! and `--keep-alive-s` after it if that is set.
 //!
 //! With `--routes` the process also plans routes across the whole map, as
-//! `costmap_planner_server` does, on the same `/tf` subscription.
+//! `costmap_planner_server` does, on the same source of the robot's pose.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,9 +20,9 @@ use anyhow::{Context, anyhow};
 use clap::Parser;
 use costmap::types::Pose2;
 use costmap::{RosMapLoader, costmap_from_occupancy};
+use costmap_ros::pose::RobotPose;
 use costmap_ros::republish::LastPublish;
 use costmap_ros::route_server::{RouteServerOptions, open_routes, serve_routes};
-use costmap_ros::tf::TfListener;
 use costmap_ros::{
     GeoTiffSource, MapSource, RepublishPolicy, RouteOptions, occupancy_grid_from_costmap,
 };
@@ -59,6 +60,11 @@ struct Args {
     /// Robot frame the window is centred on.
     #[arg(long, default_value = "base_link")]
     base_frame: String,
+    /// Topic of geometry_msgs/PoseWithCovarianceStamped messages that give the
+    /// robot's pose in the map frame, such as AMCL's amcl_pose. With it, /tf
+    /// is not subscribed to and --base-frame is not used. Empty means /tf.
+    #[arg(long, default_value = "")]
+    pose_topic: String,
     /// How often the robot pose is checked, in Hz.
     #[arg(long, default_value_t = 2.0)]
     rate_hz: f32,
@@ -127,7 +133,14 @@ fn main() -> anyhow::Result<()> {
         .with_qos(map_qos())
         .build()
         .map_err(|e| anyhow!("creating publisher on {}: {e}", args.topic))?;
-    let tf = Arc::new(TfListener::new(&node).map_err(|e| anyhow!("subscribing to tf: {e}"))?);
+    let pose = if args.pose_topic.is_empty() {
+        RobotPose::from_tf(&node, &args.map_frame, &args.base_frame)
+            .map_err(|e| anyhow!("subscribing to tf: {e}"))?
+    } else {
+        RobotPose::from_topic(&node, &args.pose_topic, &args.map_frame)
+            .map_err(|e| anyhow!("subscribing to {}: {e}", args.pose_topic))?
+    };
+    let pose = Arc::new(pose);
 
     // Route goals run on this runtime's threads. The runtime and the server
     // are held until shutdown; dropping the server ends it.
@@ -142,13 +155,12 @@ fn main() -> anyhow::Result<()> {
         let _in_runtime = runtime.enter();
         Some(serve_routes(
             &node,
-            Arc::clone(&tf),
+            Arc::clone(&pose),
             routes,
             RouteServerOptions {
                 action: args.route_action.clone(),
                 route_topic: args.route_topic.clone(),
                 map_frame: args.map_frame.clone(),
-                base_frame: args.base_frame.clone(),
             },
         )?)
     } else {
@@ -188,8 +200,8 @@ fn main() -> anyhow::Result<()> {
             Err(RecvTimeoutError::Timeout) => {}
             Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
         }
-        let pose = match tf.lookup(&args.map_frame, &args.base_frame) {
-            Ok(transform) => transform.planar_pose(),
+        let pose = match pose.get() {
+            Ok(pose) => pose,
             Err(err) => {
                 if pose_ok {
                     warn!("no robot pose, not publishing: {err}");
