@@ -6,7 +6,7 @@
 //! - Local costmap generation from lidar data (rolling window following the robot)
 //! - Costmap inflation for safe navigation planning (inflation layer)
 //!
-//! The pipeline is: **sensor layer** (ray clearing from global map) → **inflation layer** → single
+//! The pipeline is: **obstacle layer** (fed with simulated laser scans) → **inflation layer** → single
 //! master grid. Only the final master costmap (obstacles + inflation) is visualized.
 //!
 //! ## Robotics Context
@@ -21,15 +21,12 @@
 
 use std::error::Error;
 use std::f32::consts::TAU;
-use std::sync::Arc;
 use std::time::Duration;
 
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid_static, log_point3d};
-use costmap::types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, Pose2};
-use costmap::{Costmap, raycast::RayHit2D};
-use costmap::{Grid2d, MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
-use costmap::{InflationConfig, MergePolicy, ProjectionLayer};
-use costmap::{Layer, LayeredCostmap};
+use costmap::types::{COST_FREE, Pose2};
+use costmap::{InflationConfig, LayeredCostmap, ObstacleConfig, ObstacleLayer};
+use costmap::{MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
 use glam::{Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
@@ -52,73 +49,36 @@ const Z_GLOBAL: f32 = 0.0;
 const Z_LOCAL: f32 = 0.12;
 const Z_ROBOT: f32 = 0.35;
 
-/// Example-only layer: simulates lidar by raycasting on a global occupancy grid.
+/// Simulates a lidar by raycasting the global map from `pose`.
 ///
-/// Composes a [`ProjectionLayer<u8>`] for the storage + rolling-window + merge half
-/// (the Nav2 `CostmapLayer` role): observations persist across frames in its owned
-/// `source` grid, and projecting it into the master is the library's job. This layer
-/// only adds the sensor-specific part — drawing rays into that grid each update.
-///
-/// This would normally be done by listening to a laser scan topic which would
-/// update the obstacle layer.
-struct SimLidarLayer {
-    global_grid: Arc<OccupancyGrid>,
-    /// Owns the persistent obstacle grid and projects it into the master. With
-    /// `rolling_window: true` the projection layer re-centres the grid on the robot in
-    /// its `update_bounds`, so by the time we draw rays in `update_costs` the grid is
-    /// already centred.
-    proj: ProjectionLayer<u8>,
-    last_robot: Pose2,
-    max_range_m: f32,
-    n_beams: usize,
-}
-
-impl Layer for SimLidarLayer {
-    fn reset(&mut self) {
-        self.proj.reset();
-    }
-
-    fn is_clearable(&self) -> bool {
-        true
-    }
-
-    fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds) {
-        self.last_robot = robot;
-        // Delegate to the projection layer: re-centres the obstacle grid (rolling
-        // window) and expands the bounds to its extent.
-        self.proj.update_bounds(robot, bounds);
-    }
-
-    fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
-        // The obstacle grid is already centred on the robot (done in update_bounds).
-        // Draw new sensor rays into it, then project it into the master.
-        let obstacle_grid = self.proj.source_mut();
-        let beam_step = TAU / self.n_beams as f32;
-        for beam_idx in 0..self.n_beams {
-            let angle = self.last_robot.yaw + beam_step * beam_idx as f32;
+/// Returns one range per beam: the distance to the centre of the first occupied
+/// cell, or infinity for a beam that hits nothing within [`MAX_RANGE_M`]. A real
+/// robot would receive these from a laser scan topic.
+fn simulate_scan(global_grid: &OccupancyGrid, pose: Pose2) -> Vec<f32> {
+    let beam_step = TAU / N_BEAMS as f32;
+    (0..N_BEAMS)
+        .map(|i| {
+            let angle = pose.yaw + beam_step * i as f32;
             let dir = Vec2::new(angle.cos(), angle.sin());
-            let hit = self
-                .global_grid
-                .raycast_dda(self.last_robot.position, dir, self.max_range_m);
-            let t = RayHit2D::distance_or(hit, self.max_range_m);
-            let endpoint = hit.map(|_| COST_LETHAL);
-            obstacle_grid.clear_ray(self.last_robot.position, dir, t, COST_FREE, endpoint);
-        }
-        self.proj.update_costs(master, region);
-    }
+            global_grid
+                .raycast_dda(pose.position, dir, MAX_RANGE_M)
+                .map_or(f32::INFINITY, |hit| {
+                    global_grid.map_to_world(hit.cell).distance(pose.position)
+                })
+        })
+        .collect()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Step 1: Load the global map (static environment representation)
-    let grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
-    let info = *grid.info();
-    let global_grid = Arc::new(grid);
+    let global_grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
+    let info = *global_grid.info();
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
     let rec = rerun::RecordingStreamBuilder::new("costmap_local_costmap_lidar").spawn()?;
     // Static: the global map never changes, so log it on all timelines rather than at
     // a single timepoint — otherwise it would only be visible before frame 0.
-    log_occupancy_grid_static(&rec, "world/global_map", global_grid.as_ref(), Z_GLOBAL)?;
+    log_occupancy_grid_static(&rec, "world/global_map", &global_grid, Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
     let waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
@@ -126,18 +86,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
     let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
     let mut layered = LayeredCostmap::new(local_info, COST_FREE, true);
-    layered.add_layer(Box::new(SimLidarLayer {
-        global_grid: Arc::clone(&global_grid),
-        proj: ProjectionLayer::from_grid(
-            Grid2d::<u8>::new_with_value(local_info, COST_UNKNOWN),
-            MergePolicy::Overwrite,
-            true, // rolling window: re-centres the obstacle grid on the robot each update
-            |c| (*c != COST_UNKNOWN).then_some(*c),
-        ),
-        last_robot: Pose2::default(),
-        max_range_m: MAX_RANGE_M,
-        n_beams: N_BEAMS,
-    }))?;
+    let obstacle_layer = layered.add_layer(Box::new(ObstacleLayer::new(
+        local_info,
+        ObstacleConfig {
+            rolling_window: true,
+            obstacle_range_m: MAX_RANGE_M,
+            raytrace_range_m: MAX_RANGE_M,
+            ..Default::default()
+        },
+    )))?;
     layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
         inflation_radius_m: 0.9,
         inscribed_radius_m: 0.15,
@@ -157,8 +114,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             sample_path(&waypoints, &segment_lengths, total_length, distance);
         let heading = heading_dir.y.atan2(heading_dir.x);
 
-        // Layered costmap update: rolling window, then each layer writes into the master
-        layered.update_map(Pose2::new(robot_pos, heading));
+        // Feed the simulated scan to the obstacle layer, then run the layered update:
+        // the layer re-centres on the robot and writes into the master.
+        let pose = Pose2::new(robot_pos, heading);
+        let ranges = simulate_scan(&global_grid, pose);
+        if let Some(layer) = layered.layer_mut::<ObstacleLayer>(obstacle_layer) {
+            layer.insert_laser_scan(pose, 0.0, TAU / N_BEAMS as f32, &ranges, 0.0);
+        }
+        layered.update_map(pose);
 
         log_point3d(
             &rec,
