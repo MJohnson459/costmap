@@ -18,11 +18,11 @@ directory; they are not zsh scripts.
 | `pixi.toml`, `pixi.lock` | The ROS environment the scripts use. |
 | `lib.sh` | Shell helpers the scripts source: start and stop processes, start the Zenoh router. |
 | `cost_raster.py` | Reads a cost GeoTIFF or a ROS map with Pillow, independently of the Rust readers. |
-| `test/colcon.sh` | **colcon test.** Builds the package with colcon in a scratch workspace and starts both nodes with `ros2 launch`. |
+| `test/colcon.sh` | **colcon test.** Builds the package with colcon in a scratch workspace and starts the node with `ros2 launch`. |
 | `test/run.sh` | **Integration test.** Starts the server and one Nav2 costmap node, moves the robot, and compares every cell Nav2 holds with the source map. |
 | `test/check_costmap.py` | The comparison, and the robot's `/tf`. |
 | `test/costmap_params.yaml` | Parameters of the Nav2 costmap node under test. |
-| `demo/run.sh` | **Demo.** Starts both servers, a simulated robot and Nav2's planner, controller and navigator, and drives to one goal across a cost GeoTIFF. |
+| `demo/run.sh` | **Demo.** Starts the server with routes, a simulated robot and Nav2's planner, controller and navigator, and drives to one goal across a cost GeoTIFF. |
 | `demo/nav2_params.yaml` | Nav2 parameters for the demo. |
 | `demo/sim_robot.py` | Kinematic robot: integrates `/cmd_vel`, publishes `/tf` and `/odom`. |
 | `demo/mission.py` | Sends the goal, records what Nav2 published, checks the track. |
@@ -62,7 +62,7 @@ It links the repository into a scratch workspace, runs
 - the behaviour tree is in the package's share directory;
 - the installed binaries carry no debug information;
 - `ros2 launch costmap_ros costmap.launch.py` on the warehouse ROS map starts
-  both nodes, connected to a Zenoh router.
+  the window server with routes, connected to a Zenoh router.
 
 The build takes 1 min 37 s on the machine below and installs two 24 MB nodes
 and the 3.2 MB converter.
@@ -139,13 +139,14 @@ It starts:
 - a Zenoh router;
 - `sim_robot.py`, a kinematic differential-drive robot that integrates Nav2's
   `/cmd_vel` and publishes `odom -> base_link` and `/odom`;
-- `costmap_window_server` on the GeoTIFF, with 50 m windows republished every 2 m;
-- `costmap_planner_server` on the same GeoTIFF;
+- `costmap_window_server --routes` on the map, with its defaults: 50 m
+  windows, a new one every 5 m;
 - Nav2's planner (NavFn), controller (Regulated Pure Pursuit) and behaviour
   tree navigator, configured by `demo/nav2_params.yaml`, with
   `behavior_trees/navigate_to_pose_on_route.xml`.
-  The global costmap is a 40 m rolling window and the local costmap a 6 m one.
-  Each holds a StaticLayer on `/map` and an inflation layer, and nothing else;
+  The global costmap takes the size of each window and the local costmap is
+  a 6 m rolling one. Each holds a StaticLayer on `/map` and an inflation
+  layer, and nothing else;
 - `mission.py`, which sends the goal as one `NavigateToPose`.
 
 The mission passes when:
@@ -158,28 +159,28 @@ Result on a 166 x 196 m vineyard survey (5,547 x 6,525 cells, 36 M):
 
 | | |
 | --- | --- |
-| Goal | 68 m from the start in a straight line, 30 m outside Nav2's global costmap |
+| Goal | 68 m from the start in a straight line, 43 m outside the first window |
 | Reached | yes, 0.29 m from the goal |
 | Distance driven | 96.4 m in 99 s |
-| Routes from `costmap_planner_server` | 20: the first 111 ms, the rest 2.6 to 7.2 ms |
-| Paths from Nav2's planner along the route | 91 |
-| Windows published | 45, of 1,667 x 1,667 cells each |
+| Routes | 20: the first 112 ms, the rest 0.7 to 8.0 ms |
+| Paths from Nav2's planner along the route | 94 |
+| Windows published | 18, of 1,667 x 1,667 cells each |
 | Lethal cells under the robot disc | 0 |
 | Least distance from robot centre to a lethal cell | 0.47 m |
-| Chunks of the file read by the window server | 2,314 of 8,874; 1,753 held at the end |
+| Chunks of the file read by the window server | 2,352 of 8,874; 1,748 held at the end |
 
 Result on the warehouse ROS map of this repository (8,927 x 3,417 cells at
 0.05 m), served from its YAML with no conversion, from (60, 20) to (130, 60):
 
 | | |
 | --- | --- |
-| Reached | yes, 0.29 m from the goal |
+| Reached | yes, 0.28 m from the goal |
 | Distance driven | 101.6 m in 103 s |
-| Routes from `costmap_planner_server` | 21 |
-| Paths from Nav2's planner along the route | 96 |
-| Windows published | 48, of 1,000 x 1,000 cells each |
+| Routes | 21 |
+| Paths from Nav2's planner along the route | 94 |
+| Windows published | 19, of 1,000 x 1,000 cells each |
 | Lethal cells under the robot disc | 0 |
-| Least distance from robot centre to a lethal cell | 0.72 m |
+| Least distance from robot centre to a lethal cell | 0.71 m |
 
 ```sh
 DRIVE_MAP=$PWD/../../../tests/fixtures/warehouse.yaml DRIVE_START=60,20 DRIVE_GOAL=130,60 bash demo/run.sh
@@ -212,39 +213,50 @@ reads each process's memory and CPU time from `/proc`:
 
 - **Nav2 alone**: `nav2_map_server` publishes the whole map, and
   `planner_server` plans with NavFn (A*) on a global costmap that covers it.
-- **With these servers**: `costmap_window_server` publishes a 50 m window,
-  `costmap_planner_server` plans the trip, and `planner_server` plans the 15 m
-  ahead with NavFn on a 40 m rolling global costmap.
+- **With this package**: `costmap_window_server --routes` publishes a 50 m
+  window and plans the trip, and `planner_server` plans the 15 m ahead with
+  NavFn on a global costmap that takes the size of each window.
 
 Vineyard survey, 5,547 x 6,525 cells at 0.03 m (36 M cells), a 99 m trip
 planned from 11 starts along it. Machine as in [Latency](#latency). One run.
 Every measured node is started by its executable, not through `ros2 run`,
 which would add a Python process to its total.
 
-| | Nav2 alone | With these servers |
+| | Nav2 alone | With this package |
 | --- | --- | --- |
-| Resident memory, all processes | 744 MB | 178 MB |
-| of which the map and planning servers | `map_server` 108 MB, `planner_server` 636 MB | window server 32 MB, route server 46 MB, `planner_server` 100 MB |
-| Peak resident memory | 1,285 MB | 178 MB |
-| Trip plan, first | 364 ms | 107 ms |
-| Trip plan, later, median (max) | 328 ms (825 ms) | 5.5 ms (7.0 ms) |
-| 15 m plan, median (max) | 274 ms (281 ms) | 3.3 ms (32 ms) |
-| CPU time for the 16 plans | 6.7 s | 0.33 s |
-| CPU at rest, share of one core | 1.75 % | 8.15 % |
+| Resident memory, all processes | 768 MB | 158 MB |
+| of which | `map_server` 108 MB, `planner_server` 660 MB | `costmap_window_server` 52 MB, `planner_server` 106 MB |
+| Peak resident memory | 1,308 MB | 158 MB |
+| Trip plan, first | 349 ms | 109 ms |
+| Trip plan, later, median (max) | 316 ms (807 ms) | 4.9 ms (6.2 ms) |
+| 15 m plan, median (max) | 267 ms (270 ms) | 5.2 ms (33 ms) |
+| CPU time for the 16 plans | 6.6 s | 0.35 s |
+| CPU at rest, share of one core | 1.8 % | 3.2 % |
 
 Plan times are the `planning_time` each server reports. The first start on a
 map also builds the route graph, 5.5 s here.
 
-CPU at rest is higher with these servers:
+CPU at rest is higher by 1.4 % of one core:
 
-- The two servers use 1.3 % and 1.15 %. All of it is the `/tf` subscription,
-  which the simulated robot feeds at 50 Hz; with no `/tf` traffic both use
+- `costmap_window_server` uses 1.25 %. All of it is the `/tf` subscription,
+  which the simulated robot feeds at 50 Hz; with no `/tf` traffic it uses
   0 %. A Hiroz subscriber to `/tf` whose callback does nothing uses 1.1 %, so
   the time goes in receiving each message (about 220 µs), not in handling it.
   `map_server` needs no robot pose and uses 0.1 %.
-- `planner_server` uses 5.7 % against 1.65 %. A rolling global costmap copies
-  its 40 m window from the static layer and inflates it at every update, 1 Hz
-  here. A costmap of the whole map does that once.
+- `planner_server` uses 1.95 % against 1.7 %.
+
+Three arrangements were measured on the way to this one:
+
+| | CPU at rest | Resident memory |
+| --- | --- | --- |
+| Two processes, 40 m rolling global costmap, window sent again every 10 s | 8.15 % | 178 MB |
+| One process (`--routes`), the rest the same | 6.85 % | 154 MB |
+| One process, global costmap sized by the window | 4.0 % | 178 MB |
+| The same, with no window sent again while the robot is still (the defaults) | 3.2 % | 158 MB |
+
+A rolling global costmap copies its area from the static layer and inflates
+it at every update, 1 Hz here: 5.7 % of a core. One sized by the window does
+that once per window.
 
 What the comparison leaves out: a costmap of the whole map cannot follow a
 map that changes on disk, and neither arrangement here has sensor layers or a

@@ -4,13 +4,13 @@
 [![Documentation](https://docs.rs/costmap/badge.svg)](https://docs.rs/costmap)
 [![License](https://img.shields.io/crates/l/costmap.svg)](https://github.com/MJohnson459/costmap#license)
 
-2D costmaps for robot navigation in Rust: grids, raycasting, obstacle and inflation layers, planning, and maps too large to hold in memory. It comes with two ROS 2 nodes that serve such maps to Nav2.
+2D costmaps for robot navigation in Rust: grids, raycasting, obstacle and inflation layers, planning, and maps too large to hold in memory. It comes with a ROS 2 node that serves such maps to Nav2.
 
 The library is an independent alternative to Nav2's [costmap_2d](https://github.com/ros-navigation/navigation2/tree/main/nav2_costmap_2d) with no ROS dependency. The Rust robotics ecosystem needs more self-contained libraries that can be mixed and matched outside of any single framework.
 
 > **AI Disclaimer:** I have been using this project as a way to test different workflows with AI generation. The majority of the code has been written by AI using a mix of Cursor Composer/Auto and Claude Opus 4.6. In all cases I had them generate a plan before implementation began. After generation, I have reviewed all code, however there are still many "odd decisions" that have embedded themselves in the code. Contributions in code or experience are welcome!
 
-> **Status:** Work in progress. Everything listed below works and is tested. The Nav2 nodes have run with a simulated robot, not a physical one.
+> **Status:** Work in progress. Everything listed below works and is tested. The Nav2 node has run with a simulated robot, not a physical one.
 
 ## What is here
 
@@ -22,7 +22,7 @@ The library is an independent alternative to Nav2's [costmap_2d](https://github.
 
 ## With Nav2
 
-`costmap_ros` is a ROS 2 package of two nodes. `costmap_window_server` takes the place of `nav2_map_server` and publishes only the part of the map around the robot. `costmap_planner_server` plans routes across the whole map, and Nav2's own planner plans the next 15 m of each. Nav2 runs unmodified, on `rmw_zenoh_cpp`.
+`costmap_ros` is a ROS 2 package. Its node, `costmap_window_server`, takes the place of `nav2_map_server`: it publishes only the part of the map around the robot, and plans routes across the whole map, of which Nav2's own planner plans the next 15 m. Nav2 runs unmodified, on `rmw_zenoh_cpp`.
 
 ```bash
 colcon build --packages-select costmap_ros
@@ -31,11 +31,11 @@ ros2 launch costmap_ros costmap.launch.py map:=/maps/site.yaml
 
 Measured against `nav2_map_server` with a global costmap of the whole map, on a 36 M-cell survey:
 
-| | Nav2 alone | With these nodes |
+| | Nav2 alone | With this node |
 | --- | --- | --- |
-| Resident memory | 744 MB | 178 MB |
-| Plan of a 99 m trip, median | 328 ms | 5.5 ms |
-| CPU at rest, share of one core | 1.75 % | 8.15 % |
+| Resident memory | 768 MB | 158 MB |
+| Plan of a 99 m trip, median | 316 ms | 4.9 ms |
+| CPU at rest, share of one core | 1.8 % | 3.2 % |
 
 [`crates/costmap_ros`](crates/costmap_ros) has the install routes (release tarball, colcon, conda), the five steps to replace `map_server`, and the limits.
 

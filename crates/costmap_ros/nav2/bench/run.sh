@@ -6,9 +6,9 @@
 #
 # nav2:    nav2_map_server publishes the whole map and planner_server plans on
 #          a global costmap covering all of it (bench/nav2_params.yaml).
-# costmap: costmap_window_server publishes a 50 m window, costmap_planner_server
-#          plans the trip and planner_server plans the 15 m ahead on a 40 m
-#          rolling global costmap (demo/nav2_params.yaml).
+# costmap: costmap_window_server --routes publishes a 50 m window and plans
+#          the trip, and planner_server plans the 15 m ahead on a global
+#          costmap the size of that window (demo/nav2_params.yaml).
 #
 # Each case plans the trip from 11 starts along it and its first 15 m five
 # times, then idles for 20 s. bench/measure.py reports latencies and each
@@ -33,9 +33,9 @@ LOG_TAG=bench
 source "$NAV2_DIR/lib.sh"
 mkdir -p "$BENCH_OUT"
 
-log "building costmap_window_server and costmap_planner_server"
+log "building costmap_window_server"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
-    --bin costmap_window_server --bin costmap_planner_server
+    --bin costmap_window_server
 
 enter_ros_env
 # The measured nodes are started by path: `ros2 run` would leave a Python
@@ -82,18 +82,17 @@ run_nav2() {
 }
 
 run_costmap() {
-    log "case costmap: a 50 m window, routes, and a 40 m rolling global costmap"
+    log "case costmap: a 50 m window and routes from one process, and a global costmap of that window"
     # The graph is built at a robot's first start on a map, not at every start.
     rm -f "$BENCH_MAP.tilegraph"
     start_common
     # The server logs each publish at debug level.
-    RUST_LOG="warn,costmap_window_server=debug" start server \
+    RUST_LOG="warn,costmap_window_server=debug,costmap_ros=info" start server \
         "$REPO/target/release/costmap_window_server" \
-        --map "$BENCH_MAP" --window-m 50 --rate-hz 5 --min-move-m 2
+        --map "$BENCH_MAP" --window-m 50 --routes
+    wait_for "routes" "$STAGE_TIMEOUT_S" log_has server "serving compute_route_to_pose"
     wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
-    start route "$REPO/target/release/costmap_planner_server" --map "$BENCH_MAP"
-    wait_for "costmap_planner_server" "$STAGE_TIMEOUT_S" log_has route "serving"
-    grep -o "built the tile graph in [0-9.]* s" "$LOG_DIR/route.log" | sed "s/^/[bench] /" || true
+    grep -o "built the tile graph in [0-9.]* s" "$LOG_DIR/server.log" | sed "s/^/[bench] /" || true
     # The demo publishes the global costmap for its recording; a robot need not.
     start planner "$ROS_LIB/nav2_planner/planner_server" --ros-args \
         --params-file "$NAV2_DIR/demo/nav2_params.yaml" -p "resolution:=$RESOLUTION" \
@@ -103,8 +102,7 @@ run_costmap() {
     wait_for "Nav2 (planner active)" "$STAGE_TIMEOUT_S" \
         log_has lifecycle "Managed nodes are active"
     measure costmap --trip-action compute_route_to_pose --near-action compute_path_to_pose \
-        --group "costmap_window_server=$server_pid" --group "costmap_planner_server=$route_pid" \
-        --group "planner_server=$planner_pid"
+        --group "costmap_window_server=$server_pid" --group "planner_server=$planner_pid"
 }
 
 for case in $BENCH_CASES; do
