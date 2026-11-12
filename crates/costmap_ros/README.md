@@ -59,7 +59,7 @@ has not been run on a physical robot.
 ## Contents
 
 - Library:
-  - `convert`: cost ↔ occupancy mapping, and `Costmap` ↔ `nav_msgs/OccupancyGrid`.
+  - `convert`: `Costmap` ↔ `nav_msgs/OccupancyGrid`.
   - `source`: the `MapSource` trait. A dense in-memory `Costmap` and
     `GeoTiffSource`, which reads a cost GeoTIFF chunk by chunk, implement it.
   - `republish`: when the server sends a new window.
@@ -67,10 +67,8 @@ has not been run on a physical robot.
     the robot pose. It is a stand-in: Hiroz has no tf2 port. It keeps the
     latest transform per frame and nothing else. See [Limitations](#limitations).
 - Binary: `costmap_window_server`.
-- Examples:
-  - `yaml_to_cost_geotiff` converts a ROS map YAML to a cost GeoTIFF.
-  - `route_waypoints` plans a route across a whole cost GeoTIFF with `costmap`'s
-    A* and prints waypoints along it.
+- Example: `route_waypoints` plans a route across a whole cost GeoTIFF with
+  `costmap`'s A* and prints waypoints along it.
 - [`nav2/`](nav2): a test rig and a demo that run the server against a real
   Nav2. Nothing in it is installed on a robot, and CI does not run it.
   - `nav2/test/run.sh`: an integration test. It compares every cell a Nav2
@@ -120,7 +118,8 @@ A ROS map is held whole because of its image format. A PNG or PGM cannot be
 read in part: the decoder starts at the first pixel. A GeoTIFF is stored in
 strips or tiles that are read on their own. The published windows are the same
 either way; only the server's memory differs, at one byte per map cell for a
-ROS map. `yaml_to_cost_geotiff` converts a ROS map that is too large for that.
+ROS map. [`costmap-from-ros-map`](../costmap-geo#ros-maps) converts a ROS map
+that is too large for that.
 
 For a ROS map the server loads the YAML and its image with
 `costmap::RosMapLoader`. Occupied cells become cost 254, free cells 0 and
@@ -206,11 +205,11 @@ server logs the file's EPSG code and the projected coordinates of that corner.
 Projected coordinates of a point are the logged corner plus its `map`
 coordinates. The server does no reprojection and no datum handling.
 
-The `yaml_to_cost_geotiff` example converts a ROS map to a cost GeoTIFF whose
+`costmap-from-ros-map`, in `costmap-geo`, converts a ROS map to a cost GeoTIFF whose
 lower-left corner is the YAML origin:
 
 ```sh
-cargo run --release -p costmap_ros --example yaml_to_cost_geotiff -- \
+cargo run --release -p costmap-geo --bin costmap-from-ros-map -- \
     tests/fixtures/warehouse.yaml warehouse.tif
 ```
 

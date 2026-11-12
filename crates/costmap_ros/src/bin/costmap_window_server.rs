@@ -13,13 +13,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use clap::Parser;
-use costmap::RosMapLoader;
 use costmap::types::Pose2;
+use costmap::{RosMapLoader, costmap_from_occupancy};
 use costmap_ros::republish::LastPublish;
 use costmap_ros::tf::TfListener;
-use costmap_ros::{
-    GeoTiffSource, MapSource, RepublishPolicy, costmap_from_occupancy, occupancy_grid_from_costmap,
-};
+use costmap_ros::{GeoTiffSource, MapSource, RepublishPolicy, occupancy_grid_from_costmap};
 use glam::UVec2;
 use hiroz::Builder;
 use hiroz::context::ZContextBuilder;
