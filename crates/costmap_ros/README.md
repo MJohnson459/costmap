@@ -395,9 +395,10 @@ at their defaults.
   starts both nodes with `ros2 launch`.
 - **Integration test**, by hand: every cell a Nav2 costmap holds equals the
   source map, across five 65 m moves, for both map formats.
-- **Drive demo**, by hand: Nav2 drove a simulated robot 96.4 m in 99 s to a
-  goal 30 m outside its global costmap, with 0.47 m least distance to a
-  lethal cell.
+- **Drive demo**, by hand: Nav2 drove a simulated robot 96.4 m in 99 s across
+  the survey GeoTIFF to a goal 30 m outside its global costmap, with 0.47 m
+  least distance to a lethal cell; and 101.6 m in 103 s across the warehouse
+  ROS map, served from its YAML, with 0.72 m.
 - **Benchmark**, by hand: the table at the top.
 
 ## The library

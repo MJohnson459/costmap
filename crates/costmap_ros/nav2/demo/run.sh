@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Nav2 drives a simulated robot across a cost GeoTIFF it never holds whole.
+# Nav2 drives a simulated robot across a map it never holds whole.
 #
 # Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo/run.sh
+#
+# DRIVE_MAP is a cost GeoTIFF or a ROS map YAML.
 #
 # costmap_window_server publishes a SERVER_WINDOW_M (default 50) metre window
 # of the map around the robot. Nav2's global costmap is a 40 m rolling window
