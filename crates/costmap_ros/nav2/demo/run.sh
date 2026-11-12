@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nav2 drives a simulated robot across a cost GeoTIFF it never holds whole.
 #
-# Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo_drive.sh
+# Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo/run.sh
 #
 # costmap_window_server publishes a SERVER_WINDOW_M (default 60) metre window
 # of the map around the robot. Nav2's global costmap is a 50 m rolling window
@@ -11,16 +11,17 @@
 #
 # Starts a Zenoh router, a kinematic robot (sim_robot.py), the window server,
 # Nav2's planner, controller and behaviour tree navigator, and the mission
-# (drive_mission.py), which reports PASS/FAIL and writes recording.npz to
-# DRIVE_OUT (default: the log directory). render_drive.py turns that into a
+# (mission.py), which reports PASS/FAIL and writes recording.npz to
+# DRIVE_OUT (default: the log directory). render.py turns that into a
 # video. Every process is started in its own process group and stopped by that
 # group id; nothing else on the machine is signalled.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../../.." && pwd)"
+NAV2_DIR="$(cd "$HERE/.." && pwd)"
+REPO="$(cd "$NAV2_DIR/../../.." && pwd)"
 [[ -n "${DRIVE_MAP:-}" && -n "${DRIVE_START:-}" && -n "${DRIVE_GOAL:-}" ]] || {
-    echo "usage: DRIVE_MAP=cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo_drive.sh" >&2
+    echo "usage: DRIVE_MAP=cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo/run.sh" >&2
     exit 2
 }
 [[ -f "$DRIVE_MAP" ]] || { echo "DRIVE_MAP $DRIVE_MAP not found" >&2; exit 2; }
@@ -31,7 +32,7 @@ MISSION_TIMEOUT_S=900
 LOG_DIR="$(mktemp -d -t costmap_ros_drive.XXXXXX)"
 DRIVE_OUT="${DRIVE_OUT:-$LOG_DIR}"
 LOG_TAG=drive
-source "$HERE/lib.sh"
+source "$NAV2_DIR/lib.sh"
 
 log "building costmap_window_server and route_waypoints"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
@@ -44,7 +45,7 @@ WAYPOINTS="$("$REPO/target/release/examples/route_waypoints" --map "$DRIVE_MAP" 
 log "waypoints: $WAYPOINTS"
 
 enter_ros_env
-RESOLUTION="$(python -u "$HERE/check_costmap.py" --map "$DRIVE_MAP" --print-resolution)" ||
+RESOLUTION="$(python -u "$NAV2_DIR/test/check_costmap.py" --map "$DRIVE_MAP" --print-resolution)" ||
     fail "could not read the resolution of $DRIVE_MAP"
 [[ "$RESOLUTION" == *.* ]] || RESOLUTION="$RESOLUTION.0"
 log "map resolution $RESOLUTION m; server window ${SERVER_WINDOW_M} m"
@@ -65,18 +66,18 @@ require_alive server "$server_pid"
 # the previous path.
 BT_DIR="$CONDA_PREFIX/share/nav2_bt_navigator/behavior_trees"
 start planner ros2 run nav2_planner planner_server --ros-args \
-    --params-file "$HERE/drive_params.yaml" -p "resolution:=$RESOLUTION"
+    --params-file "$HERE/nav2_params.yaml" -p "resolution:=$RESOLUTION"
 start controller ros2 run nav2_controller controller_server --ros-args \
-    --params-file "$HERE/drive_params.yaml" -p "resolution:=$RESOLUTION"
+    --params-file "$HERE/nav2_params.yaml" -p "resolution:=$RESOLUTION"
 start navigator ros2 run nav2_bt_navigator bt_navigator --ros-args \
-    --params-file "$HERE/drive_params.yaml" \
+    --params-file "$HERE/nav2_params.yaml" \
     -p "default_nav_to_pose_bt_xml:=$BT_DIR/navigate_w_replanning_only_if_goal_is_updated.xml"
 start lifecycle ros2 run nav2_lifecycle_manager lifecycle_manager --ros-args \
-    --params-file "$HERE/drive_params.yaml"
+    --params-file "$HERE/nav2_params.yaml"
 wait_for "Nav2 (planner, controller, navigator active)" "$STAGE_TIMEOUT_S" \
     log_has lifecycle "Managed nodes are active"
 
-start mission python -u "$HERE/drive_mission.py" --map "$DRIVE_MAP" \
+start mission python -u "$HERE/mission.py" --map "$DRIVE_MAP" \
     --waypoints "$WAYPOINTS" --out "$DRIVE_OUT"
 deadline=$((SECONDS + MISSION_TIMEOUT_S))
 while process_alive "$mission_pid"; do

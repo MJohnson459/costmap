@@ -24,17 +24,21 @@ GeoTIFF of any size, such as one written by
 
 ## On an existing ROS 2 robot
 
-1. Stop launching `map_server`. Start `costmap_window_server --map cost.tif`
-   in its place. It publishes `/map`, as `map_server` did.
-2. In both Nav2 costmaps set `rolling_window: true`, a `width` and `height`
-   smaller than `--window-m`, and the map's `resolution`. See
+1. Install the server binary on the robot. See
+   [Building and installing](#building-and-installing).
+2. Stop launching `map_server`. Start `costmap_window_server --map cost.tif`
+   in its place. It publishes `/map`, as `map_server` did, and connects to the
+   Zenoh router the robot already runs for `rmw_zenoh_cpp`.
+3. In both Nav2 costmaps set `rolling_window: true`, the map's `resolution`,
+   and a `width` and `height` chosen as in
+   [Choosing the window sizes](#choosing-the-window-sizes). See
    [Nav2 configuration](#nav2-configuration).
-3. Provide `map -> base_link` on `/tf`, as Nav2 already requires. For a
+4. Provide `map -> base_link` on `/tf`, as Nav2 already requires. For a
    GeoTIFF the `map` frame is the raster's lower-left corner, x east and y
    north. A robot localised in projected coordinates (RTK GNSS in UTM, say)
    needs a static transform from that frame to `map`; the server logs the
    corner's coordinates at start.
-4. Send goals that lie inside the global costmap. For a goal farther away,
+5. Send goals that lie inside the global costmap. For a goal farther away,
    send waypoints; `route_waypoints` computes them from the whole map.
 
 What this asks of the robot:
@@ -42,8 +46,10 @@ What this asks of the robot:
 - **Zenoh.** Every node that talks to the server runs `rmw_zenoh_cpp` and
   reaches the same Zenoh router. A robot on a DDS middleware needs a bridge,
   which this crate does not provide and has not been tested with.
-- **No launch file or ROS package.** The server is a plain binary. Start it
-  from a launch file with `ExecuteProcess`, or from systemd.
+- **No ROS package.** The server is a plain binary, not an ament package. It
+  cannot be built by colcon, started with `ros2 run`, or released through the
+  ROS build farm. Start it from a launch file with `ExecuteProcess`, or from
+  systemd.
 - **Static map only.** The server publishes the file. Obstacles seen by
   sensors go in Nav2's own obstacle layer, as usual.
 
@@ -58,23 +64,45 @@ has not been run on a physical robot.
     `GeoTiffSource`, which reads a cost GeoTIFF chunk by chunk, implement it.
   - `republish`: when the server sends a new window.
   - `tf`: a transform tree fed from `/tf` and `/tf_static`, and a resolver for
-    the robot pose.
+    the robot pose. It is a stand-in: Hiroz has no tf2 port. It keeps the
+    latest transform per frame and nothing else. See [Limitations](#limitations).
 - Binary: `costmap_window_server`.
 - Examples:
   - `yaml_to_cost_geotiff` converts a ROS map YAML to a cost GeoTIFF.
   - `route_waypoints` plans a route across a whole cost GeoTIFF with `costmap`'s
     A* and prints waypoints along it.
-- `nav2/`: scripts that run the server against a real Nav2, and the pixi
-  environment (ROS Lyrical, Nav2 1.5.2) they share. Neither runs in CI.
-  - `test_costmap.sh`: an integration test. It compares every cell a Nav2
+- [`nav2/`](nav2): a test rig and a demo that run the server against a real
+  Nav2. Nothing in it is installed on a robot, and CI does not run it.
+  - `nav2/test/run.sh`: an integration test. It compares every cell a Nav2
     costmap node holds with the source map.
-  - `demo_drive.sh`: a demo. Nav2 plans and drives a simulated robot across a
-    cost GeoTIFF, and the script checks the track.
+  - `nav2/demo/run.sh`: a demo. Nav2 plans and drives a simulated robot across
+    a cost GeoTIFF, and the script checks the track.
+
+The only part meant to run on a robot is the `costmap_window_server` binary.
+
+## Building and installing
+
+Build on a development machine or in CI, not on the robot:
+
+```sh
+cargo build --release -p costmap_ros --bin costmap_window_server
+strip target/release/costmap_window_server
+```
+
+The result is one executable that links only glibc (`libc`, `libm`,
+`libgcc_s`). Stripped it is 24 MB; unstripped it is 477 MB, because the
+workspace's release profile keeps debug information. Copy it to a robot of
+the same architecture whose glibc is at least as new as the build machine's.
+Building for another architecture, such as arm64, has not been tried.
+
+There is no ament or colcon integration: no `package.xml`, no install rules
+and no release on the ROS build farm.
 
 ## Running the server
 
-A Zenoh router must be running, for example `ros2 run rmw_zenoh_cpp rmw_zenohd`
-from a ROS 2 install that has `rmw_zenoh_cpp`. Then, from the repository root:
+The server connects to a Zenoh router. A robot that runs `rmw_zenoh_cpp`
+already has one. To try the server on a development machine, start a router
+with `ros2 run rmw_zenoh_cpp rmw_zenohd`, then from the repository root:
 
 ```sh
 cargo run --release -p costmap_ros --bin costmap_window_server -- --map tests/fixtures/warehouse.yaml
@@ -87,6 +115,12 @@ startup error.
 | --- | --- |
 | `.yaml`, `.yml` | ROS map, loaded whole into memory |
 | `.tif`, `.tiff` | cost GeoTIFF, loaded chunk by chunk near the robot |
+
+A ROS map is held whole because of its image format. A PNG or PGM cannot be
+read in part: the decoder starts at the first pixel. A GeoTIFF is stored in
+strips or tiles that are read on their own. The published windows are the same
+either way; only the server's memory differs, at one byte per map cell for a
+ROS map. `yaml_to_cost_geotiff` converts a ROS map that is too large for that.
 
 For a ROS map the server loads the YAML and its image with
 `costmap::RosMapLoader`. Occupied cells become cost 254, free cells 0 and
@@ -109,15 +143,42 @@ pose is the latest `map -> base_link` transform. The server checks the pose
 | `--min-move-m` | 1 | movement that triggers a new window, metres |
 | `--keep-alive-s` | 10 | age that triggers a new window, seconds |
 
-Between windows the robot can move `--min-move-m` plus the distance it covers
-in one `--rate-hz` period. Nav2's window must stay inside the published window
-over that distance, so `(window_m - nav2_window) / 2` must exceed it. With the
-defaults and a 16 m Nav2 window the margin is 2 m: 1 m for `--min-move-m` and
-1 m of travel in one 0.5 s period, which allows 2 m/s.
-
 The window origin is a whole number of cells from the map origin. A cell keeps
 its world position and value in every window, so Nav2 never sees a cell
 resampled.
+
+## Choosing the window sizes
+
+Three sizes are involved: the server's `--window-m` (`W`), and the `width` of
+Nav2's global and local costmaps. Both costmaps read the same `/map`.
+
+1. **Local costmap.** Size it for the controller, as on any Nav2 robot: 3 to
+   6 m.
+2. **Global costmap** (`G`). Nav2 can only plan to a goal inside it, and it is
+   centred on the robot, so `G / 2` must exceed the longest leg. With
+   `route_waypoints --spacing-m 15`, a leg is 15 m along the route and
+   `G = 50` leaves 10 m to spare on each side.
+3. **Server window.** The global costmap must stay inside the last window
+   until the next one arrives, so the margin `(W - G) / 2` must exceed the
+   distance the robot covers in that time:
+
+   `margin > min_move_m + v_max * (1 / rate_hz + 0.2)`
+
+   The 0.2 s is the longest time the integration test measured from a robot
+   move to Nav2 holding the new window. Outside the window Nav2 sees unknown
+   cells.
+
+The demo uses `G = 50` and `W = 60`, a 5 m margin, with `--min-move-m 2`,
+`--rate-hz 5` and 1 m/s: 2 + 1 x 0.4 = 2.4 m.
+
+A larger `W` costs memory and bandwidth. Each window is one message of
+`(W / resolution)^2` bytes, and each StaticLayer keeps a copy:
+
+| `W` | at 0.05 m | at 0.03 m |
+| --- | --- | --- |
+| 20 m | 0.16 MB | 0.44 MB |
+| 60 m | 1.4 MB | 4.0 MB |
+| 100 m | 4.0 MB | 11 MB |
 
 ## GeoTIFF maps
 
@@ -178,7 +239,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       rolling_window: true
-      width: 10            # smaller than the server's --window-m
+      width: 10            # see "Choosing the window sizes"
       height: 10
       resolution: 0.05     # the map's resolution
       track_unknown_space: true
@@ -200,6 +261,10 @@ must stay at their defaults. Use the map's resolution and leave `origin_x` and
 The resolution matters for safety. StaticLayer point-samples a map whose
 resolution differs from the costmap's. A Nav2 costmap at 0.05 m over a 0.03 m
 map dropped a 9 cm obstacle, and Nav2 planned and drove through it.
+
+Nothing here depends on a particular resolution. The fixture of the
+integration test is a 0.05 m warehouse map. The vineyard in the demo is at
+0.03 m because that is the pixel size of the survey's terrain model.
 
 Nav2 must run with `RMW_IMPLEMENTATION=rmw_zenoh_cpp` and reach the same Zenoh
 router as the server.
@@ -231,20 +296,20 @@ it is not a zsh script.
 
 ```sh
 cd crates/costmap_ros/nav2
-bash test_costmap.sh
+bash test/run.sh
 ```
 
 The first run installs the ROS Lyrical environment from `pixi.toml` and
 `pixi.lock` (Nav2 costmap_2d 1.5.2, rmw_zenoh_cpp 0.10.6, rclpy).
 
-`test_costmap.sh` builds the server and the converter, converts the fixture to a
+`test/run.sh` builds the server and the converter, converts the fixture to a
 GeoTIFF, starts `rmw_zenohd`, and then runs one phase per map format (YAML,
 GeoTIFF) and published window size (12 m, 100 m). Each phase starts:
 
-1. `check_costmap.py`, which also publishes `map -> base_link` on `/tf`;
+1. `test/check_costmap.py`, which also publishes `map -> base_link` on `/tf`;
 2. `costmap_window_server` on `tests/fixtures/warehouse.yaml`, or on its
    GeoTIFF conversion;
-3. a standalone Nav2 costmap node with `costmap_params.yaml` (an 8 m rolling
+3. a standalone Nav2 costmap node with `test/costmap_params.yaml` (an 8 m rolling
    window with only a StaticLayer), which the script configures and activates.
 
 The checker reads the fixture YAML and image itself, also in the GeoTIFF
@@ -265,7 +330,7 @@ matched in that run.
 Any cost GeoTIFF can be checked instead of the fixture:
 
 ```sh
-E2E_MAP=/path/cost.tif E2E_POSES="99.6,30 100.1,80 53.5,30" bash test_costmap.sh
+E2E_MAP=/path/cost.tif E2E_POSES="99.6,30 100.1,80 53.5,30" bash test/run.sh
 ```
 
 `E2E_POSES` are `x,y` positions in the map frame (metres from the raster's
@@ -282,13 +347,13 @@ for example the raster shifted one pixel with
 
 ## Drive demo
 
-`demo_drive.sh` has Nav2 plan and drive across a cost GeoTIFF that it never
+`demo/run.sh` has Nav2 plan and drive across a cost GeoTIFF that it never
 holds whole.
 
 ```sh
 cd crates/costmap_ros/nav2
-DRIVE_MAP=/path/cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo_drive.sh
-pixi run python render_drive.py --map /path/cost.tif \
+DRIVE_MAP=/path/cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo/run.sh
+pixi run python demo/render.py --map /path/cost.tif \
     --recording /tmp/costmap_ros_drive.XXXXXX/recording.npz --out drive.mp4
 ```
 
@@ -299,10 +364,10 @@ It starts:
   `/cmd_vel` and publishes `odom -> base_link` and `/odom`;
 - `costmap_window_server` on the GeoTIFF, with 60 m windows republished every 2 m;
 - Nav2's planner (NavFn), controller (Regulated Pure Pursuit) and behaviour
-  tree navigator, configured by `drive_params.yaml`. The global costmap is a
+  tree navigator, configured by `demo/nav2_params.yaml`. The global costmap is a
   50 m rolling window and the local costmap a 6 m one. Each holds a
   StaticLayer on `/map` and an inflation layer, and nothing else;
-- `drive_mission.py`, which sends the waypoints as `NavigateToPose` goals.
+- `mission.py`, which sends the waypoints as `NavigateToPose` goals.
 
 Nav2 cannot plan to a goal outside its global costmap. `route_waypoints` plans
 the whole route on a max-pooled overview of the raster with `costmap`'s A*,
@@ -326,7 +391,7 @@ Result on a 166 x 196 m vineyard survey at 0.03 m (5,547 x 6,525 cells, 36 M):
 | Least distance from robot centre to a lethal cell | 0.40 m |
 | Chunks of the file read | 2,712 of 8,874; 2,235 held at the end |
 
-`render_drive.py` draws the recording as a video: Nav2's global and local
+`render.py` draws the recording as a video: Nav2's global and local
 costmaps as Nav2 published them, the outline of the last window served, the
 plan and the track, over the dimmed raster.
 
@@ -368,8 +433,11 @@ size does. At 50 Hz every number falls by a factor of 2 to 5, and the
 
 ## Limitations
 
-- The robot pose uses the latest transform of each frame, composed with no
-  interpolation to a common time.
+- The `tf` module is not a tf2 replacement. The robot pose uses the latest
+  transform of each frame, composed with no interpolation to a common time and
+  no history. That is enough to place a window, where an error of a few
+  centimetres does not matter. A transform library should replace it; the
+  `transforms` crate is a candidate and has not been evaluated.
 - `OccupancyGrid` carries 101 levels; costs 1..=252 arrive quantised as in the
   table above.
 - Every publish is a full window. `map_msgs/OccupancyGridUpdate` patches a

@@ -1,6 +1,6 @@
-"""Render the recording of demo_drive.sh as a video.
+"""Render the recording of demo/run.sh as a video.
 
-Usage: python render_drive.py --map cost.tif --recording recording.npz --out drive.mp4
+Usage: python render.py --map cost.tif --recording recording.npz --out drive.mp4
 
 Left: the whole raster, dimmed, read from the file. Drawn over it in colour
 is Nav2's global costmap as Nav2 published it, the outline of the window
@@ -12,12 +12,15 @@ Needs ffmpeg on PATH.
 
 import argparse
 import math
+import pathlib
 import subprocess
+import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from check_costmap import load_geotiff
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from cost_raster import load_geotiff  # noqa: E402
 
 WIDTH, HEIGHT = 1280, 720
 PANEL = 440

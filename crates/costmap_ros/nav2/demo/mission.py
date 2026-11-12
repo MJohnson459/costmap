@@ -3,7 +3,7 @@
 Sends each waypoint to Nav2 as a NavigateToPose goal and waits for Nav2 to
 report success with the robot within 0.5 m of it. Meanwhile it records the robot pose, Nav2's plan, Nav2's global and
 local costmaps and the extent of every window costmap_window_server publishes,
-and writes them to <out>/recording.npz for render_drive.py.
+and writes them to <out>/recording.npz for render.py.
 
 Afterwards it checks the driven track against the raster read straight from
 its file: no cell under the robot's disc may be lethal.
@@ -26,7 +26,8 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
-from check_costmap import load_geotiff
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from cost_raster import load_geotiff  # noqa: E402
 
 LETHAL = 254
 POSE_RATE_HZ = 10.0

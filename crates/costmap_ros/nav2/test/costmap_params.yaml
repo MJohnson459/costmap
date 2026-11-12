@@ -5,7 +5,7 @@ costmap:
     global_frame: map
     robot_base_frame: base_link
     rolling_window: true
-    # test_costmap.sh overrides width, height and resolution from the map. Smaller
+    # test/run.sh overrides width, height and resolution from the map. Smaller
     # than every window the integration test publishes.
     width: 8
     height: 8

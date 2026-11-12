@@ -204,16 +204,21 @@ Nav2's `map_server` publishes a whole map as one message. A survey-scale map doe
 
 On a robot that already runs Nav2:
 
-1. Start a Zenoh router and the server where `map_server` was launched:
+1. Build the server on a development machine and copy the binary to the robot. It links only glibc. There is no colcon or ament package and no build-farm release.
 
    ```bash
-   ros2 run rmw_zenoh_cpp rmw_zenohd
-   cargo run --release -p costmap_ros --bin costmap_window_server -- --map cost.tif --window-m 60
+   cargo build --release -p costmap_ros --bin costmap_window_server
    ```
 
-2. In both Nav2 costmaps set `rolling_window: true`, a `width` and `height` smaller than `--window-m`, and the map's `resolution`. At another resolution `StaticLayer` drops small obstacles.
-3. Provide `map -> base_link` on `/tf`. The `map` frame of a GeoTIFF is its lower-left corner, x east and y north; the server logs that corner's projected coordinates at start.
-4. Send goals inside the global costmap. For a goal farther away, send waypoints:
+2. Start it where `map_server` was launched. It connects to the Zenoh router the robot already runs for `rmw_zenoh_cpp`.
+
+   ```bash
+   costmap_window_server --map cost.tif --window-m 60
+   ```
+
+3. In both Nav2 costmaps set `rolling_window: true` and the map's `resolution`; at another resolution `StaticLayer` drops small obstacles. The global costmap must be smaller than `--window-m` by a margin that depends on the robot's speed: see [Choosing the window sizes](crates/costmap_ros#choosing-the-window-sizes).
+4. Provide `map -> base_link` on `/tf`. The `map` frame of a GeoTIFF is its lower-left corner, x east and y north; the server logs that corner's projected coordinates at start.
+5. Send goals inside the global costmap. For a goal farther away, send waypoints:
 
    ```bash
    cargo run --release -p costmap_ros --example route_waypoints -- \
@@ -223,7 +228,7 @@ On a robot that already runs Nav2:
 Requirements and limits:
 
 - Every node that talks to the server runs `rmw_zenoh_cpp` (`RMW_IMPLEMENTATION=rmw_zenoh_cpp`). There is no DDS support.
-- The server is a plain binary with no launch file or ROS package. It needs no ROS install to build.
+- The server is a plain binary. It needs no ROS install to build, and cannot be built by colcon or started with `ros2 run`.
 - It has run against Nav2 1.5.2 on ROS Lyrical with a simulated robot, not on a physical one.
 
 Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:
@@ -231,9 +236,9 @@ Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environmen
 ```bash
 cd crates/costmap_ros/nav2
 # Integration test: compare every cell a Nav2 costmap holds with the source map.
-bash test_costmap.sh
+bash test/run.sh
 # Demo: Nav2 plans and drives a simulated robot across a cost GeoTIFF.
-DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo_drive.sh
+DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo/run.sh
 ```
 
 In the demo Nav2 drove 96.6 m through 7 waypoints across the vineyard while holding a 50 m window of it. [`crates/costmap_ros`](crates/costmap_ros) has the server's options, the Nav2 parameters and the results.

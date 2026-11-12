@@ -2,7 +2,7 @@
 # Both costmaps hold only what costmap_window_server publishes on /map, plus
 # inflation. There is no sensor layer.
 #
-# demo_drive.sh overrides `resolution` in both costmaps from the map, and the
+# demo/run.sh overrides `resolution` in both costmaps from the map, and the
 # behaviour tree path.
 
 bt_navigator:
@@ -84,7 +84,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 0.5
       always_send_full_costmap: true
-      # The occupancy -> cost rule costmap_ros::convert inverts; see costmap_params.yaml.
+      # The occupancy -> cost rule costmap_ros::convert inverts; see test/costmap_params.yaml.
       track_unknown_space: true
       trinary_costmap: false
       lethal_cost_threshold: 100

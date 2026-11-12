@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Integration test of costmap_window_server against a real Nav2 costmap.
 #
-# Usage: bash test_costmap.sh
+# Usage: bash test/run.sh
 #
 # SERVER_RATE_HZ (default 10) sets the window server's --rate-hz and NAV2_HZ
 # (default 10) sets Nav2's update_frequency and publish_frequency.
@@ -25,7 +25,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/../../.." && pwd)"
+NAV2_DIR="$(cd "$HERE/.." && pwd)"
+REPO="$(cd "$NAV2_DIR/../../.." && pwd)"
 MAP="$REPO/tests/fixtures/warehouse.yaml"
 WINDOWS_M=(12 100)
 MAP_KINDS=(yaml tif)
@@ -51,7 +52,7 @@ LOG_DIR="$(mktemp -d -t costmap_ros_e2e.XXXXXX)"
 TIF="$LOG_DIR/warehouse.tif"
 
 LOG_TAG=e2e
-source "$HERE/lib.sh"
+source "$NAV2_DIR/lib.sh"
 
 log "building costmap_window_server and the GeoTIFF converter"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \

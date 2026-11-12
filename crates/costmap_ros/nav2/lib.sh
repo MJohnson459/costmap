@@ -1,5 +1,6 @@
-# Process and environment helpers shared by test_costmap.sh and demo_drive.sh.
-# The sourcing script sets HERE, LOG_DIR, LOG_TAG and STAGE_TIMEOUT_S.
+# Process and environment helpers shared by test/run.sh and demo/run.sh.
+# The sourcing script sets NAV2_DIR (this directory), LOG_DIR, LOG_TAG and
+# STAGE_TIMEOUT_S.
 
 started_groups=()
 
@@ -88,7 +89,7 @@ pick_port() {
 enter_ros_env() {
     # The environment's activation scripts read unset variables.
     set +u
-    eval "$(pixi shell-hook --manifest-path "$HERE/pixi.toml" --shell bash)"
+    eval "$(pixi shell-hook --manifest-path "$NAV2_DIR/pixi.toml" --shell bash)"
     set -u
     export RMW_IMPLEMENTATION=rmw_zenoh_cpp
     export ROS_DOMAIN_ID=73
