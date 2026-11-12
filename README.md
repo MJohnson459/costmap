@@ -203,11 +203,11 @@ cargo run --release --example farm_demo --features rerun,geotiff -- \
 `costmap_window_server` publishes the part of the map around the robot as `nav_msgs/OccupancyGrid`; Nav2's `StaticLayer` consumes it. Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:
 
 ```bash
-cd crates/costmap_ros/nav2_e2e
+cd crates/costmap_ros/nav2
 # Compare every cell a Nav2 costmap holds with the source map.
-bash run_e2e.sh
+bash test_costmap.sh
 # Nav2 plans and drives a simulated robot across a cost GeoTIFF.
-DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash run_drive.sh
+DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo_drive.sh
 ```
 
 On a 166 x 196 m vineyard survey of 36 M cells, Nav2 drove 96.6 m through 7 waypoints while holding a 50 m window. See [`crates/costmap_ros`](crates/costmap_ros#drive-demo).

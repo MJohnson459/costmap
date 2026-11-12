@@ -8,9 +8,47 @@ The crate uses [Hiroz](https://github.com/ZettaScaleLabs/hiroz) 0.2.1, a ROS 2
 client written in Rust on Zenoh. It builds with cargo alone and needs no ROS
 install. It talks to ROS 2 nodes that run `rmw_zenoh_cpp`.
 
-The intended use is a map far larger than Nav2 can hold. The server publishes
-only a square window of the map around the robot. Nav2 runs its costmap with
-`rolling_window: true` and the StaticLayer reads every new window.
+## Why
+
+Nav2's `map_server` loads a whole map into memory and publishes it as one
+message, and every costmap with a StaticLayer keeps its own copy. A warehouse
+fits. A drone survey does not: a 166 x 196 m vineyard at 0.03 m is 36 M cells,
+a 36 MB message, and a square kilometre at that resolution is 1.1 G cells.
+
+`costmap_window_server` replaces `map_server` for such maps. It publishes only
+a square window of the map around the robot, on the same topic and with the
+same message type. Nav2 runs its costmaps with `rolling_window: true` and the
+StaticLayer reads every new window. A stock Nav2 then navigates on a cost
+GeoTIFF of any size, such as one written by
+[`costmap-from-ortho`](../costmap-geo) from an OpenDroneMap survey.
+
+## On an existing ROS 2 robot
+
+1. Stop launching `map_server`. Start `costmap_window_server --map cost.tif`
+   in its place. It publishes `/map`, as `map_server` did.
+2. In both Nav2 costmaps set `rolling_window: true`, a `width` and `height`
+   smaller than `--window-m`, and the map's `resolution`. See
+   [Nav2 configuration](#nav2-configuration).
+3. Provide `map -> base_link` on `/tf`, as Nav2 already requires. For a
+   GeoTIFF the `map` frame is the raster's lower-left corner, x east and y
+   north. A robot localised in projected coordinates (RTK GNSS in UTM, say)
+   needs a static transform from that frame to `map`; the server logs the
+   corner's coordinates at start.
+4. Send goals that lie inside the global costmap. For a goal farther away,
+   send waypoints; `route_waypoints` computes them from the whole map.
+
+What this asks of the robot:
+
+- **Zenoh.** Every node that talks to the server runs `rmw_zenoh_cpp` and
+  reaches the same Zenoh router. A robot on a DDS middleware needs a bridge,
+  which this crate does not provide and has not been tested with.
+- **No launch file or ROS package.** The server is a plain binary. Start it
+  from a launch file with `ExecuteProcess`, or from systemd.
+- **Static map only.** The server publishes the file. Obstacles seen by
+  sensors go in Nav2's own obstacle layer, as usual.
+
+It has been run against Nav2 1.5.2 on ROS Lyrical with a simulated robot. It
+has not been run on a physical robot.
 
 ## Contents
 
@@ -26,9 +64,12 @@ only a square window of the map around the robot. Nav2 runs its costmap with
   - `yaml_to_cost_geotiff` converts a ROS map YAML to a cost GeoTIFF.
   - `route_waypoints` plans a route across a whole cost GeoTIFF with `costmap`'s
     A* and prints waypoints along it.
-- `nav2_e2e/`:
-  - `run_e2e.sh`: an end-to-end test against a real Nav2 costmap node.
-  - `run_drive.sh`: Nav2 plans and drives a simulated robot across a cost GeoTIFF.
+- `nav2/`: scripts that run the server against a real Nav2, and the pixi
+  environment (ROS Lyrical, Nav2 1.5.2) they share. Neither runs in CI.
+  - `test_costmap.sh`: an integration test. It compares every cell a Nav2
+    costmap node holds with the source map.
+  - `demo_drive.sh`: a demo. Nav2 plans and drives a simulated robot across a
+    cost GeoTIFF, and the script checks the track.
 
 ## Running the server
 
@@ -183,20 +224,20 @@ one sent, and never receives lethal for a cost below 254. `cost_from_occupancy`
 is the Nav2 rule itself and `occupancy_from_cost` is its inverse. Unit tests
 run every cost through a transcription of the C++.
 
-## End-to-end test
+## Integration test
 
 The test needs [pixi](https://pixi.sh) and a Rust toolchain. Run it with bash;
 it is not a zsh script.
 
 ```sh
-cd crates/costmap_ros/nav2_e2e
-bash run_e2e.sh
+cd crates/costmap_ros/nav2
+bash test_costmap.sh
 ```
 
 The first run installs the ROS Lyrical environment from `pixi.toml` and
 `pixi.lock` (Nav2 costmap_2d 1.5.2, rmw_zenoh_cpp 0.10.6, rclpy).
 
-`run_e2e.sh` builds the server and the converter, converts the fixture to a
+`test_costmap.sh` builds the server and the converter, converts the fixture to a
 GeoTIFF, starts `rmw_zenohd`, and then runs one phase per map format (YAML,
 GeoTIFF) and published window size (12 m, 100 m). Each phase starts:
 
@@ -224,7 +265,7 @@ matched in that run.
 Any cost GeoTIFF can be checked instead of the fixture:
 
 ```sh
-E2E_MAP=/path/cost.tif E2E_POSES="99.6,30 100.1,80 53.5,30" bash run_e2e.sh
+E2E_MAP=/path/cost.tif E2E_POSES="99.6,30 100.1,80 53.5,30" bash test_costmap.sh
 ```
 
 `E2E_POSES` are `x,y` positions in the map frame (metres from the raster's
@@ -241,12 +282,12 @@ for example the raster shifted one pixel with
 
 ## Drive demo
 
-`run_drive.sh` has Nav2 plan and drive across a cost GeoTIFF that it never
+`demo_drive.sh` has Nav2 plan and drive across a cost GeoTIFF that it never
 holds whole.
 
 ```sh
-cd crates/costmap_ros/nav2_e2e
-DRIVE_MAP=/path/cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash run_drive.sh
+cd crates/costmap_ros/nav2
+DRIVE_MAP=/path/cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo_drive.sh
 pixi run python render_drive.py --map /path/cost.tif \
     --recording /tmp/costmap_ros_drive.XXXXXX/recording.npz --out drive.mp4
 ```
@@ -277,7 +318,7 @@ Result on a 166 x 196 m vineyard survey at 0.03 m (5,547 x 6,525 cells, 36 M):
 
 | | |
 | --- | --- |
-| Waypoints reached | 7 of 7, each within 0.29 m |
+| Waypoints reached | 7 of 7, each within 0.30 m |
 | Distance driven | 96.6 m in 101 s |
 | Windows published | 45, of 2,000 x 2,000 cells each |
 | Plans | 7, one per waypoint |

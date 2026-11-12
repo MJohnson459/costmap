@@ -1,5 +1,5 @@
 [workspace]
-name = "costmap-ros-nav2-e2e"
+name = "costmap-ros-nav2"
 channels = ["robostack-lyrical", "conda-forge"]
 platforms = ["linux-64"]
 

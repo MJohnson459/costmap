@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nav2 drives a simulated robot across a cost GeoTIFF it never holds whole.
 #
-# Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash run_drive.sh
+# Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo_drive.sh
 #
 # costmap_window_server publishes a SERVER_WINDOW_M (default 60) metre window
 # of the map around the robot. Nav2's global costmap is a 50 m rolling window
@@ -20,7 +20,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 [[ -n "${DRIVE_MAP:-}" && -n "${DRIVE_START:-}" && -n "${DRIVE_GOAL:-}" ]] || {
-    echo "usage: DRIVE_MAP=cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash run_drive.sh" >&2
+    echo "usage: DRIVE_MAP=cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo_drive.sh" >&2
     exit 2
 }
 [[ -f "$DRIVE_MAP" ]] || { echo "DRIVE_MAP $DRIVE_MAP not found" >&2; exit 2; }

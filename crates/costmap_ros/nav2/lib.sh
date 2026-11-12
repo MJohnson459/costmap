@@ -1,4 +1,4 @@
-# Process and environment helpers shared by run_e2e.sh and run_drive.sh.
+# Process and environment helpers shared by test_costmap.sh and demo_drive.sh.
 # The sourcing script sets HERE, LOG_DIR, LOG_TAG and STAGE_TIMEOUT_S.
 
 started_groups=()

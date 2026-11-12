@@ -5,8 +5,8 @@ costmap:
     global_frame: map
     robot_base_frame: base_link
     rolling_window: true
-    # run_e2e.sh overrides width, height and resolution from the map. Smaller
-    # than every window the e2e test publishes.
+    # test_costmap.sh overrides width, height and resolution from the map. Smaller
+    # than every window the integration test publishes.
     width: 8
     height: 8
     # Same resolution (overridden per map) and grid origin as the map, so the rolling

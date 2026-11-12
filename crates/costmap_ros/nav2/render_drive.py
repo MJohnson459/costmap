@@ -1,4 +1,4 @@
-"""Render the recording of run_drive.sh as a video.
+"""Render the recording of demo_drive.sh as a video.
 
 Usage: python render_drive.py --map cost.tif --recording recording.npz --out drive.mp4
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end check of costmap_window_server against a real Nav2 costmap.
+# Integration test of costmap_window_server against a real Nav2 costmap.
 #
-# Usage: bash run_e2e.sh
+# Usage: bash test_costmap.sh
 #
 # SERVER_RATE_HZ (default 10) sets the window server's --rate-hz and NAV2_HZ
 # (default 10) sets Nav2's update_frequency and publish_frequency.
