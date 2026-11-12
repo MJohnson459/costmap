@@ -218,27 +218,31 @@ reads each process's memory and CPU time from `/proc`:
 
 Vineyard survey, 5,547 x 6,525 cells at 0.03 m (36 M cells), a 99 m trip
 planned from 11 starts along it. Machine as in [Latency](#latency). One run.
+Every measured node is started by its executable, not through `ros2 run`,
+which would add a Python process to its total.
 
 | | Nav2 alone | With these servers |
 | --- | --- | --- |
-| Resident memory, all processes | 867 MB | 223 MB |
-| of which the map and planning servers | `map_server` 157 MB, `planner_server` 710 MB | window server 32 MB, route server 44 MB, `planner_server` 147 MB |
-| Peak resident memory | 1,407 MB | 223 MB |
-| Trip plan, first | 341 ms | 112 ms |
-| Trip plan, later, median (max) | 306 ms (801 ms) | 5.0 ms (8.3 ms) |
-| 15 m plan, median (max) | 263 ms (278 ms) | 4.1 ms (24 ms) |
-| CPU time for the 16 plans | 6.5 s | 0.34 s |
-| CPU at rest, share of one core | 1.65 % | 8.2 % |
+| Resident memory, all processes | 744 MB | 178 MB |
+| of which the map and planning servers | `map_server` 108 MB, `planner_server` 636 MB | window server 32 MB, route server 46 MB, `planner_server` 100 MB |
+| Peak resident memory | 1,285 MB | 178 MB |
+| Trip plan, first | 364 ms | 107 ms |
+| Trip plan, later, median (max) | 328 ms (825 ms) | 5.5 ms (7.0 ms) |
+| 15 m plan, median (max) | 274 ms (281 ms) | 3.3 ms (32 ms) |
+| CPU time for the 16 plans | 6.7 s | 0.33 s |
+| CPU at rest, share of one core | 1.75 % | 8.15 % |
 
 Plan times are the `planning_time` each server reports. The first start on a
 map also builds the route graph, 5.5 s here.
 
 CPU at rest is higher with these servers:
 
-- The two servers use 1.3 % and 1.2 %. All of it is the `/tf` subscription,
+- The two servers use 1.3 % and 1.15 %. All of it is the `/tf` subscription,
   which the simulated robot feeds at 50 Hz; with no `/tf` traffic both use
-  0 %. `map_server` needs no robot pose and uses 0.1 %.
-- `planner_server` uses 5.7 % against 1.55 %. A rolling global costmap copies
+  0 %. A Hiroz subscriber to `/tf` whose callback does nothing uses 1.1 %, so
+  the time goes in receiving each message (about 220 µs), not in handling it.
+  `map_server` needs no robot pose and uses 0.1 %.
+- `planner_server` uses 5.7 % against 1.65 %. A rolling global costmap copies
   its 40 m window from the static layer and inflates it at every update, 1 Hz
   here. A costmap of the whole map does that once.
 

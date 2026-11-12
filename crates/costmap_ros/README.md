@@ -17,10 +17,10 @@ a 166 x 196 m survey at 0.03 m (36 M cells):
 
 | | Nav2 alone | With these nodes |
 | --- | --- | --- |
-| Resident memory | 867 MB | 223 MB |
-| Plan of a 99 m trip, median | 306 ms | 5.0 ms |
-| Plan of the next 15 m, median | 263 ms | 4.1 ms |
-| CPU at rest, share of one core | 1.65 % | 8.2 % |
+| Resident memory | 744 MB | 178 MB |
+| Plan of a 99 m trip, median | 328 ms | 5.5 ms |
+| Plan of the next 15 m, median | 274 ms | 3.3 ms |
+| CPU at rest, share of one core | 1.75 % | 8.15 % |
 
 CPU at rest is higher: each node subscribes to `/tf`, and a rolling global
 costmap redraws its window every update. [nav2/README.md](nav2/README.md) has
@@ -241,7 +241,8 @@ A larger `W` costs memory and bandwidth: each window is one message of
 
 ## Maps
 
-`--map` selects the format by extension.
+`--map` selects the format by extension. Any other extension is a startup
+error.
 
 | Extension | Format | Memory |
 | --- | --- | --- |
@@ -272,8 +273,8 @@ between crossings, on costs inflated for the robot. It is built at the map's
 own resolution, so a doorway the robot fits through stays open. For a GeoTIFF
 the first start builds the graph (5.5 s for 36 M cells on 16 cores) and
 stores it beside the raster as `site.tif.tilegraph` (0.7 MB); later starts
-read it. It is rebuilt when the raster, `--robot-radius-m` or `--inflation-m`
-changes. If the directory cannot be written, the node logs a warning and
+read it. It is rebuilt when the raster's length or modification time,
+`--robot-radius-m`, `--inflation-m` or this package's version changes. If the directory cannot be written, the node logs a warning and
 builds the graph at every start. For a ROS map the graph is built at every
 start: 4.4 s for the 30.5 M-cell warehouse map, with the node's memory
 peaking at 150 MB.
@@ -319,7 +320,8 @@ publishes each route on `/route`.
 - Poses must be in the map frame. A pose in another frame aborts the goal
   with `TF_ERROR`; the node does not transform goals.
 - Failures abort the goal with Nav2's error codes: `TF_ERROR`,
-  `START_OCCUPIED`, `GOAL_OCCUPIED`, `NO_VALID_PATH`.
+  `START_OCCUPIED`, `GOAL_OCCUPIED`, `NO_VALID_PATH`, and `UNKNOWN` if the
+  map file cannot be read.
 - A goal cancelled while its route is being planned ends as cancelled.
 - There is one planner, so `planner_id` is not read.
 - A route passes through the graph's crossings, at most 32 cells apart along
@@ -333,8 +335,8 @@ publishes each route on `/route`.
 | `--route-topic` | `route` | topic each route is also published on |
 | `--map-frame` | `map` | frame of the map and of the routes |
 | `--base-frame` | `base_link` | robot frame |
-| `--robot-radius-m` | 0.3 | robot radius, metres |
-| `--inflation-m` | 1.5 | distance over which routes are pushed from obstacles, metres |
+| `--robot-radius-m` | 0.3 | robot radius, metres; cells nearer an obstacle are impassable |
+| `--inflation-m` | 1.5 | distance over which routes are pushed from obstacles, metres; at least the robot radius is used |
 
 Started with `--action compute_path_to_pose --route-topic plan`, it answers
 the action Nav2's stock trees call, and `planner_server` and the global
@@ -394,7 +396,7 @@ at their defaults.
 
 [nav2/README.md](nav2/README.md) describes each of these and how to run it.
 
-- **Unit tests**, in CI: 45 in this crate, among them a route through a 0.9 m
+- **Unit tests**, in CI: 48 in this crate, among them a route through a 0.9 m
   doorway for a 0.3 m robot.
 - **colcon build**, in CI: builds the package in a scratch workspace and
   starts both nodes with `ros2 launch`.
