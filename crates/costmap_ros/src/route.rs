@@ -139,13 +139,17 @@ impl RawCosts for Costmap {
     }
 }
 
-/// Inflated tiles of a map, each read with enough of its surroundings that
-/// inflation gives what it would on the whole map.
+/// Inflated tiles of a map, each read with a margin as wide as inflation
+/// reaches, so every obstacle that raises a cost in the tile is in the window.
 struct InflatedTiles<R> {
     raw: R,
     layout: TileLayout,
     /// Cells read beyond each edge of a tile.
     margin: u32,
+    /// Distance from an obstacle that inflation reaches: `inflation_m`, or the
+    /// robot radius if that is larger, so cells the robot cannot occupy are
+    /// impassable whatever `inflation_m` is.
+    reach_m: f32,
     options: RouteOptions,
 }
 
@@ -156,10 +160,12 @@ impl<R: RawCosts> InflatedTiles<R> {
         resolution: f64,
         options: &RouteOptions,
     ) -> Result<Self, VoxelError> {
+        let reach_m = options.inflation_m.max(options.robot_radius_m);
         Ok(Self {
             raw,
             layout: TileLayout::new(size, options.graph.tile_cells)?,
-            margin: (f64::from(options.inflation_m) / resolution).ceil() as u32 + 1,
+            margin: (f64::from(reach_m) / resolution).ceil() as u32 + 1,
+            reach_m,
             options: *options,
         })
     }
@@ -170,11 +176,7 @@ impl<R: RawCosts> TileSource for InflatedTiles<R> {
         let (min, size) = (self.layout.tile_min(tile), self.layout.tile_size(tile));
         let low = min.as_ivec2() - IVec2::splat(self.margin as i32);
         let mut costs = self.raw.window(low, size + 2 * self.margin)?;
-        costs.inflate(
-            self.options.inflation_m,
-            self.options.robot_radius_m,
-            COST_SCALING,
-        );
+        costs.inflate(self.reach_m, self.options.robot_radius_m, COST_SCALING);
         crop(&costs, UVec2::splat(self.margin), size)
     }
 }
@@ -197,7 +199,8 @@ fn crop(grid: &Costmap, min: UVec2, size: UVec2) -> Result<Costmap, VoxelError> 
 }
 
 /// What a stored graph was built from: the raster's length and modification
-/// time, and the options that shape its costs.
+/// time, the options that shape its costs, and this crate's version. A raster
+/// replaced by one of the same length and time is not told apart.
 fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
@@ -210,6 +213,8 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
     bytes.extend(options.robot_radius_m.to_le_bytes());
     bytes.extend(options.inflation_m.to_le_bytes());
     bytes.extend(COST_SCALING.to_le_bytes());
+    // A later version may inflate or place crossings differently.
+    bytes.extend(env!("CARGO_PKG_VERSION").as_bytes());
     Ok(bytes)
 }
 
@@ -263,19 +268,30 @@ impl RoutePlanner {
     /// `.yaml` and `.yml` are a ROS map. It is held whole in memory, as
     /// `nav2_map_server` holds it, and its graph is built at every start.
     ///
-    /// Anything else is read as a cost GeoTIFF, of which only the tiles a
-    /// route passes are held. Its graph is read from [`graph_path`] if the
+    /// `.tif` and `.tiff` are a cost GeoTIFF, of which only the tiles a route
+    /// passes are held. Any other extension is an error. Its graph is read from [`graph_path`] if the
     /// file there was built from this raster with these options. Otherwise it
     /// is built, which reads the whole raster twice, a few tiles at a time,
     /// and stored there for the next start. If it cannot be stored, a warning
     /// is logged and it is built again next time.
     pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
         let path = path.as_ref();
-        let extension = path.extension().and_then(|e| e.to_str());
-        if matches!(extension, Some(e) if e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
-        {
-            let occupancy = RosMapLoader::load_from_yaml(path)?;
-            return Self::from_costmap(costmap_from_occupancy(&occupancy)?, options);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
+        match extension.as_deref() {
+            Some("yaml" | "yml") => {
+                let occupancy = RosMapLoader::load_from_yaml(path)?;
+                return Self::from_costmap(costmap_from_occupancy(&occupancy)?, options);
+            }
+            Some("tif" | "tiff") => {}
+            _ => {
+                return Err(VoxelError::InvalidArgument(format!(
+                    "{}: unsupported extension; accepted: .yaml, .yml (ROS map), .tif, .tiff (cost GeoTIFF)",
+                    path.display()
+                )));
+            }
         }
         let map = CostGeoTiff::open(path)?;
         let (size, resolution) = (map.size(), map.resolution());
@@ -431,27 +447,40 @@ impl RoutePlanner {
             snap_m: self.options.snap_m,
         };
         let resolution = self.graph.resolution();
-        let centre = ((point - self.origin) / resolution).floor();
-        let size = self.graph.layout().size().as_dvec2();
-        if centre.cmplt(DVec2::ZERO).any() || centre.cmpge(size).any() {
+        let local = (point - self.origin) / resolution;
+        let size = self.graph.layout().size();
+        let reach = (self.options.snap_m / resolution).ceil();
+        if !local.is_finite()
+            || local.cmplt(DVec2::splat(-reach)).any()
+            || local.cmpgt(size.as_dvec2() + reach).any()
+        {
             return Err(blocked);
         }
-        let centre = centre.as_ivec2();
-        let reach = (self.options.snap_m / resolution).ceil() as i32;
-        let mut best: Option<(i64, UVec2)> = None;
+        let inside = |cell: IVec2| {
+            UVec2::try_from(cell)
+                .ok()
+                .filter(|c| c.x < size.x && c.y < size.y)
+        };
+        let centre = local.floor().as_ivec2();
+        if let Some(cell) = inside(centre)
+            && tiles.cost(cell)?.is_some()
+        {
+            return Ok(cell);
+        }
+        // The passable cell whose centre is nearest the point, within `snap_m`.
+        let reach = reach as i32;
+        let mut best: Option<(f64, UVec2)> = None;
         for dy in -reach..=reach {
             for dx in -reach..=reach {
-                let distance_sq = i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy);
-                if distance_sq > i64::from(reach) * i64::from(reach)
-                    || best.is_some_and(|(d, _)| distance_sq >= d)
-                {
-                    continue;
-                }
-                let Ok(cell) = UVec2::try_from(centre + IVec2::new(dx, dy)) else {
+                let Some(cell) = inside(centre + IVec2::new(dx, dy)) else {
                     continue;
                 };
+                let distance = (cell.as_dvec2() + 0.5).distance(local) * resolution;
+                if distance > self.options.snap_m || best.is_some_and(|(d, _)| distance >= d) {
+                    continue;
+                }
                 if tiles.cost(cell)?.is_some() {
-                    best = Some((distance_sq, cell));
+                    best = Some((distance, cell));
                 }
             }
         }
@@ -613,6 +642,49 @@ mod tests {
             .unwrap();
         let crossing = route.points.iter().find(|p| p.x >= 10.0).unwrap();
         assert!((10.0..10.9).contains(&crossing.y), "crossed at {crossing}");
+    }
+
+    #[test]
+    fn a_start_just_outside_the_map_snaps_onto_it() {
+        let planner = walled_planner();
+        let start = DVec2::new(-0.4, 5.0);
+        let route = planner.plan(start, DVec2::new(2.0, 2.0)).unwrap();
+        assert_eq!(route.points[0], start);
+        let far = planner.plan(DVec2::new(-1.5, 5.0), DVec2::new(2.0, 2.0));
+        assert!(matches!(
+            far,
+            Err(RouteError::Blocked { name: "start", .. })
+        ));
+    }
+
+    #[test]
+    fn cells_inside_the_robot_radius_are_impassable_with_no_inflation() {
+        // 0.25 m cells; the wall along x = 10 m has a gap 0.5 m wide, which a
+        // 0.3 m robot does not fit through.
+        let info = MapInfo::square(80, 0.25);
+        let costs = Costmap::from_fn(info, |x, y| {
+            if x == 40 && !(40..42).contains(&y) {
+                COST_LETHAL
+            } else {
+                COST_FREE
+            }
+        });
+        let options = RouteOptions {
+            inflation_m: 0.0,
+            ..OPTIONS
+        };
+        let planner = RoutePlanner::from_costmap(costs, options).unwrap();
+        let (start, goal) = (DVec2::new(2.0, 10.0), DVec2::new(18.0, 10.0));
+        assert_eq!(
+            planner.plan(start, goal),
+            Err(RouteError::NoRoute { start, goal })
+        );
+    }
+
+    #[test]
+    fn an_unknown_map_extension_is_an_error() {
+        let opened = RoutePlanner::open("site.png", OPTIONS);
+        assert!(matches!(opened, Err(VoxelError::InvalidArgument(_))));
     }
 
     #[test]
