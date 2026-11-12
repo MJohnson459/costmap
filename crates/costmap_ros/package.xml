@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>costmap_ros</name>
+  <version>0.3.0</version>
+  <description>
+    Serves Nav2 a rolling window of a large map and routes across the whole of
+    it, over Zenoh. Takes the place of nav2_map_server.
+  </description>
+  <maintainer email="mjohnson459@gmail.com">Michael Johnson</maintainer>
+  <license>Apache-2.0</license>
+  <license>MIT</license>
+  <url type="repository">https://github.com/MJohnson459/costmap</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <!-- Rust 1.92 or later. Ubuntu 26.04's cargo is 1.93; Ubuntu 24.04's is
+       older, and the build there needs a toolchain from rustup. -->
+  <build_depend>cargo</build_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rmw_zenoh_cpp</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

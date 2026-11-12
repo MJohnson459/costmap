@@ -76,3 +76,19 @@ jobs:
 
       - name: Build
         run: cargo build --workspace
+
+  colcon:
+    name: colcon package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          manifest-path: crates/costmap_ros/nav2/pixi.toml
+          environments: build
+
+      - name: Build with colcon and start the nodes with ros2 launch
+        run: bash crates/costmap_ros/nav2/test/colcon.sh
