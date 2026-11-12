@@ -32,6 +32,7 @@ This library is designed for:
 - **Rolling window costmaps** — `update_origin` shifts the grid while preserving overlapping data, enabling efficient robot-centered local costmaps.
 - **Raycasting** — DDA and grid-step algorithms for sensor simulation and collision detection in world coordinates.
 - **Obstacle inflation** — expand obstacles with Nav2-style inscribed exponential decay for safe navigation.
+- **Planning** — 8-connected, cost-weighted A* over a costmap, with no corner cutting.
 - **Line and polygon iterators** — iterate cells along a ray or inside a convex polygon, with read/write access.
 - **2D occupancy grids & costmaps** — `Grid2d<i8>` and `Grid2d<u8>` with configurable resolution, origin, and coordinate transforms.
 - **Nav2-compatible semantics** — lethal / inscribed / free / unknown cost values matching costmap_2d conventions.
