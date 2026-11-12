@@ -24,3 +24,20 @@ pyyaml = "*"
 
 [activation.env]
 RMW_IMPLEMENTATION = "rmw_zenoh_cpp"
+
+# The tools test/colcon.sh builds the package with, without Nav2.
+[feature.build.dependencies]
+colcon-common-extensions = "*"
+ros-lyrical-ament-cmake = "*"
+ros-lyrical-ros2run = "*"
+ros-lyrical-ros2pkg = "*"
+ros-lyrical-ros2launch = "*"
+ros-lyrical-launch-ros = "*"
+ros-lyrical-rmw-zenoh-cpp = "*"
+cmake = "*"
+make = "*"
+rust = ">=1.92"
+c-compiler = "*"
+
+[environments]
+build = { features = ["build"], no-default-feature = true }

@@ -24,3 +24,22 @@ pub use hiroz_msgs::size_estimation;
 pub use republish::RepublishPolicy;
 pub use route::{Route, RouteError, RouteOptions, RoutePlanner};
 pub use source::{GeoTiffSource, MapSource, SourceError, TileStats};
+
+#[cfg(test)]
+mod tests {
+    /// `package.xml` and the conda recipe each state the version again.
+    #[test]
+    fn packaging_files_carry_the_crate_version() {
+        let version = env!("CARGO_PKG_VERSION");
+        let package_xml = include_str!("../package.xml");
+        assert!(
+            package_xml.contains(&format!("<version>{version}</version>")),
+            "package.xml does not carry version {version}"
+        );
+        let recipe = include_str!("../conda/recipe.yaml");
+        assert!(
+            recipe.contains(&format!("version: \"{version}\"")),
+            "conda/recipe.yaml does not carry version {version}"
+        );
+    }
+}
