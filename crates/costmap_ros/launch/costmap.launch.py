@@ -19,6 +19,7 @@ ARGUMENTS = [
     ("map_topic", "map", "Topic the window is published on."),
     ("map_frame", "map", "Frame of the map."),
     ("base_frame", "base_link", "Robot frame the window follows."),
+    ("pose_topic", "", "PoseWithCovarianceStamped topic to take the robot pose from instead of /tf."),
     ("robot_radius_m", "0.3", "Robot radius routes keep clear of obstacles by, metres."),
     ("inflation_m", "1.5", "Distance over which routes are pushed from obstacles, metres."),
     ("routes", "true", "Whether to plan routes across the whole map as well."),
@@ -46,6 +47,7 @@ def generate_launch_description():
         "--topic", value("map_topic"),
         "--map-frame", value("map_frame"),
         "--base-frame", value("base_frame"),
+        "--pose-topic", value("pose_topic"),
     ]
     routes = [
         "--routes",

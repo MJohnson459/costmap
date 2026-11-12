@@ -20,8 +20,8 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use costmap_ros::RouteOptions;
+use costmap_ros::pose::RobotPose;
 use costmap_ros::route_server::{RouteServerOptions, open_routes, serve_routes};
-use costmap_ros::tf::TfListener;
 use hiroz::Builder;
 use hiroz::context::ZContextBuilder;
 use tracing::info;
@@ -47,6 +47,11 @@ struct Args {
     /// Robot frame a path starts at when the goal gives no start.
     #[arg(long, default_value = "base_link")]
     base_frame: String,
+    /// Topic of geometry_msgs/PoseWithCovarianceStamped messages that give the
+    /// robot's pose in the map frame, such as AMCL's amcl_pose. With it, /tf
+    /// is not subscribed to and --base-frame is not used. Empty means /tf.
+    #[arg(long, default_value = "")]
+    pose_topic: String,
     /// Robot radius in metres.
     #[arg(long, default_value_t = RouteOptions::default().robot_radius_m)]
     robot_radius_m: f32,
@@ -70,18 +75,24 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .create_node("costmap_planner_server")
         .build()
         .map_err(|e| anyhow!("creating node: {e}"))?;
-    let tf = TfListener::new(&node).map_err(|e| anyhow!("subscribing to tf: {e}"))?;
+    let pose = if args.pose_topic.is_empty() {
+        RobotPose::from_tf(&node, &args.map_frame, &args.base_frame)
+            .map_err(|e| anyhow!("subscribing to tf: {e}"))?
+    } else {
+        RobotPose::from_topic(&node, &args.pose_topic, &args.map_frame)
+            .map_err(|e| anyhow!("subscribing to {}: {e}", args.pose_topic))?
+    };
+    let pose = Arc::new(pose);
 
     // Dropping the server ends it, so it is held until shutdown.
     let _server = serve_routes(
         &node,
-        Arc::new(tf),
+        pose,
         routes,
         RouteServerOptions {
             action: args.action,
             route_topic: args.route_topic,
             map_frame: args.map_frame,
-            base_frame: args.base_frame,
         },
     )?;
 

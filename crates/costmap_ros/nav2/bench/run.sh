@@ -14,7 +14,8 @@
 # times, then idles for 20 s. bench/measure.py reports latencies and each
 # process's resident memory and CPU time. Results are written to BENCH_OUT
 # (default: a temporary directory) as nav2.json and costmap.json.
-# BENCH_CASES="nav2 costmap" chooses the cases.
+# BENCH_CASES="nav2 costmap" chooses the cases. BENCH_SERVER_ARGS adds options to
+# costmap_window_server, such as "--pose-topic /pose".
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -89,7 +90,7 @@ run_costmap() {
     # The server logs each publish at debug level.
     RUST_LOG="warn,costmap_window_server=debug,costmap_ros=info" start server \
         "$REPO/target/release/costmap_window_server" \
-        --map "$BENCH_MAP" --window-m 50 --routes
+        --map "$BENCH_MAP" --window-m 50 --routes ${BENCH_SERVER_ARGS:-}
     wait_for "routes" "$STAGE_TIMEOUT_S" log_has server "serving compute_route_to_pose"
     wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
     grep -o "built the tile graph in [0-9.]* s" "$LOG_DIR/server.log" | sed "s/^/[bench] /" || true

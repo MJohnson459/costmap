@@ -222,30 +222,36 @@ planned from 11 starts along it. Machine as in [Latency](#latency). One run.
 Every measured node is started by its executable, not through `ros2 run`,
 which would add a Python process to its total.
 
-| | Nav2 alone | With this package |
-| --- | --- | --- |
-| Resident memory, all processes | 768 MB | 158 MB |
-| of which | `map_server` 108 MB, `planner_server` 660 MB | `costmap_window_server` 52 MB, `planner_server` 106 MB |
-| Peak resident memory | 1,308 MB | 158 MB |
-| Trip plan, first | 349 ms | 109 ms |
-| Trip plan, later, median (max) | 316 ms (807 ms) | 4.9 ms (6.2 ms) |
-| 15 m plan, median (max) | 267 ms (270 ms) | 5.2 ms (33 ms) |
-| CPU time for the 16 plans | 6.6 s | 0.35 s |
-| CPU at rest, share of one core | 1.8 % | 3.2 % |
+| | Nav2 alone | With this package | With `--pose-topic /pose` |
+| --- | --- | --- | --- |
+| Resident memory, all processes | 762 MB | 157 MB | 157 MB |
+| of which | `map_server` 108 MB, `planner_server` 655 MB | `costmap_window_server` 51 MB, `planner_server` 106 MB | the same |
+| Peak resident memory | 1,171 MB | 157 MB | 157 MB |
+| Trip plan, first | 329 ms | 111 ms | 110 ms |
+| Trip plan, later, median (max) | 311 ms (341 ms) | 5.2 ms (7.7 ms) | 4.4 ms (5.7 ms) |
+| 15 m plan, median (max) | 267 ms (270 ms) | 4.7 ms (38 ms) | 5.1 ms (31 ms) |
+| CPU time for the 16 plans | 5.2 s | 0.34 s | 0.34 s |
+| CPU at rest, share of one core | 2.65 % | 3.05 % | 2.05 % |
+| of which | `map_server` 0.5 %, `planner_server` 2.15 % | `costmap_window_server` 1.15 %, `planner_server` 1.9 % | 0.15 % and 1.9 % |
 
 Plan times are the `planning_time` each server reports. The first start on a
-map also builds the route graph, 5.5 s here.
+map also builds the route graph, 5.5 s here. Every case uses Nav2's default
+bond heartbeats between the lifecycle manager and its nodes.
 
-CPU at rest is higher by 1.4 % of one core:
+CPU at rest, with the defaults, is higher by 0.4 % of one core:
 
-- `costmap_window_server` uses 1.25 %. All of it is the `/tf` subscription,
+- `costmap_window_server` uses 1.15 %. All of it is the `/tf` subscription,
   which the simulated robot feeds at 50 Hz; with no `/tf` traffic it uses
   0 %. A Hiroz subscriber to `/tf` whose callback does nothing uses 1.1 %, so
   the time goes in receiving each message (about 220 µs), not in handling it.
-  `map_server` needs no robot pose and uses 0.1 %.
-- `planner_server` uses 1.95 % against 1.7 %.
+- With `--pose-topic` the node does not subscribe to `/tf` and uses 0.15 %;
+  the total is then 0.6 % below Nav2 alone. `BENCH_SERVER_ARGS="--pose-topic
+  /pose"` measures it, and `DRIVE_SERVER_ARGS` does the same for the drive
+  demo, which passes that way too.
 
-Three arrangements were measured on the way to this one:
+Four arrangements were measured on the way to the defaults. These rows are
+from earlier runs, in which the Nav2-alone case had bond heartbeats off and
+used 1.8 %:
 
 | | CPU at rest | Resident memory |
 | --- | --- | --- |

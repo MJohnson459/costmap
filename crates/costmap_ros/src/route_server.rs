@@ -2,7 +2,7 @@
 //!
 //! Both programs use it: `costmap_planner_server` on its own, and
 //! `costmap_window_server --routes` beside the map window, where the two share
-//! one `/tf` subscription.
+//! one source of the robot's pose.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -22,7 +22,7 @@ use tracing::{info, warn};
 
 use crate::nav2_msgs::action::ComputePathToPose;
 use crate::nav2_msgs::{ComputePathToPoseGoal, ComputePathToPoseResult};
-use crate::tf::TfListener;
+use crate::pose::RobotPose;
 use crate::{Route, RouteError, RoutePlanner};
 
 /// Error codes of `nav2_msgs/action/ComputePathToPose`.
@@ -44,21 +44,19 @@ pub struct RouteServerOptions {
     pub route_topic: String,
     /// Frame of the map and of the routes.
     pub map_frame: String,
-    /// Robot frame a route starts at when the goal gives no start.
-    pub base_frame: String,
 }
 
 /// Serve routes from `routes` on `node` until the returned value is dropped.
 ///
 /// A route starts at the goal's `start` pose when `use_start` is set, and at
-/// the latest `map_frame -> base_frame` transform of `tf` otherwise. It passes
+/// the robot's pose from `pose` otherwise. It passes
 /// through the goal's `viapoints` in order. There is one planner, so
 /// `planner_id` is not read.
 ///
 /// Must be called inside a Tokio runtime, which runs the goals.
 pub fn serve_routes(
     node: &ZNode,
-    tf: Arc<TfListener>,
+    pose: Arc<RobotPose>,
     routes: RoutePlanner,
     options: RouteServerOptions,
 ) -> anyhow::Result<impl Sized + use<>> {
@@ -69,10 +67,9 @@ pub fn serve_routes(
     let action = options.action.clone();
     let server = Arc::new(Server {
         routes,
-        tf,
+        pose,
         route_pub,
         map_frame: options.map_frame,
-        base_frame: options.base_frame,
     });
     let handle = node
         .create_action_server::<ComputePathToPose>(&action)
@@ -89,10 +86,9 @@ pub fn serve_routes(
 
 struct Server {
     routes: RoutePlanner,
-    tf: Arc<TfListener>,
+    pose: Arc<RobotPose>,
     route_pub: PathPub,
     map_frame: String,
-    base_frame: String,
 }
 
 impl Server {
@@ -113,11 +109,7 @@ impl Server {
         let start = if goal.use_start {
             position(&goal.start)?
         } else {
-            self.tf
-                .lookup(&self.map_frame, &self.base_frame)
-                .map_err(|err| (ERROR_TF, err.to_string()))?
-                .planar_pose()
-                .position
+            self.pose.get().map_err(|err| (ERROR_TF, err))?.position
         };
         let via = goal
             .viapoints
