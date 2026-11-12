@@ -17,7 +17,7 @@ directory; they are not zsh scripts.
 | --- | --- |
 | `pixi.toml`, `pixi.lock` | The ROS environment the scripts use. |
 | `lib.sh` | Shell helpers the scripts source: start and stop processes, start the Zenoh router. |
-| `cost_raster.py` | Reads a cost GeoTIFF with Pillow, independently of the Rust reader. |
+| `cost_raster.py` | Reads a cost GeoTIFF or a ROS map with Pillow, independently of the Rust readers. |
 | `test/colcon.sh` | **colcon test.** Builds the package with colcon in a scratch workspace and starts both nodes with `ros2 launch`. |
 | `test/run.sh` | **Integration test.** Starts the server and one Nav2 costmap node, moves the robot, and compares every cell Nav2 holds with the source map. |
 | `test/check_costmap.py` | The comparison, and the robot's `/tf`. |
@@ -125,8 +125,8 @@ for example the raster shifted one pixel with
 
 ## Drive demo
 
-`demo/run.sh` has Nav2 drive to one goal across a cost GeoTIFF that it never
-holds whole.
+`demo/run.sh` has Nav2 drive to one goal across a map that it never holds
+whole. `DRIVE_MAP` is a cost GeoTIFF or a ROS map YAML.
 
 ```sh
 DRIVE_MAP=/path/cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo/run.sh
@@ -167,6 +167,23 @@ Result on a 166 x 196 m vineyard survey (5,547 x 6,525 cells, 36 M):
 | Lethal cells under the robot disc | 0 |
 | Least distance from robot centre to a lethal cell | 0.47 m |
 | Chunks of the file read by the window server | 2,314 of 8,874; 1,753 held at the end |
+
+Result on the warehouse ROS map of this repository (8,927 x 3,417 cells at
+0.05 m), served from its YAML with no conversion, from (60, 20) to (130, 60):
+
+| | |
+| --- | --- |
+| Reached | yes, 0.29 m from the goal |
+| Distance driven | 101.6 m in 103 s |
+| Routes from `costmap_planner_server` | 21 |
+| Paths from Nav2's planner along the route | 96 |
+| Windows published | 48, of 1,000 x 1,000 cells each |
+| Lethal cells under the robot disc | 0 |
+| Least distance from robot centre to a lethal cell | 0.72 m |
+
+```sh
+DRIVE_MAP=$PWD/../../../tests/fixtures/warehouse.yaml DRIVE_START=60,20 DRIVE_GOAL=130,60 bash demo/run.sh
+```
 
 `render.py` draws the recording as a video: the last window served and Nav2's
 global costmap on the dimmed raster, with the route, Nav2's path along it, the
