@@ -86,12 +86,12 @@ impl Layer for WavefrontInflationLayer {
     }
 
     fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
-        // TODO: I think this should use the robot?
+        // Inflation changes cells up to one radius beyond those other layers changed.
         bounds.expand_by(self.config.inflation_radius_m);
     }
 
     fn match_size(&mut self, _info: &MapInfo) {
-        // TODO: Can we be more clever about this?
+        // The cached kernel is in cells, so a new resolution makes it wrong.
         self.invalidate_cache();
     }
 
@@ -572,12 +572,6 @@ mod tests {
         let cost = inscribed_inflation_cost(3.0, 1.0, 1.0);
         assert!(cost < crate::types::COST_INSCRIBED);
         assert!(cost > 0);
-    }
-
-    #[test]
-    fn inflation_cache_build() {
-        let cache = WavefrontInflation::build(1.0, 0.1, 0.1, 3.0);
-        println!("{:?}", cache);
     }
 
     fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Costmap {

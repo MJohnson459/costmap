@@ -2,7 +2,7 @@
 
 ## 0.2 to 0.3
 
-Version 0.3 is not released yet. This section lists every change on `main` that breaks or deprecates 0.2 code.
+This section lists every change that breaks or deprecates 0.2 code. The [changelog](CHANGELOG.md) lists what 0.3 adds.
 
 ### `Grid2d` is now `DenseGrid`
 

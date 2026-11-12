@@ -77,6 +77,23 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy with every feature
+        run: cargo clippy --all-targets --features rerun,geotiff -- -D warnings
+
+      - name: Farm demo tests
+        run: cargo test --release --example farm_demo --features rerun,geotiff
+
   colcon:
     name: colcon package
     runs-on: ubuntu-latest
