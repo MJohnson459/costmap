@@ -549,6 +549,52 @@ found two things worth knowing:
   waypoint was reached made Nav2 start the next goal on the previous path and
   report success at once.
 
+## Compared with Nav2 holding the whole map
+
+`nav2/bench/run.sh` runs two arrangements on one map with real Nav2 nodes and
+reads each process's memory and CPU time from `/proc`:
+
+- **Nav2 alone**: `nav2_map_server` publishes the whole map, and
+  `planner_server` plans with NavFn (A*) on a global costmap that covers it.
+- **With these servers**: `costmap_window_server` publishes a 50 m window,
+  `costmap_planner_server` plans the trip, and `planner_server` plans the 15 m
+  ahead with NavFn on a 40 m rolling global costmap.
+
+Vineyard survey, 5,547 x 6,525 cells at 0.03 m (36 M cells), a 99 m trip
+planned from 11 starts along it. Machine as in [Latency](#latency). One run.
+
+| | Nav2 alone | With these servers |
+| --- | --- | --- |
+| Resident memory, all processes | 867 MB | 223 MB |
+| of which the map and planning servers | `map_server` 157 MB, `planner_server` 710 MB | window server 32 MB, route server 44 MB, `planner_server` 147 MB |
+| Peak resident memory | 1,407 MB | 223 MB |
+| Trip plan, first | 341 ms | 112 ms |
+| Trip plan, later, median (max) | 306 ms (801 ms) | 5.0 ms (8.3 ms) |
+| 15 m plan, median (max) | 263 ms (278 ms) | 4.1 ms (24 ms) |
+| CPU time for the 16 plans | 6.5 s | 0.34 s |
+| CPU at rest, share of one core | 1.65 % | 8.2 % |
+
+Plan times are the `planning_time` each server reports. The first start on a
+map also builds the route graph, 5.5 s here.
+
+CPU at rest is higher with these servers:
+
+- The two servers use 1.3 % and 1.2 %. All of it is the `/tf` subscription,
+  which the simulated robot feeds at 50 Hz; with no `/tf` traffic both use
+  0 %. `map_server` needs no robot pose and uses 0.1 %.
+- `planner_server` uses 5.7 % against 1.55 %. A rolling global costmap copies
+  its 40 m window from the static layer and inflates it at every update, 1 Hz
+  here. A costmap of the whole map does that once.
+
+What the comparison leaves out: a costmap of the whole map cannot follow a
+map that changes on disk, and neither arrangement here has sensor layers or a
+controller running. The ROS map given to `map_server` is trinary, so graded
+costs in the GeoTIFF reach Nav2 only through these servers.
+
+```sh
+BENCH_MAP=/path/cost.tif BENCH_START=53.5,30 BENCH_GOAL=100.1,80 bash nav2/bench/run.sh
+```
+
 ## Latency
 
 Latency is the time from the checker publishing a moved tf to the checker
