@@ -315,7 +315,7 @@ mod tests {
     /// A 4 x 4 grid of 1 m cells with one lethal cell in the north-east corner.
     fn corner_grid() -> Costmap {
         let info = MapInfo::square(4, 1.0);
-        Costmap::new_with(info, |x, y| {
+        Costmap::from_fn(info, |x, y| {
             if (x, y) == (3, 3) {
                 COST_LETHAL
             } else {

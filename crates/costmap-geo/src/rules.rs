@@ -51,9 +51,10 @@ impl Default for CostRules {
 }
 
 /// What the orthophoto says about a cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Colour {
     /// No orthophoto was given.
+    #[default]
     Absent,
     /// The orthophoto has no data at the cell.
     NoData,

@@ -19,7 +19,7 @@ mod gdal;
 use gdal::{gdal_available, run_gdal};
 
 use costmap::{
-    CostGeoTiff, GeoReference, Grid2d, MapInfo, TiledGrid, VoxelError, write_cost_geotiff,
+    CostGeoTiff, DenseGrid, GeoReference, MapInfo, TiledGrid, VoxelError, write_cost_geotiff,
     write_cost_geotiff_region,
 };
 
@@ -75,7 +75,7 @@ fn patterned_grid(resolution: f32, chunk_size: u32, min: IVec2, size: UVec2) -> 
         resolution,
         origin: grid.cell_origin(min),
     };
-    let source = Grid2d::new_with(info, |x, y| pattern(min + IVec2::new(x as i32, y as i32)));
+    let source = DenseGrid::from_fn(info, |x, y| pattern(min + IVec2::new(x as i32, y as i32)));
     grid.write_window(&source).unwrap();
     grid
 }
@@ -586,7 +586,7 @@ fn blocky_noise_grid(side: u32, seed: u64) -> TiledGrid<u8> {
         resolution: 1.0,
         origin: grid.cell_origin(IVec2::ZERO),
     };
-    let source = Grid2d::new_with(info, |x, y| {
+    let source = DenseGrid::from_fn(info, |x, y| {
         let cell = u64::from(y) * u64::from(side) + u64::from(x);
         if mix(seed ^ cell.wrapping_mul(0x9e37_79b9)) % 20 == 0 {
             UNKNOWN
@@ -817,7 +817,7 @@ fn write_fence_map(path: &Path) {
         resolution: 0.1,
         origin: glam::Vec2::ZERO,
     };
-    grid.write_window(&Grid2d::new_with(
+    grid.write_window(&DenseGrid::from_fn(
         info,
         |x, _| if x == 500 { 254 } else { 0 },
     ))

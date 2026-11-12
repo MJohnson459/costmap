@@ -10,7 +10,7 @@ fn warehouse_costmap() -> Costmap {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let grid = RosMapLoader::load_from_yaml(manifest_dir.join("tests/fixtures/warehouse.yaml"))
         .expect("warehouse map should load");
-    Costmap::new_with(*grid.info(), |x, y| match grid.get(UVec2::new(x, y)) {
+    Costmap::from_fn(*grid.info(), |x, y| match grid.get(UVec2::new(x, y)) {
         Some(&FREE) => COST_FREE,
         Some(&UNKNOWN) | None => COST_UNKNOWN,
         Some(_) => COST_LETHAL,
@@ -19,9 +19,9 @@ fn warehouse_costmap() -> Costmap {
 
 /// Cells of the largest 4-connected free region, in row-major order.
 fn largest_free_region(grid: &Costmap) -> Vec<UVec2> {
-    let width = grid.width();
+    let width = grid.size().x;
     let index = |c: UVec2| (c.y * width + c.x) as usize;
-    let mut seen = vec![false; width as usize * grid.height() as usize];
+    let mut seen = vec![false; width as usize * grid.size().y as usize];
     let mut best = Vec::new();
     for (seed, &cost) in grid.indexed_iter() {
         if cost != COST_FREE || seen[index(seed)] {

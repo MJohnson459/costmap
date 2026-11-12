@@ -118,7 +118,7 @@ mod tests {
     };
 
     fn grid(width: u32, height: u32) -> Costmap {
-        Costmap::new_with_value(MapInfo::square(width.max(height), 1.0), COST_FREE)
+        Costmap::filled(MapInfo::square(width.max(height), 1.0), COST_FREE)
     }
 
     fn cell(x: u32, y: u32) -> UVec2 {

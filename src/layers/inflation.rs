@@ -1,4 +1,4 @@
-//! Obstacle inflation for `Grid2d<u8>` costmaps.
+//! Obstacle inflation for `DenseGrid<u8>` costmaps.
 //!
 //! Provides inflate operations that expand lethal cells outward with inscribed
 //! exponential decay. Uses wavefront propagation for performance.
@@ -140,7 +140,7 @@ impl Costmap {
         });
         inflation.update_costs(
             self,
-            CellRegion::new(UVec2::ZERO, UVec2::new(self.width(), self.height())),
+            CellRegion::new(UVec2::ZERO, UVec2::new(self.size().x, self.size().y)),
         );
     }
 }
@@ -292,8 +292,8 @@ impl WavefrontInflation {
             self.seen.fill(false);
         }
 
-        let width = grid.width();
-        let height = grid.height();
+        let width = grid.size().x;
+        let height = grid.size().y;
 
         if !self.generate_seeds(grid, region, options) {
             return;
@@ -404,7 +404,7 @@ impl WavefrontInflation {
 
         let radius_cells = self.cell_inflation_radius();
         let search_min = region.min.saturating_sub(UVec2::splat(radius_cells));
-        let search_max = (region.max + radius_cells).min(UVec2::new(grid.width(), grid.height()));
+        let search_max = (region.max + radius_cells).min(UVec2::new(grid.size().x, grid.size().y));
 
         let seeds = &mut self.inflation_cells[0];
         for y in search_min.y..search_max.y {
@@ -582,7 +582,7 @@ mod tests {
     }
 
     fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Costmap {
-        Costmap::init(
+        Costmap::from_vec(
             MapInfo {
                 width,
                 height,
@@ -636,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn inflation_layer_in_layered_grid2d() {
+    fn inflation_layer_in_layered_costmap() {
         let info = MapInfo {
             width: 5,
             height: 5,

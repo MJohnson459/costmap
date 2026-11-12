@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use costmap::rerun_viz::{log_costmap, log_point3d};
 use costmap::types::{COST_FREE, Pose2};
-use costmap::{Grid2d, MapInfo, MergePolicy, ProjectionLayer, cost_from_unit};
+use costmap::{DenseGrid, MapInfo, MergePolicy, ProjectionLayer, cost_from_unit};
 use costmap::{InflationConfig, LayeredCostmap, WavefrontInflationLayer};
 use glam::{UVec2, Vec2, Vec3};
 
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut layered = LayeredCostmap::new(local_info, COST_FREE, true);
     let id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-        Grid2d::<f32>::new_with_value(local_info, 0.0),
+        DenseGrid::<f32>::filled(local_info, 0.0),
         MergePolicy::Max,
         true, // rolling window
         |t| Some(cost_from_unit(*t)),
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         {
             let proj = layered.layer_mut::<ProjectionLayer<f32>>(id).unwrap();
             let src = proj.source_mut();
-            let (w, h) = (src.width(), src.height());
+            let (w, h) = (src.size().x, src.size().y);
             for y in 0..h {
                 for x in 0..w {
                     let cell = UVec2::new(x, y);

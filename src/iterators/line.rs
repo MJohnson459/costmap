@@ -1,6 +1,6 @@
 use glam::{IVec2, UVec2, Vec2};
 
-use crate::Grid2d;
+use crate::DenseGrid;
 
 /// An iterator that steps along each cell in a line returning the cell index
 /// and the distance along the line to the cell [LineStep].
@@ -28,7 +28,7 @@ pub struct LineStep {
 }
 
 impl LineIterator {
-    pub fn new<T>(grid: &Grid2d<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
+    pub fn new<T>(grid: &DenseGrid<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
         if dir.length_squared() == 0.0 {
             return None;
         }
@@ -107,12 +107,12 @@ impl Iterator for LineIterator {
 }
 
 pub struct LineValueIterator<'a, T> {
-    grid: &'a Grid2d<T>,
+    grid: &'a DenseGrid<T>,
     iter: LineIterator,
 }
 
 impl<'a, T> LineValueIterator<'a, T> {
-    pub fn new(grid: &'a Grid2d<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
+    pub fn new(grid: &'a DenseGrid<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
         Some(Self {
             iter: LineIterator::new(grid, origin, dir, max_t)?,
             grid,
@@ -132,12 +132,12 @@ impl<'a, T> Iterator for LineValueIterator<'a, T> {
 }
 
 pub struct LineValueMutIterator<'a, T> {
-    grid: &'a mut Grid2d<T>,
+    grid: &'a mut DenseGrid<T>,
     iter: LineIterator,
 }
 
 impl<'a, T> LineValueMutIterator<'a, T> {
-    pub fn new(grid: &'a mut Grid2d<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
+    pub fn new(grid: &'a mut DenseGrid<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
         Some(Self {
             iter: LineIterator::new(grid, origin, dir, max_t)?,
             grid,
@@ -157,7 +157,7 @@ impl<'a, T> Iterator for LineValueMutIterator<'a, T> {
     }
 }
 
-impl<T> Grid2d<T> {
+impl<T> DenseGrid<T> {
     pub fn line(&self, origin: Vec2, dir: Vec2, max_t: f32) -> Option<LineIterator> {
         LineIterator::new(self, origin, dir, max_t)
     }
@@ -235,7 +235,7 @@ mod tests {
     use super::*;
     use crate::types::{FREE, OCCUPIED};
 
-    fn test_grid(occupied: Option<UVec2>, resolution: f32, origin: Vec2) -> Grid2d<i8> {
+    fn test_grid(occupied: Option<UVec2>, resolution: f32, origin: Vec2) -> DenseGrid<i8> {
         let width = 5;
         let height = 5;
         let mut data = vec![FREE; width * height];
@@ -251,7 +251,7 @@ mod tests {
             origin,
         };
 
-        Grid2d::init(info, data).expect("grid should build")
+        DenseGrid::from_vec(info, data).expect("grid should build")
     }
 
     #[test]

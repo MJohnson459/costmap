@@ -218,7 +218,7 @@ fn blueprint() -> Blueprint {
 
 /// Costs as occupancy for the `RvizMap` colormap: free white, lethal black, unknown teal.
 fn to_occupancy(costs: &Costmap) -> OccupancyGrid {
-    OccupancyGrid::new_with(*costs.info(), |x, y| match costs[glam::UVec2::new(x, y)] {
+    OccupancyGrid::from_fn(*costs.info(), |x, y| match costs[glam::UVec2::new(x, y)] {
         COST_UNKNOWN => UNKNOWN,
         COST_LETHAL | COST_INSCRIBED => OCCUPIED,
         cost => (i32::from(cost) * (i32::from(OCCUPIED) - 1) / i32::from(COST_INSCRIBED - 1)) as i8,

@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::Vec2;
 
-use costmap::Grid2d;
+use costmap::DenseGrid;
 use costmap::iterators::polygon::PolygonIterator;
 use costmap::types::MapInfo;
 
@@ -14,7 +14,7 @@ fn bench_polygon_iter(c: &mut Criterion) {
         resolution: 1.0,
         ..Default::default()
     };
-    let grid = Grid2d::<u8>::new(info);
+    let grid = DenseGrid::<u8>::new(info);
 
     let points = vec![
         Vec2::new(10.0, 10.0),

@@ -11,8 +11,8 @@ fn loads_trinary_ros2_map() {
 
     let grid = RosMapLoader::load_from_yaml(&yaml_path).expect("grid should load");
 
-    assert_eq!(grid.width(), 2);
-    assert_eq!(grid.height(), 2);
+    assert_eq!(grid.size().x, 2);
+    assert_eq!(grid.size().y, 2);
 
     assert_eq!(grid.get(UVec2::new(0, 0)), Some(&FREE));
     assert_eq!(grid.get(UVec2::new(1, 0)), Some(&OCCUPIED));
@@ -30,8 +30,8 @@ fn loads_real_map_fixture() {
     let image = image::open(&image_path).expect("image should load");
     let (width, height) = image.dimensions();
 
-    assert_eq!(grid.width(), width);
-    assert_eq!(grid.height(), height);
+    assert_eq!(grid.size().x, width);
+    assert_eq!(grid.size().y, height);
 }
 
 #[test]
@@ -44,8 +44,8 @@ fn loads_image_direct() {
     };
     let grid = RosMapLoader::load_from_image(&metadata).expect("grid should load");
 
-    assert_eq!(grid.width(), 2);
-    assert_eq!(grid.height(), 2);
+    assert_eq!(grid.size().x, 2);
+    assert_eq!(grid.size().y, 2);
 
     assert_eq!(grid.get(UVec2::new(0, 0)), Some(&FREE));
     assert_eq!(grid.get(UVec2::new(1, 0)), Some(&OCCUPIED));

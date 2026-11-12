@@ -1,7 +1,7 @@
-use super::Grid2d;
+use super::DenseGrid;
 use crate::types::{Footprint, Pose2};
 
-impl<T> Grid2d<T> {
+impl<T> DenseGrid<T> {
     /// Get the maximum cost value under a robot footprint at a given pose.
     ///
     /// This is a fundamental operation for path planning, collision checking, and pose validation.
@@ -22,7 +22,7 @@ impl<T> Grid2d<T> {
     /// # Example
     ///
     /// ```
-    /// use costmap::{Grid2d, MapInfo};
+    /// use costmap::{DenseGrid, MapInfo};
     /// use costmap::types::{COST_LETHAL, Footprint, Pose2};
     /// use glam::Vec2;
     ///
@@ -31,7 +31,7 @@ impl<T> Grid2d<T> {
     ///     height: 100,
     ///     ..Default::default()
     /// };
-    /// let costmap = Grid2d::<u8>::new(info);
+    /// let costmap = DenseGrid::<u8>::new(info);
     ///
     /// // Define a rectangular robot footprint (0.6m x 0.4m)
     /// let footprint = Footprint::rectangle(0.6, 0.4);

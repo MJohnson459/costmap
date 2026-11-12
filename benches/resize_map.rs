@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::{UVec2, Vec2};
 
-use costmap::Grid2d;
+use costmap::DenseGrid;
 use costmap::types::MapInfo;
 
 fn bench_resize_map(c: &mut Criterion) {
@@ -12,9 +12,9 @@ fn bench_resize_map(c: &mut Criterion) {
         height: 256,
         ..Default::default()
     };
-    let grid = Grid2d::<u8>::new(info);
+    let grid = DenseGrid::<u8>::new(info);
 
-    c.bench_function("grid2d_resize_map_overlap", |b| {
+    c.bench_function("dense_grid_resize_map_overlap", |b| {
         b.iter_batched(
             || grid.clone(),
             |mut grid| {

@@ -70,7 +70,7 @@ fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
     .with_opacity(COSTMAP_OPACITY)
 }
 
-/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a native Rerun `GridMap` archetype.
+/// Log an `OccupancyGrid` (`DenseGrid<i8>`) as a native Rerun `GridMap` archetype.
 ///
 /// The raw occupancy values (ROS `nav_msgs/OccupancyGrid` convention: -1 unknown,
 /// 0 free, 100 occupied) are logged as a single-channel (L/U8) grid and coloured by
@@ -214,8 +214,8 @@ pub fn log_footprint_polygon(
 /// lower-left corner). Raw ROS occupancy values are preserved: -1 unknown maps to
 /// 255, 0..=100 pass through unchanged, ready for the `RvizMap` colormap.
 fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
-    let width = grid.width();
-    let height = grid.height();
+    let width = grid.size().x;
+    let height = grid.size().y;
     let mut cells = Vec::with_capacity((width * height) as usize);
 
     for y_img in 0..height {
@@ -237,8 +237,8 @@ fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
 /// Rerun's image convention. Raw `costmap_2d` costs are translated to the value
 /// convention Rerun's `RvizCostmap` colormap expects (see [`cost_to_rviz_value`]).
 fn costmap_to_l_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
-    let width = grid.width();
-    let height = grid.height();
+    let width = grid.size().x;
+    let height = grid.size().y;
     let mut cells = Vec::with_capacity((width * height) as usize);
 
     for y_img in 0..height {
@@ -316,7 +316,7 @@ mod tests {
         // Grid data is row-major from the bottom row (ROS convention):
         //   grid row 0 (bottom): [UNKNOWN, FREE]
         //   grid row 1 (top):    [OCCUPIED, FREE]
-        let grid = OccupancyGrid::init(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
+        let grid = OccupancyGrid::from_vec(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
         let (width, height, cells) = occupancy_to_l_bytes(&grid);
         assert_eq!(width, 2);
@@ -344,7 +344,7 @@ mod tests {
             ..Default::default()
         };
         // grid row 0 (bottom): [0, 10], grid row 1 (top): [LETHAL, UNKNOWN]
-        let costmap = Costmap::init(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
+        let costmap = Costmap::from_vec(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
 
         let (width, height, cells) = costmap_to_l_bytes(&costmap);
         assert_eq!(width, 2);

@@ -6,13 +6,11 @@
 
 use std::path::Path;
 
+use costmap::DenseGrid;
 use glam::DVec2;
 use serde_json::Value;
 
-use crate::{
-    dense::{CellFrame, DenseGrid},
-    error::GeoError,
-};
+use crate::{error::GeoError, frame::CellFrame};
 
 /// One closed ring of vertices. The closing edge from the last vertex to the first is implicit.
 type Ring = Vec<DVec2>;
@@ -175,7 +173,9 @@ fn fill_polygon(grid: &mut DenseGrid<u8>, frame: &CellFrame, polygon: &Polygon, 
             let start = to_column(enter).max(0.0);
             let end = to_column(leave).min(f64::from(size.x));
             if start < end {
-                grid.row_mut(row)[start as usize..end as usize].fill(cost);
+                let row_start = row as usize * size.x as usize;
+                grid.as_mut_slice()[row_start + start as usize..row_start + end as usize]
+                    .fill(cost);
             }
         }
     }
@@ -207,12 +207,13 @@ fn row_crossings(polygon: &Polygon, y: f64, crossings: &mut Vec<f64>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame::cells;
     use glam::UVec2;
 
     /// A 20 x 20 grid of 1 m cells with its lower-left corner at (100, 200).
     fn setup() -> (DenseGrid<u8>, CellFrame) {
         (
-            DenseGrid::new(UVec2::new(20, 20), 7),
+            DenseGrid::filled(cells(UVec2::new(20, 20)), 7),
             CellFrame {
                 origin: DVec2::new(100.0, 200.0),
                 resolution: 1.0,
@@ -265,11 +266,11 @@ mod tests {
         ]]);
         let grid = painted(&[feature("254", &square)]);
         assert_eq!(count(&grid, 254), 12);
-        assert_eq!(grid.at(2, 3), 254);
-        assert_eq!(grid.at(5, 5), 254);
-        assert_eq!(grid.at(1, 3), 7);
-        assert_eq!(grid.at(6, 3), 7);
-        assert_eq!(grid.at(2, 6), 7);
+        assert_eq!(grid[UVec2::new(2, 3)], 254);
+        assert_eq!(grid[UVec2::new(5, 5)], 254);
+        assert_eq!(grid[UVec2::new(1, 3)], 7);
+        assert_eq!(grid[UVec2::new(6, 3)], 7);
+        assert_eq!(grid[UVec2::new(2, 6)], 7);
     }
 
     #[test]
@@ -305,10 +306,10 @@ mod tests {
         ]]);
         let grid = painted(&[feature("254", &u)]);
         assert_eq!(count(&grid, 254), 8 * 2 + 2 * 2 * 6);
-        assert_eq!(grid.at(5, 8), 7, "notch between the arms");
-        assert_eq!(grid.at(5, 3), 254, "base");
-        assert_eq!(grid.at(3, 8), 254, "left arm");
-        assert_eq!(grid.at(8, 8), 254, "right arm");
+        assert_eq!(grid[UVec2::new(5, 8)], 7, "notch between the arms");
+        assert_eq!(grid[UVec2::new(5, 3)], 254, "base");
+        assert_eq!(grid[UVec2::new(3, 8)], 254, "left arm");
+        assert_eq!(grid[UVec2::new(8, 8)], 254, "right arm");
     }
 
     #[test]
@@ -320,8 +321,12 @@ mod tests {
             (102.0, 205.5),
         ]]);
         let grid = painted(&[feature("254", &diamond)]);
-        assert_eq!(grid.at(4, 2), 7, "bottom vertex row has zero width");
-        assert_eq!(grid.at(4, 8), 7, "top vertex row has zero width");
+        assert_eq!(
+            grid[UVec2::new(4, 2)],
+            7,
+            "bottom vertex row has zero width"
+        );
+        assert_eq!(grid[UVec2::new(4, 8)], 7, "top vertex row has zero width");
         assert_eq!(count(&grid, 254), 2 + 4 + 6 + 4 + 2);
     }
 
@@ -341,8 +346,8 @@ mod tests {
         ];
         let grid = painted(&[feature("254", &polygon(&[&outer, &hole]))]);
         assert_eq!(count(&grid, 254), 100 - 16);
-        assert_eq!(grid.at(6, 6), 7);
-        assert_eq!(grid.at(3, 3), 254);
+        assert_eq!(grid[UVec2::new(6, 6)], 7);
+        assert_eq!(grid[UVec2::new(3, 3)], 254);
     }
 
     #[test]
@@ -350,9 +355,9 @@ mod tests {
         let big = polygon(&[&[(90.0, 190.0), (105.0, 190.0), (105.0, 205.0), (90.0, 205.0)]]);
         let grid = painted(&[feature("254", &big)]);
         assert_eq!(count(&grid, 254), 25);
-        assert_eq!(grid.at(0, 0), 254);
-        assert_eq!(grid.at(4, 4), 254);
-        assert_eq!(grid.at(5, 4), 7);
+        assert_eq!(grid[UVec2::new(0, 0)], 254);
+        assert_eq!(grid[UVec2::new(4, 4)], 254);
+        assert_eq!(grid[UVec2::new(5, 4)], 7);
     }
 
     #[test]
@@ -388,10 +393,10 @@ mod tests {
             (104.0, 208.0),
         ]]);
         let grid = painted(&[feature("254", &wide), feature("0", &narrow)]);
-        assert_eq!(grid.at(5, 5), 0);
-        assert_eq!(grid.at(3, 3), 254);
+        assert_eq!(grid[UVec2::new(5, 5)], 0);
+        assert_eq!(grid[UVec2::new(3, 3)], 254);
         let swapped = painted(&[feature("0", &narrow), feature("254", &wide)]);
-        assert_eq!(swapped.at(5, 5), 254);
+        assert_eq!(swapped[UVec2::new(5, 5)], 254);
     }
 
     #[test]
@@ -401,8 +406,8 @@ mod tests {
         let geometry = format!(r#"{{"type":"MultiPolygon","coordinates":[{a},{b}]}}"#);
         let grid = painted(&[feature("100", &geometry)]);
         assert_eq!(count(&grid, 100), 8);
-        assert_eq!(grid.at(2, 2), 100);
-        assert_eq!(grid.at(11, 11), 100);
+        assert_eq!(grid[UVec2::new(2, 2)], 100);
+        assert_eq!(grid[UVec2::new(11, 11)], 100);
     }
 
     fn error_of(json: &str) -> String {

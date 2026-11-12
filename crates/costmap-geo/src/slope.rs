@@ -9,9 +9,10 @@
 //! than the window unless the window is under 3 cells, and the baseline between the two
 //! box centres is `2 * radius` cells.
 
+use costmap::DenseGrid;
 use glam::UVec2;
 
-use crate::dense::DenseGrid;
+use crate::frame::cells;
 
 /// A box mean needs at least this fraction of the box's cells to hold data.
 const MIN_VALID_FRACTION: f64 = 0.5;
@@ -66,7 +67,7 @@ pub fn slope_degrees(heights: &DenseGrid<f32>, resolution: f64, window_m: f64) -
     let radius = i64::from(box_radius(resolution, window_m));
     let means = BoxMeans::new(heights, radius);
     let baseline = baseline_metres(resolution, radius as u32);
-    DenseGrid::from_fn(heights.size(), |x, y| {
+    DenseGrid::from_fn(cells(heights.size()), |x, y| {
         let (x, y) = (i64::from(x), i64::from(y));
         let gradient = |a: Option<f64>, b: Option<f64>| match (a, b) {
             (Some(a), Some(b)) => (b - a) / baseline,
@@ -97,7 +98,7 @@ impl BoxMeans {
         for y in 0..size.y {
             let (mut row_sum, mut row_count) = (0.0, 0);
             for x in 0..size.x {
-                let height = heights.at(x, y);
+                let height = heights[UVec2::new(x, y)];
                 if !height.is_nan() {
                     row_sum += f64::from(height);
                     row_count += 1;
@@ -152,11 +153,13 @@ mod tests {
 
     fn plane(angle_deg: f64) -> DenseGrid<f32> {
         let gradient = angle_deg.to_radians().tan();
-        DenseGrid::from_fn(SIZE, |x, _| (100.0 + f64::from(x) * RES * gradient) as f32)
+        DenseGrid::from_fn(cells(SIZE), |x, _| {
+            (100.0 + f64::from(x) * RES * gradient) as f32
+        })
     }
 
     fn centre_slope(heights: &DenseGrid<f32>) -> f32 {
-        slope_degrees(heights, RES, 1.0).at(60, 60)
+        slope_degrees(heights, RES, 1.0)[UVec2::new(60, 60)]
     }
 
     #[test]
@@ -217,7 +220,7 @@ mod tests {
     #[test]
     fn slope_is_the_gradient_magnitude_for_a_diagonal_plane() {
         let gradient = 10.0_f64.to_radians().tan();
-        let heights = DenseGrid::from_fn(SIZE, |x, y| {
+        let heights = DenseGrid::from_fn(cells(SIZE), |x, y| {
             (100.0 + (f64::from(x) + f64::from(y)) * RES * gradient) as f32
         });
         let expected = (gradient * 2.0_f64.sqrt()).atan().to_degrees();
@@ -231,11 +234,11 @@ mod tests {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             (f64::from(state >> 8) / f64::from(1_u32 << 24) - 0.5) * 0.1
         };
-        let heights = DenseGrid::from_fn(SIZE, |_, _| (100.0 + noise()) as f32);
+        let heights = DenseGrid::from_fn(cells(SIZE), |_, _| (100.0 + noise()) as f32);
         let slopes = slope_degrees(&heights, RES, 1.0);
         let worst = (40..80)
             .flat_map(|y| (40..80).map(move |x| (x, y)))
-            .map(|(x, y)| slopes.at(x, y))
+            .map(|(x, y)| slopes[UVec2::new(x, y)])
             .fold(0.0, f32::max);
         assert!(worst < 1.0, "worst slope {worst}");
     }
@@ -246,7 +249,7 @@ mod tests {
         for y in 0..SIZE.y {
             for x in 0..SIZE.x {
                 if (x * 7 + y * 13) % 5 == 0 {
-                    heights.set(x, y, f32::NAN);
+                    heights[UVec2::new(x, y)] = f32::NAN;
                 }
             }
         }
@@ -260,7 +263,7 @@ mod tests {
         for y in 0..SIZE.y {
             for x in 0..SIZE.x {
                 if x % 4 != 0 || y % 4 != 0 {
-                    heights.set(x, y, f32::NAN);
+                    heights[UVec2::new(x, y)] = f32::NAN;
                 }
             }
         }
@@ -269,6 +272,9 @@ mod tests {
 
     #[test]
     fn cells_without_neighbours_read_as_flat() {
-        assert_eq!(slope_degrees(&plane(30.0), RES, 1.0).at(0, 60), 0.0);
+        assert_eq!(
+            slope_degrees(&plane(30.0), RES, 1.0)[UVec2::new(0, 60)],
+            0.0
+        );
     }
 }

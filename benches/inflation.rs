@@ -21,7 +21,7 @@ fn grid_with_lethals(width: u32, height: u32, resolution: f32, pattern: LethalPa
         resolution,
         ..Default::default()
     };
-    let mut grid = Costmap::new_with_value(info, COST_FREE);
+    let mut grid = Costmap::filled(info, COST_FREE);
 
     match pattern {
         LethalPattern::Empty => {}
