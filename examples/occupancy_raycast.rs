@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use costmap::RosMapLoader;
 use costmap::raycast::RayHit2D;
-use glam::{Vec2, Vec3};
+use glam::{DVec2, Vec2, Vec3};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
@@ -22,7 +22,7 @@ const FRAMES_PER_REV: i64 = 360;
 const DELAY_MS: u64 = 30;
 
 /// Position to cast rays from (in world frame, meters)
-const RAY_ORIGIN_WORLD: Vec2 = Vec2::new(214.0, 72.0);
+const RAY_ORIGIN_WORLD: DVec2 = DVec2::new(214.0, 72.0);
 /// Maximum distance to check for obstacles (meters)
 const MAX_RANGE_M: f32 = 30.0;
 
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log_point3d(
         &rec,
         "world/map_center",
-        Vec3::new(center.x, center.y, Z_CENTER_MARKER),
+        center.as_vec2().extend(Z_CENTER_MARKER),
         Some(rerun::Color::from_rgb(255, 255, 0)),
         Some(4.0),
     )?;
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log_point3d(
         &rec,
         "world/ray_origin_marker",
-        Vec3::new(RAY_ORIGIN_WORLD.x, RAY_ORIGIN_WORLD.y, Z_ORIGIN_MARKER),
+        RAY_ORIGIN_WORLD.as_vec2().extend(Z_ORIGIN_MARKER),
         Some(rerun::Color::from_rgb(0, 255, 255)),
         Some(4.0),
     )?;
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Returns Some(RaycastHit) if an occupied cell is hit, None otherwise
         let hit = grid.raycast_dda(RAY_ORIGIN_WORLD, dir, MAX_RANGE_M);
         let t = RayHit2D::distance_or(hit, MAX_RANGE_M);
-        let end_world = RAY_ORIGIN_WORLD + dir * t;
+        let end_world = RAY_ORIGIN_WORLD + (dir * t).as_dvec2();
 
         log_raycast_frame(
             &rec,
@@ -95,13 +95,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 // Helper function for Rerun visualization - not essential to understanding the library
 fn log_raycast_frame(
     rec: &rerun::RecordingStream,
-    origin: Vec2,
-    end: Vec2,
+    origin: DVec2,
+    end: DVec2,
     hit: bool,
     z_ray: f32,
     z_origin: f32,
     z_hit: f32,
 ) -> Result<(), Box<dyn Error>> {
+    let (origin, end) = (origin.as_vec2(), end.as_vec2());
     log_line3d(
         rec,
         "world/ray",

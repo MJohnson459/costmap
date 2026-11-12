@@ -284,7 +284,7 @@ struct Output {
     grid: TiledGrid<u8>,
     georef: GeoReference,
     size: glam::UVec2,
-    resolution: f32,
+    resolution: f64,
 }
 
 impl Output {
@@ -325,7 +325,7 @@ fn scene_features_get_their_costs() {
     let out = Output::open(&job.out);
     assert_eq!(out.size, glam::UVec2::new(200, 160));
     assert_eq!(out.georef.epsg, Some(32617));
-    assert!((out.resolution - 0.1).abs() < 1e-6);
+    assert_eq!(out.resolution, 0.1);
 
     assert_eq!(out.at(5.55, 7.05), FREE, "flat ground");
     assert_eq!(out.at(14.05, 8.05), FREE, "plateau");

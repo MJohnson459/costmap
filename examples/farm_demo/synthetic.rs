@@ -16,13 +16,13 @@ use costmap::{
     types::{COST_FREE, COST_LETHAL, COST_UNKNOWN},
     write_cost_geotiff,
 };
-use glam::{DVec2, UVec2, Vec2};
+use glam::{DVec2, UVec2};
 
 /// Farm extent in metres, including the unknown margin.
-const FARM_SIZE_M: Vec2 = Vec2::new(400.0, 300.0);
-const RESOLUTION_M: f32 = 0.1;
+const FARM_SIZE_M: DVec2 = DVec2::new(400.0, 300.0);
+const RESOLUTION_M: f64 = 0.1;
 /// Unsurveyed border around the farm.
-const MARGIN_M: f32 = 6.0;
+const MARGIN_M: f64 = 6.0;
 const SEED: u64 = 0x5EED_FA12_2026;
 /// An arbitrary location in UTM zone 30N.
 const GEOREFERENCE: GeoReference = GeoReference {
@@ -31,31 +31,31 @@ const GEOREFERENCE: GeoReference = GeoReference {
 };
 
 /// Nominal x of the two north-south hedgerows and y of the east-west one.
-const HEDGE_X_M: [f32; 2] = [140.0, 270.0];
-const HEDGE_Y_M: f32 = 150.0;
+const HEDGE_X_M: [f64; 2] = [140.0, 270.0];
+const HEDGE_Y_M: f64 = 150.0;
 /// Random shift applied to each nominal hedgerow position.
-const HEDGE_JITTER_M: f32 = 15.0;
-const HEDGE_WIDTH_M: f32 = 1.6;
-const GATE_WIDTH_M: f32 = 5.0;
+const HEDGE_JITTER_M: f64 = 15.0;
+const HEDGE_WIDTH_M: f64 = 1.6;
+const GATE_WIDTH_M: f64 = 5.0;
 /// Gates stay this far from the ends of their hedge segment.
-const GATE_END_CLEARANCE_M: f32 = 12.0;
+const GATE_END_CLEARANCE_M: f64 = 12.0;
 /// Cost of a field's surface: pasture, stubble, plough.
 const FIELD_COSTS: [u8; 3] = [0, 30, 80];
 /// Spacing range of trees along hedgerows.
-const HEDGE_TREE_SPACING_M: (f32, f32) = (20.0, 45.0);
-const HEDGE_TREE_RADIUS_M: (f32, f32) = (1.8, 3.2);
+const HEDGE_TREE_SPACING_M: (f64, f64) = (20.0, 45.0);
+const HEDGE_TREE_RADIUS_M: (f64, f64) = (1.8, 3.2);
 /// No hedgerow tree within this distance of a gate centre.
-const GATE_TREE_CLEARANCE_M: f32 = 8.0;
+const GATE_TREE_CLEARANCE_M: f64 = 8.0;
 const CLUMP_COUNT: usize = 4;
 /// Trees per clump: at least the first value, fewer than the second.
 const CLUMP_TREES: (u32, u32) = (5, 9);
 /// Largest offset of a tree centre from its clump centre along each axis.
-const CLUMP_SPREAD_M: f32 = 8.0;
-const CLUMP_TREE_RADIUS_M: (f32, f32) = (2.0, 4.0);
+const CLUMP_SPREAD_M: f64 = 8.0;
+const CLUMP_TREE_RADIUS_M: (f64, f64) = (2.0, 4.0);
 /// Clump centres and the barn stay this far from any hedge.
-const FEATURE_HEDGE_CLEARANCE_M: f32 = 20.0;
-const BARN_SIZE_M: Vec2 = Vec2::new(24.0, 12.0);
-const YARD_WIDTH_M: f32 = 6.0;
+const FEATURE_HEDGE_CLEARANCE_M: f64 = 20.0;
+const BARN_SIZE_M: DVec2 = DVec2::new(24.0, 12.0);
+const YARD_WIDTH_M: f64 = 6.0;
 const YARD_COST: u8 = 40;
 /// Chunk edge used to hand the raster to the writer; divides both farm sides in cells,
 /// so the written raster is exactly the farm.
@@ -105,8 +105,8 @@ impl Rng {
     }
 
     /// Uniform in `[lo, hi)`.
-    fn range(&mut self, (lo, hi): (f32, f32)) -> f32 {
-        let unit = (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32;
+    fn range(&mut self, (lo, hi): (f64, f64)) -> f64 {
+        let unit = (self.next_u64() >> 40) as f64 / (1u64 << 24) as f64;
         lo + (hi - lo) * unit
     }
 
@@ -117,24 +117,24 @@ impl Rng {
 
 /// An axis-aligned hedge segment between two points on a line of constant x or y.
 struct Hedge {
-    from: Vec2,
-    to: Vec2,
+    from: DVec2,
+    to: DVec2,
 }
 
 impl Hedge {
-    fn length(&self) -> f32 {
+    fn length(&self) -> f64 {
         self.from.distance(self.to)
     }
 
-    fn point_at(&self, distance: f32) -> Vec2 {
+    fn point_at(&self, distance: f64) -> DVec2 {
         self.from + (self.to - self.from).normalize() * distance
     }
 
     /// The rectangle `distance..distance + length` along the hedge, `width` across.
-    fn band(&self, start: f32, length: f32, width: f32) -> (Vec2, Vec2) {
+    fn band(&self, start: f64, length: f64, width: f64) -> (DVec2, DVec2) {
         let a = self.point_at(start);
         let b = self.point_at(start + length);
-        let half = Vec2::splat(width / 2.0);
+        let half = DVec2::splat(width / 2.0);
         (a.min(b) - half, a.max(b) + half)
     }
 }
@@ -147,12 +147,12 @@ fn generate() -> DenseGrid<u8> {
             width: size.x,
             height: size.y,
             resolution: RESOLUTION_M,
-            origin: Vec2::ZERO,
+            origin: DVec2::ZERO,
         },
         COST_UNKNOWN,
     );
     let mut rng = Rng(SEED);
-    let inner_min = Vec2::splat(MARGIN_M);
+    let inner_min = DVec2::splat(MARGIN_M);
     let inner_max = FARM_SIZE_M - MARGIN_M;
     let xs = [
         inner_min.x,
@@ -171,8 +171,8 @@ fn generate() -> DenseGrid<u8> {
             let cost = rng.pick(&FIELD_COSTS);
             fill_rect(
                 &mut raster,
-                Vec2::new(column[0], row[0]),
-                Vec2::new(column[1], row[1]),
+                DVec2::new(column[0], row[0]),
+                DVec2::new(column[1], row[1]),
                 cost,
             );
         }
@@ -182,39 +182,39 @@ fn generate() -> DenseGrid<u8> {
     for &x in &xs[1..3] {
         for row in ys.windows(2) {
             inner.push(Hedge {
-                from: Vec2::new(x, row[0]),
-                to: Vec2::new(x, row[1]),
+                from: DVec2::new(x, row[0]),
+                to: DVec2::new(x, row[1]),
             });
         }
     }
     for column in xs.windows(2) {
         inner.push(Hedge {
-            from: Vec2::new(column[0], ys[1]),
-            to: Vec2::new(column[1], ys[1]),
+            from: DVec2::new(column[0], ys[1]),
+            to: DVec2::new(column[1], ys[1]),
         });
     }
     let outer = [
         Hedge {
             from: inner_min,
-            to: Vec2::new(inner_max.x, inner_min.y),
+            to: DVec2::new(inner_max.x, inner_min.y),
         },
         Hedge {
-            from: Vec2::new(inner_max.x, inner_min.y),
+            from: DVec2::new(inner_max.x, inner_min.y),
             to: inner_max,
         },
         Hedge {
             from: inner_max,
-            to: Vec2::new(inner_min.x, inner_max.y),
+            to: DVec2::new(inner_min.x, inner_max.y),
         },
         Hedge {
-            from: Vec2::new(inner_min.x, inner_max.y),
+            from: DVec2::new(inner_min.x, inner_max.y),
             to: inner_min,
         },
     ];
 
     let hedges: Vec<&Hedge> = inner.iter().chain(&outer).collect();
     let barn_min = place_in_field(&mut rng, xs, ys, BARN_SIZE_M);
-    let yard = Vec2::splat(YARD_WIDTH_M);
+    let yard = DVec2::splat(YARD_WIDTH_M);
     fill_rect(
         &mut raster,
         barn_min - yard,
@@ -253,12 +253,12 @@ fn generate() -> DenseGrid<u8> {
     }
 
     for _ in 0..CLUMP_COUNT {
-        let spread = Vec2::splat(2.0 * CLUMP_SPREAD_M);
+        let spread = DVec2::splat(2.0 * CLUMP_SPREAD_M);
         let centre = place_in_field(&mut rng, xs, ys, spread) + spread / 2.0;
         let trees =
             CLUMP_TREES.0 + (rng.next_u64() % u64::from(CLUMP_TREES.1 - CLUMP_TREES.0)) as u32;
         for _ in 0..trees {
-            let offset = Vec2::new(
+            let offset = DVec2::new(
                 rng.range((-CLUMP_SPREAD_M, CLUMP_SPREAD_M)),
                 rng.range((-CLUMP_SPREAD_M, CLUMP_SPREAD_M)),
             );
@@ -278,36 +278,36 @@ fn generate() -> DenseGrid<u8> {
 /// Lower-left corner of a `size` rectangle inside a random field, at least
 /// [`FEATURE_HEDGE_CLEARANCE_M`] from the field's hedges. `xs` and `ys` are the
 /// field boundaries.
-fn place_in_field(rng: &mut Rng, xs: [f32; 4], ys: [f32; 3], size: Vec2) -> Vec2 {
+fn place_in_field(rng: &mut Rng, xs: [f64; 4], ys: [f64; 3], size: DVec2) -> DVec2 {
     let column = (rng.next_u64() % 3) as usize;
     let row = (rng.next_u64() % 2) as usize;
-    let min = Vec2::new(xs[column], ys[row]) + FEATURE_HEDGE_CLEARANCE_M;
-    let max = Vec2::new(xs[column + 1], ys[row + 1]) - FEATURE_HEDGE_CLEARANCE_M - size;
-    Vec2::new(rng.range((min.x, max.x)), rng.range((min.y, max.y)))
+    let min = DVec2::new(xs[column], ys[row]) + FEATURE_HEDGE_CLEARANCE_M;
+    let max = DVec2::new(xs[column + 1], ys[row + 1]) - FEATURE_HEDGE_CLEARANCE_M - size;
+    DVec2::new(rng.range((min.x, max.x)), rng.range((min.y, max.y)))
 }
 
 /// Cells whose centres lie in the world rectangle `[min, max)`, clipped to the raster.
-fn cells_in(raster: &DenseGrid<u8>, min: Vec2, max: Vec2) -> impl Iterator<Item = UVec2> + use<> {
-    let size = UVec2::new(raster.size().x, raster.size().y).as_vec2();
+fn cells_in(raster: &DenseGrid<u8>, min: DVec2, max: DVec2) -> impl Iterator<Item = UVec2> + use<> {
+    let size = UVec2::new(raster.size().x, raster.size().y).as_dvec2();
     let resolution = raster.info().resolution;
     let lo = (min / resolution - 0.5)
         .ceil()
-        .clamp(Vec2::ZERO, size)
+        .clamp(DVec2::ZERO, size)
         .as_uvec2();
     let hi = (max / resolution - 0.5)
         .ceil()
-        .clamp(Vec2::ZERO, size)
+        .clamp(DVec2::ZERO, size)
         .as_uvec2();
     (lo.y..hi.y).flat_map(move |y| (lo.x..hi.x).map(move |x| UVec2::new(x, y)))
 }
 
-fn fill_rect(raster: &mut DenseGrid<u8>, min: Vec2, max: Vec2, cost: u8) {
+fn fill_rect(raster: &mut DenseGrid<u8>, min: DVec2, max: DVec2, cost: u8) {
     for cell in cells_in(raster, min, max) {
         raster[cell] = cost;
     }
 }
 
-fn fill_disc(raster: &mut DenseGrid<u8>, centre: Vec2, radius: f32, cost: u8) {
+fn fill_disc(raster: &mut DenseGrid<u8>, centre: DVec2, radius: f64, cost: u8) {
     let cells: Vec<UVec2> = cells_in(raster, centre - radius, centre + radius)
         .filter(|&cell| raster.map_to_world(cell).distance(centre) <= radius)
         .collect();

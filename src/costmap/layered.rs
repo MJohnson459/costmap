@@ -9,7 +9,7 @@
 
 use std::any::Any;
 
-use glam::Vec2;
+use glam::DVec2;
 
 use crate::{
     Costmap,
@@ -145,9 +145,8 @@ impl LayeredCostmap {
     pub fn update_map(&mut self, robot: Pose2) {
         if self.rolling_window {
             let info = self.master.info();
-            let half_w = (info.width as f32) * info.resolution * 0.5;
-            let half_h = (info.height as f32) * info.resolution * 0.5;
-            let new_origin = robot.position - Vec2::new(half_w, half_h);
+            let new_origin = robot.position
+                - DVec2::new(info.width as f64, info.height as f64) * info.resolution * 0.5;
             self.master.update_origin(new_origin);
         }
 
@@ -178,15 +177,15 @@ impl LayeredCostmap {
 
 /// Cell region of `info` covered by world `bounds`, or `None` if they do not overlap.
 ///
-/// The cell containing `bounds.max` is included. Indices are computed in `f32`
+/// The cell containing `bounds.max` is included. Indices are computed in `f64`
 /// and clamped before the integer conversion, so bounds far outside the grid
 /// clip to its edge.
 fn clip_to_cells(bounds: Bounds, info: &MapInfo) -> Option<CellRegion> {
-    let size = Vec2::new(info.width as f32, info.height as f32);
+    let size = DVec2::new(info.width as f64, info.height as f64);
     let lower = ((bounds.min - info.origin) / info.resolution).floor();
-    let upper = ((bounds.max - info.origin) / info.resolution).floor() + Vec2::ONE;
-    let min = lower.clamp(Vec2::ZERO, size).as_uvec2();
-    let max = upper.clamp(Vec2::ZERO, size).as_uvec2();
+    let upper = ((bounds.max - info.origin) / info.resolution).floor() + DVec2::ONE;
+    let min = lower.clamp(DVec2::ZERO, size).as_uvec2();
+    let max = upper.clamp(DVec2::ZERO, size).as_uvec2();
     (min.x < max.x && min.y < max.y).then_some(CellRegion { min, max })
 }
 
@@ -210,15 +209,15 @@ mod tests {
         let mut b = Bounds::empty();
         assert!(b.is_empty());
 
-        b.expand_to_include(Vec2::new(1.0, 2.0));
-        b.expand_to_include(Vec2::new(3.0, 0.0));
+        b.expand_to_include(DVec2::new(1.0, 2.0));
+        b.expand_to_include(DVec2::new(3.0, 0.0));
         assert!(!b.is_empty());
-        assert_eq!(b.min, Vec2::new(1.0, 0.0));
-        assert_eq!(b.max, Vec2::new(3.0, 2.0));
+        assert_eq!(b.min, DVec2::new(1.0, 0.0));
+        assert_eq!(b.max, DVec2::new(3.0, 2.0));
 
         b.expand_by(0.5);
-        assert_eq!(b.min, Vec2::new(0.5, -0.5));
-        assert_eq!(b.max, Vec2::new(3.5, 2.5));
+        assert_eq!(b.min, DVec2::new(0.5, -0.5));
+        assert_eq!(b.max, DVec2::new(3.5, 2.5));
     }
 
     #[test]
@@ -244,7 +243,7 @@ mod tests {
             .unwrap();
 
         layered.update_map(Pose2 {
-            position: Vec2::new(0.5, 0.5),
+            position: DVec2::new(0.5, 0.5),
             yaw: 0.0,
         });
 
@@ -254,14 +253,14 @@ mod tests {
         assert!(b.min.y <= 0.5 && b.max.y >= 0.5);
     }
 
-    fn bounds(min: Vec2, max: Vec2) -> Bounds {
+    fn bounds(min: DVec2, max: DVec2) -> Bounds {
         Bounds { min, max }
     }
 
     #[test]
     fn clip_to_cells_inside_includes_max_cell() {
         let region = clip_to_cells(
-            bounds(Vec2::new(0.25, 0.25), Vec2::new(0.55, 0.35)),
+            bounds(DVec2::new(0.25, 0.25), DVec2::new(0.55, 0.35)),
             &default_info(),
         )
         .unwrap();
@@ -272,7 +271,7 @@ mod tests {
     #[test]
     fn clip_to_cells_partial_overlap_clips_to_edge() {
         let region = clip_to_cells(
-            bounds(Vec2::new(-5.0, 0.85), Vec2::new(0.15, 50.0)),
+            bounds(DVec2::new(-5.0, 0.85), DVec2::new(0.15, 50.0)),
             &default_info(),
         )
         .unwrap();
@@ -283,8 +282,8 @@ mod tests {
     #[test]
     fn clip_to_cells_no_overlap_is_none() {
         let info = default_info();
-        let beyond = bounds(Vec2::new(5.0, 5.0), Vec2::new(6.0, 6.0));
-        let before = bounds(Vec2::new(-6.0, -6.0), Vec2::new(-5.0, -5.0));
+        let beyond = bounds(DVec2::new(5.0, 5.0), DVec2::new(6.0, 6.0));
+        let before = bounds(DVec2::new(-6.0, -6.0), DVec2::new(-5.0, -5.0));
         assert!(clip_to_cells(beyond, &info).is_none());
         assert!(clip_to_cells(before, &info).is_none());
     }
@@ -298,8 +297,8 @@ mod tests {
                 true
             }
             fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
-                bounds.expand_to_include(Vec2::new(5.0, 5.0));
-                bounds.expand_to_include(Vec2::new(6.0, 6.0));
+                bounds.expand_to_include(DVec2::new(5.0, 5.0));
+                bounds.expand_to_include(DVec2::new(6.0, 6.0));
             }
             fn update_costs(&mut self, _master: &mut Costmap, _region: CellRegion) {
                 panic!("no cells of the master are inside the bounds");
@@ -309,7 +308,7 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), 0, false);
         layered.master_mut().set(UVec2::new(3, 3), 42).unwrap();
         layered.add_layer(Box::new(FarLayer)).unwrap();
-        layered.update_map(Pose2::new(Vec2::ZERO, 0.0));
+        layered.update_map(Pose2::new(DVec2::ZERO, 0.0));
 
         assert_eq!(layered.master().get(UVec2::new(3, 3)), Some(&42));
     }

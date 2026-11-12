@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use glam::Vec2;
+use glam::DVec2;
 
 use crate::{
     ROBOT_RADIUS_M,
@@ -63,12 +63,12 @@ impl FrameWriter {
 
 fn scene(sim: &Simulation) -> Scene<'_> {
     let tiles = sim.tiles();
-    let edge = tiles.chunk_size() as f32 * tiles.resolution();
+    let edge = f64::from(tiles.chunk_size()) * tiles.resolution();
     let chunks = tiles
         .loaded_chunks()
         .map(|c| {
-            let min = c.as_vec2() * edge;
-            (min, min + Vec2::splat(edge))
+            let min = c.as_dvec2() * edge;
+            (min, min + DVec2::splat(edge))
         })
         .collect();
     Scene {

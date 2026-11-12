@@ -6,7 +6,7 @@
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
 
-use glam::{IVec2, USizeVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, USizeVec2, UVec2, Vec2};
 use std::{
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
@@ -210,35 +210,32 @@ impl<T> DenseGrid<T> {
 
     /// Map (cell indices) → world. Returns the cell center.
     #[inline]
-    pub fn map_to_world(&self, cell: UVec2) -> Vec2 {
-        self.map_to_world_continuous(cell.as_vec2()) + Vec2::splat(0.5 * self.info.resolution)
+    pub fn map_to_world(&self, cell: UVec2) -> DVec2 {
+        self.info.origin + (cell.as_dvec2() + DVec2::splat(0.5)) * self.info.resolution
     }
 
     /// Map (continuous) → world. For integer coords, returns the cell's lower-left corner.
     #[inline]
-    pub fn map_to_world_continuous(&self, pos: Vec2) -> Vec2 {
-        Vec2::new(
-            self.info.origin.x + pos.x * self.info.resolution,
-            self.info.origin.y + pos.y * self.info.resolution,
-        )
+    pub fn map_to_world_continuous(&self, pos: Vec2) -> DVec2 {
+        self.info.origin + pos.as_dvec2() * self.info.resolution
     }
 
     /// World → map (cell indices). Returns `None` if out of bounds.
     #[inline]
-    pub fn world_to_map(&self, pos: Vec2) -> Option<UVec2> {
+    pub fn world_to_map(&self, pos: DVec2) -> Option<UVec2> {
         let mp = self.world_to_map_continuous(pos)?;
         Some(UVec2::new(mp.x as u32, mp.y as u32))
     }
 
     /// World → map (continuous). Returns `None` if out of bounds.
     #[inline]
-    pub fn world_to_map_continuous(&self, pos: Vec2) -> Option<Vec2> {
-        let mx = (pos.x - self.info.origin.x) / self.info.resolution;
-        let my = (pos.y - self.info.origin.y) / self.info.resolution;
-        if mx < 0.0 || my < 0.0 || mx >= self.info.width as f32 || my >= self.info.height as f32 {
+    pub fn world_to_map_continuous(&self, pos: DVec2) -> Option<Vec2> {
+        let cell = (pos - self.info.origin) / self.info.resolution;
+        let size = self.size().as_dvec2();
+        if cell.x < 0.0 || cell.y < 0.0 || cell.x >= size.x || cell.y >= size.y {
             return None;
         }
-        Some(Vec2::new(mx, my))
+        Some(cell.as_vec2())
     }
 
     /// All cells as a slice in row-major order, starting at cell (0, 0).
@@ -305,7 +302,7 @@ impl<T> DenseGrid<T> {
     /// Resize the map and update resolution/origin.
     ///
     /// This method clears the data to the fill value.
-    pub fn resize_map(&mut self, size: UVec2, resolution: f32, origin: Vec2)
+    pub fn resize_map(&mut self, size: UVec2, resolution: f64, origin: DVec2)
     where
         T: Clone,
     {
@@ -343,7 +340,7 @@ impl<T> DenseGrid<T> {
     }
 
     /// Updates the origin of the grid.
-    pub fn update_origin(&mut self, origin: Vec2)
+    pub fn update_origin(&mut self, origin: DVec2)
     where
         T: Clone,
     {
@@ -372,10 +369,7 @@ impl<T> DenseGrid<T> {
 
         self.data = new_data;
 
-        self.info.origin = Vec2::new(
-            old_origin.x + cell_offset.x as f32 * resolution,
-            old_origin.y + cell_offset.y as f32 * resolution,
-        );
+        self.info.origin = old_origin + cell_offset.as_dvec2() * resolution;
     }
 
     /// Updates the origin based on the desired center of the map.
@@ -383,15 +377,11 @@ impl<T> DenseGrid<T> {
     /// # Arguments
     ///
     /// * `center` - The desired center of the map in world coordinates.
-    pub fn update_center(&mut self, center: Vec2)
+    pub fn update_center(&mut self, center: DVec2)
     where
         T: Clone,
     {
-        let origin = center
-            - Vec2::new(
-                self.info.width as f32 * self.info.resolution,
-                self.info.height as f32 * self.info.resolution,
-            ) * 0.5;
+        let origin = center - self.size().as_dvec2() * self.info.resolution * 0.5;
         self.update_origin(origin);
     }
 
@@ -431,7 +421,7 @@ impl<T> IndexMut<UVec2> for DenseGrid<T> {
 mod tests {
     use super::*;
 
-    fn world_to_map_to_world(grid: &DenseGrid<i8>, pos: Vec2) -> Vec2 {
+    fn world_to_map_to_world(grid: &DenseGrid<i8>, pos: DVec2) -> DVec2 {
         let map_pos = grid.world_to_map_continuous(pos).unwrap();
         grid.map_to_world_continuous(map_pos)
     }
@@ -450,36 +440,36 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(0.0, 0.0)),
-            Vec2::new(0.0, 0.0)
+            world_to_map_to_world(&grid, DVec2::new(0.0, 0.0)),
+            DVec2::new(0.0, 0.0)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(1.0, 1.0)),
-            Vec2::new(1.0, 1.0)
+            world_to_map_to_world(&grid, DVec2::new(1.0, 1.0)),
+            DVec2::new(1.0, 1.0)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(0.5, 0.5)),
-            Vec2::new(0.5, 0.5)
+            world_to_map_to_world(&grid, DVec2::new(0.5, 0.5)),
+            DVec2::new(0.5, 0.5)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(1.5, 1.5)),
-            Vec2::new(1.5, 1.5)
+            world_to_map_to_world(&grid, DVec2::new(1.5, 1.5)),
+            DVec2::new(1.5, 1.5)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(0.5, 1.5)),
-            Vec2::new(0.5, 1.5)
+            world_to_map_to_world(&grid, DVec2::new(0.5, 1.5)),
+            DVec2::new(0.5, 1.5)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(1.5, 0.5)),
-            Vec2::new(1.5, 0.5)
+            world_to_map_to_world(&grid, DVec2::new(1.5, 0.5)),
+            DVec2::new(1.5, 0.5)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(0.5, 0.5)),
-            Vec2::new(0.5, 0.5)
+            world_to_map_to_world(&grid, DVec2::new(0.5, 0.5)),
+            DVec2::new(0.5, 0.5)
         );
         assert_eq!(
-            world_to_map_to_world(&grid, Vec2::new(1.5, 1.5)),
-            Vec2::new(1.5, 1.5)
+            world_to_map_to_world(&grid, DVec2::new(1.5, 1.5)),
+            DVec2::new(1.5, 1.5)
         );
     }
 
@@ -497,7 +487,7 @@ mod tests {
         .unwrap();
 
         grid.set(UVec2::new(1, 1), 7).unwrap();
-        grid.update_origin(Vec2::new(1.0, 0.0));
+        grid.update_origin(DVec2::new(1.0, 0.0));
 
         assert_eq!(grid.get(UVec2::new(0, 1)), Some(&7));
         assert_eq!(grid.get(UVec2::new(1, 1)), Some(&0));
@@ -517,7 +507,7 @@ mod tests {
         .unwrap();
 
         grid.set(UVec2::new(1, 1), 9).unwrap();
-        grid.resize_map(UVec2::new(6, 6), 1.0, Vec2::new(1.0, 0.0));
+        grid.resize_map(UVec2::new(6, 6), 1.0, DVec2::new(1.0, 0.0));
 
         assert_eq!(grid.get(UVec2::new(1, 1)), Some(&0));
     }
@@ -578,7 +568,7 @@ mod tests {
                 width: 10,
                 height: 20,
                 resolution: 0.5,
-                origin: Vec2::new(1.0, 2.0),
+                origin: DVec2::new(1.0, 2.0),
             },
             vec![0; 200],
         )
@@ -589,7 +579,7 @@ mod tests {
                 width: 10,
                 height: 20,
                 resolution: 0.5,
-                origin: Vec2::new(1.0, 2.0),
+                origin: DVec2::new(1.0, 2.0),
             },
             vec![0.0; 200],
         )
@@ -606,7 +596,7 @@ mod tests {
                 width: 10,
                 height: 20,
                 resolution: 0.5,
-                origin: Vec2::ZERO,
+                origin: DVec2::ZERO,
             },
             vec![0; 200],
         )
@@ -617,7 +607,7 @@ mod tests {
                 width: 15,
                 height: 20,
                 resolution: 0.5,
-                origin: Vec2::ZERO,
+                origin: DVec2::ZERO,
             },
             vec![0.0; 300],
         )
@@ -633,7 +623,7 @@ mod tests {
                 width: 10,
                 height: 20,
                 resolution: 0.5,
-                origin: Vec2::ZERO,
+                origin: DVec2::ZERO,
             },
             vec![0; 200],
         )
@@ -644,12 +634,35 @@ mod tests {
                 width: 10,
                 height: 20,
                 resolution: 0.1,
-                origin: Vec2::ZERO,
+                origin: DVec2::ZERO,
             },
             vec![0.0; 200],
         )
         .unwrap();
 
         assert!(!grid_u8.layout_matches(&grid_f32));
+    }
+
+    #[test]
+    fn rolling_origin_stays_on_the_cell_lattice_after_a_long_drive() {
+        let info = MapInfo {
+            width: 200,
+            height: 200,
+            resolution: 0.05,
+            origin: DVec2::new(500_000.0, 6_200_000.0),
+        };
+        let start = info.origin;
+        let mut grid = DenseGrid::<u8>::new(info);
+        let step = DVec2::new(0.137, 0.061);
+        let mut centre = info.world_center();
+        for _ in 0..10_000 {
+            centre += step;
+            grid.update_center(centre);
+        }
+        let travelled = (grid.info().origin - start).length();
+        assert!(travelled > 1_400.0, "{travelled}");
+        let cells = (grid.info().origin - start) / info.resolution;
+        let off_lattice = (cells - cells.round()).abs().max_element();
+        assert!(off_lattice < 1e-4, "{off_lattice} cells off the lattice");
     }
 }

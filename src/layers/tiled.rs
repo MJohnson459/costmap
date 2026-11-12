@@ -64,7 +64,7 @@ impl TiledMapLayer {
             width: size.x,
             height: size.y,
             resolution: info.resolution,
-            origin: info.origin + region.min.as_vec2() * info.resolution,
+            origin: info.origin + region.min.as_dvec2() * info.resolution,
         };
         let mut window = DenseGrid::filled(window_info, COST_UNKNOWN);
         self.grid.read_into(&mut window).ok()?;
@@ -134,7 +134,7 @@ fn merge_row(policy: MergePolicy, master: &mut [u8], source: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use glam::{IVec2, UVec2, Vec2};
+    use glam::{DVec2, IVec2, UVec2};
 
     use super::*;
     use crate::{
@@ -337,7 +337,7 @@ mod tests {
         // Master x ranges 25..45 then 35..55; the obstacle's chunk (x 32..48)
         // is first partly, then wholly inside, and the master crosses the x=48 edge.
         for robot_x in [35.0, 45.0] {
-            layered.update_map(Pose2::new(Vec2::new(robot_x, 3.0), 0.0));
+            layered.update_map(Pose2::new(DVec2::new(robot_x, 3.0), 0.0));
 
             let master = layered.master();
             let expected = master.world_to_map(obstacle_centre).unwrap();

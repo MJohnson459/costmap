@@ -24,7 +24,7 @@ impl<T> DenseGrid<T> {
     /// ```
     /// use costmap::{DenseGrid, MapInfo};
     /// use costmap::types::{COST_LETHAL, Footprint, Pose2};
-    /// use glam::Vec2;
+    /// use glam::DVec2;
     ///
     /// let info = MapInfo {
     ///     width: 100,
@@ -37,7 +37,7 @@ impl<T> DenseGrid<T> {
     /// let footprint = Footprint::rectangle(0.6, 0.4);
     ///
     /// // Check cost at a specific pose
-    /// let pose = Pose2::new(Vec2::new(5.0, 5.0), 0.0);
+    /// let pose = Pose2::new(DVec2::new(5.0, 5.0), 0.0);
     /// let max_cost = costmap.footprint_cost(pose, &footprint);
     ///
     /// // Use in planning: reject poses with high cost

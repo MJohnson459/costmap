@@ -1,4 +1,4 @@
-use glam::{IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 use crate::DenseGrid;
 
@@ -28,14 +28,14 @@ pub struct LineStep {
 }
 
 impl LineIterator {
-    pub fn new<T>(grid: &DenseGrid<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
+    pub fn new<T>(grid: &DenseGrid<T>, origin: DVec2, dir: Vec2, max_t: f32) -> Option<Self> {
         if dir.length_squared() == 0.0 {
             return None;
         }
 
         let info = grid.info();
         let resolution = info.resolution;
-        let max_t_grid = max_t / resolution;
+        let max_t_grid = max_t / resolution as f32;
         let dir = dir.normalize();
 
         // TODO: Support starting outside of the grid.
@@ -112,7 +112,7 @@ pub struct LineValueIterator<'a, T> {
 }
 
 impl<'a, T> LineValueIterator<'a, T> {
-    pub fn new(grid: &'a DenseGrid<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
+    pub fn new(grid: &'a DenseGrid<T>, origin: DVec2, dir: Vec2, max_t: f32) -> Option<Self> {
         Some(Self {
             iter: LineIterator::new(grid, origin, dir, max_t)?,
             grid,
@@ -137,7 +137,7 @@ pub struct LineValueMutIterator<'a, T> {
 }
 
 impl<'a, T> LineValueMutIterator<'a, T> {
-    pub fn new(grid: &'a mut DenseGrid<T>, origin: Vec2, dir: Vec2, max_t: f32) -> Option<Self> {
+    pub fn new(grid: &'a mut DenseGrid<T>, origin: DVec2, dir: Vec2, max_t: f32) -> Option<Self> {
         Some(Self {
             iter: LineIterator::new(grid, origin, dir, max_t)?,
             grid,
@@ -158,13 +158,13 @@ impl<'a, T> Iterator for LineValueMutIterator<'a, T> {
 }
 
 impl<T> DenseGrid<T> {
-    pub fn line(&self, origin: Vec2, dir: Vec2, max_t: f32) -> Option<LineIterator> {
+    pub fn line(&self, origin: DVec2, dir: Vec2, max_t: f32) -> Option<LineIterator> {
         LineIterator::new(self, origin, dir, max_t)
     }
 
     pub fn line_value<'a>(
         &'a self,
-        origin: Vec2,
+        origin: DVec2,
         dir: Vec2,
         max_t: f32,
     ) -> Option<LineValueIterator<'a, T>> {
@@ -173,7 +173,7 @@ impl<T> DenseGrid<T> {
 
     pub fn line_value_mut<'a>(
         &'a mut self,
-        origin: Vec2,
+        origin: DVec2,
         dir: Vec2,
         max_t: f32,
     ) -> Option<LineValueMutIterator<'a, T>> {
@@ -187,7 +187,7 @@ impl<T> DenseGrid<T> {
     /// `Some`, the cell at the end of the ray is then set to that value.
     pub fn clear_ray(
         &mut self,
-        origin: Vec2,
+        origin: DVec2,
         dir: Vec2,
         distance: f32,
         clear_value: T,
@@ -202,7 +202,7 @@ impl<T> DenseGrid<T> {
         }
 
         if let Some(endpoint) = endpoint_value {
-            let end_world = origin + dir * distance;
+            let end_world = origin + (dir * distance).as_dvec2();
             if let Some(cell) = self.world_to_map(end_world) {
                 let _ = self.set(cell, endpoint);
             }
@@ -235,7 +235,7 @@ mod tests {
     use super::*;
     use crate::types::{FREE, OCCUPIED};
 
-    fn test_grid(occupied: Option<UVec2>, resolution: f32, origin: Vec2) -> DenseGrid<i8> {
+    fn test_grid(occupied: Option<UVec2>, resolution: f64, origin: DVec2) -> DenseGrid<i8> {
         let width = 5;
         let height = 5;
         let mut data = vec![FREE; width * height];
@@ -257,11 +257,11 @@ mod tests {
     #[test]
     fn hit_positive() {
         let goal = UVec2::new(4, 1);
-        let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
+        let grid = test_grid(Some(goal), 1.0, DVec2::ZERO);
         let dir = goal.as_vec2().normalize();
 
         let hit = grid
-            .raycast_dda(Vec2::ZERO, dir, 30.0)
+            .raycast_dda(DVec2::ZERO, dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 4.1231055, epsilon = 1e-4);
@@ -269,19 +269,19 @@ mod tests {
 
     #[test]
     fn miss() {
-        let grid = test_grid(None, 1.0, Vec2::ZERO);
+        let grid = test_grid(None, 1.0, DVec2::ZERO);
         let dir = Vec2::new(6.0, 1.0).normalize();
-        let hit = grid.raycast_dda(Vec2::ZERO, dir, 30.0);
+        let hit = grid.raycast_dda(DVec2::ZERO, dir, 30.0);
         assert!(hit.is_none());
     }
 
     #[test]
     fn hit_negative_x() {
         let goal = UVec2::new(0, 1);
-        let grid = test_grid(Some(goal), 1.0, Vec2::ZERO);
+        let grid = test_grid(Some(goal), 1.0, DVec2::ZERO);
         let dir = Vec2::new(-3.9, 1.0).normalize();
         let hit = grid
-            .raycast_dda(Vec2::new(4.0, 0.0), dir, 30.0)
+            .raycast_dda(DVec2::new(4.0, 0.0), dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 4.026176, epsilon = 1e-4);
@@ -290,10 +290,10 @@ mod tests {
     #[test]
     fn resolution_with_offset() {
         let goal = UVec2::new(2, 4);
-        let grid = test_grid(Some(goal), 0.05, Vec2::new(-0.18, 0.0));
+        let grid = test_grid(Some(goal), 0.05, DVec2::new(-0.18, 0.0));
         let dir = Vec2::new(-1.0, 2.0).normalize();
         let hit = grid
-            .raycast_dda(Vec2::new(0.04, 0.0), dir, 30.0)
+            .raycast_dda(DVec2::new(0.04, 0.0), dir, 30.0)
             .expect("hit expected");
         assert_eq!(hit.cell, goal);
         assert_relative_eq!(hit.hit_distance, 0.2236068, epsilon = 1e-4);
@@ -301,11 +301,11 @@ mod tests {
 
     #[test]
     fn line_value_iterator_reads_values() {
-        let mut grid = test_grid(None, 1.0, Vec2::ZERO);
+        let mut grid = test_grid(None, 1.0, DVec2::ZERO);
         grid.set(UVec2::new(2, 0), OCCUPIED).unwrap();
 
         let dir = Vec2::new(1.0, 0.0);
-        let values: Vec<i8> = LineValueIterator::new(&grid, Vec2::ZERO, dir, 4.0)
+        let values: Vec<i8> = LineValueIterator::new(&grid, DVec2::ZERO, dir, 4.0)
             .unwrap()
             .copied()
             .collect();
@@ -316,10 +316,10 @@ mod tests {
 
     #[test]
     fn line_value_mut_iterator_writes_values() {
-        let mut grid = test_grid(None, 1.0, Vec2::ZERO);
+        let mut grid = test_grid(None, 1.0, DVec2::ZERO);
         let dir = Vec2::new(1.0, 0.0);
 
-        for value in LineValueMutIterator::new(&mut grid, Vec2::ZERO, dir, 4.0).unwrap() {
+        for value in LineValueMutIterator::new(&mut grid, DVec2::ZERO, dir, 4.0).unwrap() {
             *value = OCCUPIED;
         }
 

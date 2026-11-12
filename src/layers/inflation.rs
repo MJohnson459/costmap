@@ -97,7 +97,7 @@ impl Layer for WavefrontInflationLayer {
 
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
         let resolution = master.info().resolution;
-        let radius_cells = cell_distance(self.config.inflation_radius_m, resolution);
+        let radius_cells = cell_distance(self.config.inflation_radius_m, resolution as f32);
 
         if radius_cells == 0 {
             return;
@@ -106,13 +106,13 @@ impl Layer for WavefrontInflationLayer {
         let need_rebuild = self
             .wavefront
             .as_ref()
-            .is_none_or(|cache| cache.resolution != resolution);
+            .is_none_or(|cache| cache.resolution != resolution as f32);
 
         if need_rebuild {
             self.wavefront = Some(WavefrontInflation::build(
                 self.config.inflation_radius_m,
                 self.config.inscribed_radius_m,
-                resolution,
+                resolution as f32,
                 self.config.cost_scaling_factor,
             ));
         }
@@ -539,7 +539,6 @@ mod tests {
     use crate::types::{CellRegion, Pose2};
     use crate::{Layer, LayeredCostmap};
     use crate::{MapInfo, types::COST_UNKNOWN};
-    use glam::Vec2;
 
     #[test]
     fn radius_to_cells_basic() {
@@ -601,7 +600,7 @@ mod tests {
         let source = make_grid(5, 5, data);
 
         let mut dest = source.clone();
-        let mut wavefront = WavefrontInflation::build(2.0, 0.0, dest.info().resolution, 3.0);
+        let mut wavefront = WavefrontInflation::build(2.0, 0.0, dest.info().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
             CellRegion::new(UVec2::ZERO, UVec2::new(5, 5)),
@@ -623,7 +622,7 @@ mod tests {
             ..Default::default()
         });
         let mut dest = source.clone();
-        let mut wavefront = WavefrontInflation::build(1.0, 2.0, dest.info().resolution, 3.0);
+        let mut wavefront = WavefrontInflation::build(1.0, 2.0, dest.info().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
             CellRegion::new(UVec2::ZERO, UVec2::new(10, 10)),
@@ -670,7 +669,7 @@ mod tests {
             })))
             .unwrap();
         layered.update_map(Pose2 {
-            position: Vec2::new(0.5, 0.5),
+            position: glam::DVec2::new(0.5, 0.5),
             yaw: 0.0,
         });
 
@@ -693,7 +692,7 @@ mod tests {
         let source = make_grid(5, 5, data);
 
         let mut dest = source.clone();
-        let mut wavefront = WavefrontInflation::build(1.2, 1.0, dest.info().resolution, 3.0);
+        let mut wavefront = WavefrontInflation::build(1.2, 1.0, dest.info().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
             CellRegion::new(UVec2::ZERO, UVec2::new(5, 5)),
@@ -743,7 +742,7 @@ mod tests {
             })))
             .unwrap();
         layered.update_map(Pose2 {
-            position: Vec2::new(0.5, 0.5),
+            position: glam::DVec2::new(0.5, 0.5),
             yaw: 0.0,
         });
 
@@ -793,7 +792,7 @@ mod tests {
             })))
             .unwrap();
         layered.update_map(Pose2 {
-            position: Vec2::new(0.5, 0.5),
+            position: glam::DVec2::new(0.5, 0.5),
             yaw: 0.0,
         });
 

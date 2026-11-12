@@ -90,7 +90,7 @@ pub struct CostGeoTiff {
     path: PathBuf,
     decoder: Decoder<BufReader<File>>,
     size: UVec2,
-    resolution: f32,
+    resolution: f64,
     georef: GeoReference,
     /// Raster nodata value when it differs from [`COST_UNKNOWN`]; mapped to unknown on read.
     nodata: Option<u8>,
@@ -146,7 +146,7 @@ impl CostGeoTiff {
             path,
             decoder,
             size,
-            resolution: frame.pixel_size.x as f32,
+            resolution: frame.pixel_size.x,
             georef,
             nodata,
             chunk,
@@ -224,7 +224,7 @@ impl CostGeoTiff {
             chunk: tiff_chunk_size(&decoder, overview.size),
             decoder,
             size: overview.size,
-            resolution: pixel_size as f32,
+            resolution: pixel_size,
             georef: GeoReference {
                 epsg: self.georef.epsg,
                 anchor: self.top_left - DVec2::new(0.0, height),
@@ -243,7 +243,7 @@ impl CostGeoTiff {
     }
 
     /// Pixel edge length in metres.
-    pub fn resolution(&self) -> f32 {
+    pub fn resolution(&self) -> f64 {
         self.resolution
     }
 
@@ -319,7 +319,7 @@ impl CostGeoTiff {
             ));
         }
         let mut grid = TiledGrid::new(
-            (self.pixel_size * f64::from(factor)) as f32,
+            self.pixel_size * f64::from(factor),
             chunk_size,
             COST_UNKNOWN,
         )?;
@@ -940,9 +940,9 @@ pub fn write_cost_geotiff_region(
         ));
     }
     let levels = build_levels(raster_from_grid(grid, min_cell, size), size);
-    let resolution = f64::from(grid.resolution());
-    // The lower-left corner is computed in f64 from the cell index so the tiepoint
-    // does not pick up f32 rounding at large offsets.
+    let resolution = grid.resolution();
+    // The lower-left corner is computed from the cell index so the tiepoint
+    // does not pick up rounding at large offsets.
     let lower_left = georef.anchor + min_cell.as_dvec2() * resolution;
     let top_left = lower_left + DVec2::new(0.0, f64::from(size.y) * resolution);
 

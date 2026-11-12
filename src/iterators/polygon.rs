@@ -1,4 +1,4 @@
-use glam::{IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 use crate::DenseGrid;
 
@@ -18,14 +18,17 @@ pub struct PolygonIterator {
 }
 
 impl PolygonIterator {
-    pub fn new<T>(grid: &DenseGrid<T>, points: &[Vec2]) -> Option<Self> {
+    pub fn new<T>(grid: &DenseGrid<T>, points: &[DVec2]) -> Option<Self> {
         if points.len() < 3 {
             return None;
         }
         let info = grid.info();
         let resolution = info.resolution;
         let origin = info.origin;
-        let map_points = points.iter().map(|p| (*p - origin) / resolution).collect();
+        let map_points = points
+            .iter()
+            .map(|p| ((*p - origin) / resolution).as_vec2())
+            .collect();
         Some(Self::new_map(map_points, info.width, info.height))
     }
 
@@ -127,7 +130,7 @@ pub struct PolygonValueIterator<'a, T> {
 }
 
 impl<'a, T> PolygonValueIterator<'a, T> {
-    pub fn new(grid: &'a DenseGrid<T>, points: &[Vec2]) -> Option<Self> {
+    pub fn new(grid: &'a DenseGrid<T>, points: &[DVec2]) -> Option<Self> {
         Some(Self {
             iter: PolygonIterator::new(grid, points)?,
             grid,
@@ -152,7 +155,7 @@ pub struct PolygonValueMutIterator<'a, T> {
 }
 
 impl<'a, T> PolygonValueMutIterator<'a, T> {
-    pub fn new(grid: &'a mut DenseGrid<T>, points: &[Vec2]) -> Option<Self> {
+    pub fn new(grid: &'a mut DenseGrid<T>, points: &[DVec2]) -> Option<Self> {
         let iter = PolygonIterator::new(grid, points)?;
         Some(Self { iter, grid })
     }
@@ -171,17 +174,17 @@ impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
 }
 
 impl<T> DenseGrid<T> {
-    pub fn polygon(&self, points: &[Vec2]) -> Option<PolygonIterator> {
+    pub fn polygon(&self, points: &[DVec2]) -> Option<PolygonIterator> {
         PolygonIterator::new(self, points)
     }
 
-    pub fn polygon_value<'a>(&'a self, points: &[Vec2]) -> Option<PolygonValueIterator<'a, T>> {
+    pub fn polygon_value<'a>(&'a self, points: &[DVec2]) -> Option<PolygonValueIterator<'a, T>> {
         PolygonValueIterator::new(self, points)
     }
 
     pub fn polygon_value_mut<'a>(
         &'a mut self,
-        points: &[Vec2],
+        points: &[DVec2],
     ) -> Option<PolygonValueMutIterator<'a, T>> {
         PolygonValueMutIterator::new(self, points)
     }
@@ -189,7 +192,7 @@ impl<T> DenseGrid<T> {
 
 #[cfg(test)]
 mod tests {
-    use glam::{UVec2, Vec2};
+    use glam::{DVec2, UVec2};
 
     use super::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator};
     use crate::DenseGrid;
@@ -205,10 +208,10 @@ mod tests {
         };
         let grid = DenseGrid::<u8>::new(info);
         let points = vec![
-            Vec2::new(1.0, 1.0),
-            Vec2::new(4.0, 1.0),
-            Vec2::new(4.0, 3.0),
-            Vec2::new(1.0, 3.0),
+            DVec2::new(1.0, 1.0),
+            DVec2::new(4.0, 1.0),
+            DVec2::new(4.0, 3.0),
+            DVec2::new(1.0, 3.0),
         ];
         let cells: Vec<UVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
         assert!(!cells.is_empty());
@@ -228,10 +231,10 @@ mod tests {
         grid.set(UVec2::new(2, 2), 100).unwrap();
 
         let points = vec![
-            Vec2::new(1.0, 1.0),
-            Vec2::new(4.0, 1.0),
-            Vec2::new(4.0, 3.0),
-            Vec2::new(1.0, 3.0),
+            DVec2::new(1.0, 1.0),
+            DVec2::new(4.0, 1.0),
+            DVec2::new(4.0, 3.0),
+            DVec2::new(1.0, 3.0),
         ];
         let values: Vec<u8> = PolygonValueIterator::new(&grid, &points)
             .unwrap()
@@ -252,10 +255,10 @@ mod tests {
         };
         let mut grid = DenseGrid::<u8>::new(info);
         let points = vec![
-            Vec2::new(1.0, 1.0),
-            Vec2::new(4.0, 1.0),
-            Vec2::new(4.0, 3.0),
-            Vec2::new(1.0, 3.0),
+            DVec2::new(1.0, 1.0),
+            DVec2::new(4.0, 1.0),
+            DVec2::new(4.0, 3.0),
+            DVec2::new(1.0, 3.0),
         ];
 
         for value in PolygonValueMutIterator::new(&mut grid, &points).unwrap() {

@@ -7,7 +7,7 @@ use costmap::{
     iterators::line::LineIterator,
     types::{COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN},
 };
-use glam::{IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 use crate::route::Route;
 
@@ -51,33 +51,33 @@ const SURPRISE_SEARCH_LIMIT_FRACTION: f32 = 0.15;
 /// An oriented rectangle.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Obstacle {
-    pub centre: Vec2,
+    pub centre: DVec2,
     /// Unit vector along the obstacle's length.
     pub axis: Vec2,
     pub half_size: Vec2,
 }
 
 impl Obstacle {
-    pub fn contains(&self, point: Vec2) -> bool {
+    pub fn contains(&self, point: DVec2) -> bool {
         self.local(point).abs().cmple(self.half_size).all()
     }
 
     /// Distance from `point` to the rectangle; zero inside it.
-    pub fn distance_to(&self, point: Vec2) -> f32 {
+    pub fn distance_to(&self, point: DVec2) -> f32 {
         (self.local(point).abs() - self.half_size)
             .max(Vec2::ZERO)
             .length()
     }
 
     /// `point` in the obstacle's frame: x along its axis, y across.
-    fn local(&self, point: Vec2) -> Vec2 {
-        let offset = point - self.centre;
+    fn local(&self, point: DVec2) -> Vec2 {
+        let offset = (point - self.centre).as_vec2();
         Vec2::new(self.axis.dot(offset), self.axis.perp_dot(offset))
     }
 
-    pub fn corners(&self) -> [Vec2; 4] {
-        let along = self.axis * self.half_size.x;
-        let across = self.axis.perp() * self.half_size.y;
+    pub fn corners(&self) -> [DVec2; 4] {
+        let along = (self.axis * self.half_size.x).as_dvec2();
+        let across = (self.axis.perp() * self.half_size.y).as_dvec2();
         [
             self.centre - along - across,
             self.centre + along - across,
@@ -112,8 +112,8 @@ pub fn place_surprises(route: &Route, costs: &Costmap) -> Vec<Obstacle> {
 }
 
 /// Whether every cell of `costs` within `radius` of `centre` is known and below inscribed.
-fn is_open(costs: &Costmap, centre: Vec2, radius: f32) -> bool {
-    let resolution = costs.info().resolution;
+fn is_open(costs: &Costmap, centre: DVec2, radius: f32) -> bool {
+    let resolution = costs.info().resolution as f32;
     let reach = (radius / resolution).ceil() as i32;
     let Some(middle) = costs.world_to_map(centre) else {
         return false;
@@ -134,8 +134,8 @@ fn is_open(costs: &Costmap, centre: Vec2, radius: f32) -> bool {
 
 /// Lethal cells around `centre` as a lidar would see them: the aerial map's lethal
 /// cells plus the surprise obstacles. The window reaches [`LIDAR_RANGE_M`] each way.
-pub fn ground_truth(tiles: &TiledGrid<u8>, centre: Vec2, obstacles: &[Obstacle]) -> Costmap {
-    let side = (2.0 * LIDAR_RANGE_M / tiles.resolution()).ceil() as u32 + 2;
+pub fn ground_truth(tiles: &TiledGrid<u8>, centre: DVec2, obstacles: &[Obstacle]) -> Costmap {
+    let side = (f64::from(2.0 * LIDAR_RANGE_M) / tiles.resolution()).ceil() as u32 + 2;
     let mut truth = tiles.window_centered(centre, UVec2::splat(side));
     let info = *truth.info();
     for obstacle in obstacles {
@@ -150,7 +150,7 @@ pub fn ground_truth(tiles: &TiledGrid<u8>, centre: Vec2, obstacles: &[Obstacle])
         let first = ((min - info.origin) / info.resolution).floor().as_uvec2();
         let end = ((max - info.origin) / info.resolution)
             .ceil()
-            .min(Vec2::splat(side as f32))
+            .min(DVec2::splat(f64::from(side)))
             .as_uvec2();
         for y in first.y..end.y {
             for x in first.x..end.x {
@@ -171,8 +171,8 @@ pub fn ground_truth(tiles: &TiledGrid<u8>, centre: Vec2, obstacles: &[Obstacle])
 /// truth, ends [`UNKNOWN_STOP_BACKOFF_CELLS`] before entering it, marks nothing and
 /// clears only the known cells before it. Any other beam ends at [`LIDAR_RANGE_M`] and
 /// only clears.
-pub fn scan(truth: &Costmap, origin: Vec2) -> Vec<Beam> {
-    let resolution = truth.info().resolution;
+pub fn scan(truth: &Costmap, origin: DVec2) -> Vec<Beam> {
+    let resolution = truth.info().resolution as f32;
     (0..LIDAR_BEAMS)
         .map(|i| {
             let direction = Vec2::from_angle(TAU * i as f32 / LIDAR_BEAMS as f32);
@@ -189,12 +189,12 @@ pub fn scan(truth: &Costmap, origin: Vec2) -> Vec<Beam> {
                     // `step.t` is the distance in cells at which the beam enters the cell.
                     let known_cells = (step.t - UNKNOWN_STOP_BACKOFF_CELLS).max(0.0);
                     Beam {
-                        end: origin + direction * known_cells * resolution,
+                        end: origin + (direction * known_cells * resolution).as_dvec2(),
                         hit: false,
                     }
                 }
                 None => Beam {
-                    end: origin + direction * LIDAR_RANGE_M,
+                    end: origin + (direction * LIDAR_RANGE_M).as_dvec2(),
                     hit: false,
                 },
             }

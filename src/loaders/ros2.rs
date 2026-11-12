@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use glam::Vec3;
+use glam::DVec3;
 use image::GenericImageView;
 use serde::Deserialize;
 
@@ -32,9 +32,9 @@ impl RosMapLoader {
 #[serde(default)]
 pub struct RosMapMetadata {
     pub image: PathBuf,
-    pub resolution: f32,
+    pub resolution: f64,
     #[serde(deserialize_with = "deserialize_origin")]
-    pub origin: Vec3,
+    pub origin: DVec3,
     #[serde(deserialize_with = "deserialize_threshold")]
     pub occupied_thresh: f32,
     #[serde(deserialize_with = "deserialize_threshold")]
@@ -48,7 +48,7 @@ impl Default for RosMapMetadata {
         Self {
             image: PathBuf::new(),
             resolution: 0.05,
-            origin: Vec3::new(0.0, 0.0, 0.0),
+            origin: DVec3::new(0.0, 0.0, 0.0),
             occupied_thresh: DEFAULT_OCCUPIED_THRESH,
             free_thresh: DEFAULT_FREE_THRESH,
             negate: Negate::Bool(false),
@@ -82,12 +82,12 @@ pub enum MapMode {
     Raw,
 }
 
-fn deserialize_origin<'de, D>(deserializer: D) -> Result<Vec3, D::Error>
+fn deserialize_origin<'de, D>(deserializer: D) -> Result<DVec3, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let [x, y, z]: [f32; 3] = Deserialize::deserialize(deserializer)?;
-    let value = Vec3::new(x, y, z);
+    let [x, y, z]: [f64; 3] = Deserialize::deserialize(deserializer)?;
+    let value = DVec3::new(x, y, z);
     Ok(value)
 }
 
@@ -323,7 +323,7 @@ mod tests {
 
         assert_eq!(metadata.image, PathBuf::from("simple.pgm"));
         assert_eq!(metadata.resolution, 1.0);
-        assert_eq!(metadata.origin, Vec3::ZERO);
+        assert_eq!(metadata.origin, DVec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
         assert!(!metadata.negate.is_negated());
@@ -343,7 +343,7 @@ mod tests {
 
         assert_eq!(metadata.image, PathBuf::from("simple.pgm"));
         assert_eq!(metadata.resolution, 0.05);
-        assert_eq!(metadata.origin, Vec3::ZERO);
+        assert_eq!(metadata.origin, DVec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
         assert!(!metadata.negate.is_negated());

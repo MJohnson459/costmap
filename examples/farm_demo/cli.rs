@@ -5,7 +5,7 @@
 
 use std::{collections::HashSet, path::PathBuf};
 
-use glam::Vec2;
+use glam::DVec2;
 
 use crate::route::DEFAULT_OVERVIEW_RESOLUTION_M;
 
@@ -16,7 +16,7 @@ const DEFAULT_SPEED_MPS: f32 = 1.5;
 const SPEED_RANGE_MPS: std::ops::RangeInclusive<f32> = 0.1..=10.0;
 /// Accepted `--overview-m` values: from finer than any row crop's lanes need up to
 /// field-scale cells.
-const OVERVIEW_RANGE_M: std::ops::RangeInclusive<f32> = 0.05..=5.0;
+const OVERVIEW_RANGE_M: std::ops::RangeInclusive<f64> = 0.05..=5.0;
 
 pub const USAGE: &str = "\
 Usage: farm_demo [OPTIONS]
@@ -54,12 +54,12 @@ pub enum Viewer {
 pub struct Options {
     pub map: Option<PathBuf>,
     /// Start and goal in the map's local frame.
-    pub endpoints: Option<(Vec2, Vec2)>,
+    pub endpoints: Option<(DVec2, DVec2)>,
     pub viewer: Viewer,
     pub frames: Option<PathBuf>,
     pub speed_mps: f32,
     /// Largest cell size of the route-planning overview.
-    pub overview_m: f32,
+    pub overview_m: f64,
 }
 
 impl Default for Options {
@@ -120,13 +120,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
     Ok(Command::Run(options))
 }
 
-fn parse_point(flag: &str, text: &str) -> Result<Vec2, String> {
+fn parse_point(flag: &str, text: &str) -> Result<DVec2, String> {
     let invalid = || format!("{flag} expects X,Y in metres, got {text:?}");
     let (x, y) = text.split_once(',').ok_or_else(invalid)?;
-    let x: f32 = x.trim().parse().map_err(|_| invalid())?;
-    let y: f32 = y.trim().parse().map_err(|_| invalid())?;
+    let x: f64 = x.trim().parse().map_err(|_| invalid())?;
+    let y: f64 = y.trim().parse().map_err(|_| invalid())?;
     if x.is_finite() && y.is_finite() {
-        Ok(Vec2::new(x, y))
+        Ok(DVec2::new(x, y))
     } else {
         Err(invalid())
     }
@@ -145,8 +145,8 @@ fn parse_speed(text: &str) -> Result<f32, String> {
         })
 }
 
-fn parse_overview(text: &str) -> Result<f32, String> {
-    text.parse::<f32>()
+fn parse_overview(text: &str) -> Result<f64, String> {
+    text.parse::<f64>()
         .ok()
         .filter(|m| OVERVIEW_RANGE_M.contains(m))
         .ok_or_else(|| {
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(options.map, Some(PathBuf::from("cost.tif")));
         assert_eq!(
             options.endpoints,
-            Some((Vec2::new(1.5, 2.0), Vec2::new(-3.0, 40.0)))
+            Some((DVec2::new(1.5, 2.0), DVec2::new(-3.0, 40.0)))
         );
         assert_eq!(options.viewer, Viewer::Save(PathBuf::from("out.rrd")));
         assert_eq!(options.frames, Some(PathBuf::from("frames")));

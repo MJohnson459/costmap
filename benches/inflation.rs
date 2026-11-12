@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::{UVec2, Vec2};
+use glam::{DVec2, UVec2};
 
 use costmap::types::{Bounds, COST_FREE, COST_LETHAL, CellRegion, MapInfo, Pose2};
 use costmap::{Costmap, InflationConfig, Layer, LayeredCostmap, WavefrontInflationLayer};
@@ -14,7 +14,7 @@ enum LethalPattern {
     Dense(u32),
 }
 
-fn grid_with_lethals(width: u32, height: u32, resolution: f32, pattern: LethalPattern) -> Costmap {
+fn grid_with_lethals(width: u32, height: u32, resolution: f64, pattern: LethalPattern) -> Costmap {
     let info = MapInfo {
         width,
         height,
@@ -67,7 +67,7 @@ impl Layer for StaticLethalsLayer {
     fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
         bounds.expand_to_include(self.info.origin);
         bounds.expand_to_include(
-            self.info.origin + Vec2::new(self.info.world_width(), self.info.world_height()),
+            self.info.origin + DVec2::new(self.info.world_width(), self.info.world_height()),
         );
     }
 
@@ -237,7 +237,7 @@ fn bench_inflation(c: &mut Criterion) {
         layered.add_layer(Box::new(static_layer)).unwrap();
         layered.add_layer(Box::new(inflation_layer)).unwrap();
         let robot = Pose2 {
-            position: Vec2::new(6.4, 6.4),
+            position: DVec2::new(6.4, 6.4),
             yaw: 0.0,
         };
         b.iter(|| {

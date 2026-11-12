@@ -7,7 +7,7 @@ use costmap::{
     planning::Regions,
     types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN},
 };
-use glam::{I64Vec2, IVec2, UVec2, Vec2};
+use glam::{DVec2, I64Vec2, IVec2, UVec2, Vec2};
 
 use crate::ROBOT_RADIUS_M;
 
@@ -20,7 +20,7 @@ use crate::ROBOT_RADIUS_M;
 /// of the factor their rows are offset. [`Overview::load`] sets the overview's origin to
 /// its own lower-left corner in the map's frame, and every use of the overview converts
 /// through that origin.
-pub const DEFAULT_OVERVIEW_RESOLUTION_M: f32 = 0.5;
+pub const DEFAULT_OVERVIEW_RESOLUTION_M: f64 = 0.5;
 /// Chunk edge of the tiled grids the overview is read into.
 const OVERVIEW_CHUNK_CELLS: u32 = 256;
 /// Inflation of the overview for global planning.
@@ -95,7 +95,7 @@ impl Overview {
     /// largest power-of-two multiple of the map's cells no larger than `target_m`:
     /// the route can only pass gaps a few overview cells wide, so maps with narrow
     /// lanes need a small target.
-    pub fn load(map: &mut CostGeoTiff, target_m: f32) -> Result<Self, VoxelError> {
+    pub fn load(map: &mut CostGeoTiff, target_m: f64) -> Result<Self, VoxelError> {
         let factor = overview_factor(map.resolution(), target_m);
         let (tiles, size, offset, source) = match stored_level(map, factor) {
             Ok(index) => {
@@ -115,7 +115,7 @@ impl Overview {
                 let tiles = map.read_overview_max(factor, OVERVIEW_CHUNK_CELLS)?;
                 let size = map.size().map(|s| s.div_ceil(factor));
                 let source = OverviewSource::Streamed { factor, reason };
-                (tiles, size, Vec2::ZERO, source)
+                (tiles, size, DVec2::ZERO, source)
             }
         };
         let window = tiles.window(IVec2::ZERO, size);
@@ -138,7 +138,7 @@ impl Overview {
 
     /// Mark the cells under `points` lethal in the raw costs, re-inflate if any changed,
     /// and return how many changed. Points outside the overview are ignored.
-    pub fn mark_lethal(&mut self, points: impl Iterator<Item = Vec2>) -> usize {
+    pub fn mark_lethal(&mut self, points: impl Iterator<Item = DVec2>) -> usize {
         let mut changed = 0;
         for point in points {
             if let Some(cell) = self.costs.world_to_map(point)
@@ -159,12 +159,12 @@ impl Overview {
     /// The planned cells are shortcut into straight segments between overview cell
     /// centres, with the exact start and goal as end points, and resampled every
     /// [`ROUTE_POINT_SPACING_M`].
-    pub fn plan_route(&self, start: Vec2, goal: Vec2) -> Result<Route, String> {
+    pub fn plan_route(&self, start: DVec2, goal: DVec2) -> Result<Route, String> {
         let start_cell = self.passable_cell(start, "start")?;
         let goal_cell = self.passable_cell(goal, "goal")?;
         let path = plan(&self.inflated, start_cell, goal_cell, &GLOBAL_PLAN)
             .ok_or_else(|| format!("no route from {start} to {goal} on the overview"))?;
-        let mut corners: Vec<Vec2> = path
+        let mut corners: Vec<DVec2> = path
             .shortcut(&self.inflated, &GLOBAL_PLAN)
             .into_iter()
             .map(|cell| self.inflated.map_to_world(cell))
@@ -189,11 +189,12 @@ impl Overview {
     /// furthest from that one. Each sweep is one pass over the cells, and the pair is at
     /// least half as far apart as the furthest pair of candidates. Ties go to the first
     /// cell in row-major order, so the choice is deterministic for a given map.
-    pub fn default_endpoints(&self) -> Result<(Vec2, Vec2), String> {
+    pub fn default_endpoints(&self) -> Result<(DVec2, DVec2), String> {
         let none = "the map has no two free cells to drive between";
         let regions = Regions::new(&self.inflated, &GLOBAL_PLAN);
         let region = regions.largest().ok_or(none)?;
-        let margin = (ENDPOINT_KNOWN_MARGIN_M / self.costs.info().resolution).ceil() as usize;
+        let margin =
+            (f64::from(ENDPOINT_KNOWN_MARGIN_M) / self.costs.info().resolution).ceil() as usize;
         let near_unknown = near_unknown(&self.costs, margin);
         let width = self.costs.size().x as usize;
         let candidates = || {
@@ -223,7 +224,7 @@ impl Overview {
     pub fn chunks_under_known_cells(
         &self,
         chunk_cells: u32,
-        resolution: f32,
+        resolution: f64,
         map_size: UVec2,
     ) -> usize {
         let info = self.costs.info();
@@ -249,7 +250,7 @@ impl Overview {
         chunks.len()
     }
 
-    fn passable_cell(&self, point: Vec2, name: &str) -> Result<UVec2, String> {
+    fn passable_cell(&self, point: DVec2, name: &str) -> Result<UVec2, String> {
         let cell = self
             .inflated
             .world_to_map(point)
@@ -266,19 +267,19 @@ impl Overview {
 
 /// The global route: a polyline in the map's local frame.
 pub struct Route {
-    points: Vec<Vec2>,
+    points: Vec<DVec2>,
     /// Distance along the route to each point.
     cumulative_m: Vec<f32>,
 }
 
 impl Route {
     /// `points` must hold at least one point.
-    pub fn new(points: Vec<Vec2>) -> Self {
+    pub fn new(points: Vec<DVec2>) -> Self {
         let mut total = 0.0;
         let mut cumulative_m = Vec::with_capacity(points.len());
         for (i, point) in points.iter().enumerate() {
             if i > 0 {
-                total += points[i - 1].distance(*point);
+                total += points[i - 1].distance(*point) as f32;
             }
             cumulative_m.push(total);
         }
@@ -288,7 +289,7 @@ impl Route {
         }
     }
 
-    pub fn points(&self) -> &[Vec2] {
+    pub fn points(&self) -> &[DVec2] {
         &self.points
     }
 
@@ -296,7 +297,7 @@ impl Route {
         self.cumulative_m.last().copied().unwrap_or(0.0)
     }
 
-    pub fn goal(&self) -> Vec2 {
+    pub fn goal(&self) -> DVec2 {
         self.points[self.points.len() - 1]
     }
 
@@ -316,17 +317,22 @@ impl Route {
     pub fn direction_at(&self, index: usize) -> Vec2 {
         let before = self.points[index.saturating_sub(1)];
         let after = self.points[(index + 1).min(self.points.len() - 1)];
-        (after - before).try_normalize().unwrap_or(Vec2::X)
+        (after - before)
+            .try_normalize()
+            .map_or(Vec2::X, |direction| direction.as_vec2())
     }
 }
 
 /// Points along the polyline `corners`, keeping every corner and adding points so that
 /// none are further apart than `spacing`.
-pub fn resample(corners: &[Vec2], spacing: f32) -> Vec<Vec2> {
-    let mut points: Vec<Vec2> = corners.first().copied().into_iter().collect();
+pub fn resample(corners: &[DVec2], spacing: f32) -> Vec<DVec2> {
+    let mut points: Vec<DVec2> = corners.first().copied().into_iter().collect();
     for pair in corners.windows(2) {
-        let pieces = (pair[0].distance(pair[1]) / spacing).ceil().max(1.0) as u32;
-        points.extend((1..=pieces).map(|i| pair[0].lerp(pair[1], i as f32 / pieces as f32)));
+        let pieces = (pair[0].distance(pair[1]) / f64::from(spacing))
+            .ceil()
+            .max(1.0) as u32;
+        points
+            .extend((1..=pieces).map(|i| pair[0].lerp(pair[1], f64::from(i) / f64::from(pieces))));
     }
     points
 }
@@ -350,9 +356,9 @@ fn stored_level(map: &CostGeoTiff, factor: u32) -> Result<usize, StreamReason> {
 /// Largest power of two `f` with `resolution * f` at or below `target_m`.
 /// It is 1 for cells coarser than half the target, and the overview is then the
 /// full-resolution map.
-fn overview_factor(resolution: f32, target_m: f32) -> u32 {
+fn overview_factor(resolution: f64, target_m: f64) -> u32 {
     let mut factor = 1;
-    while resolution * (2 * factor) as f32 <= target_m {
+    while resolution * f64::from(2 * factor) <= target_m {
         factor *= 2;
     }
     factor
@@ -434,8 +440,8 @@ mod tests {
         }
         // 201 rows at 0.1 m: the 1/4 levels' rows are offset by 0.3 m.
         let dir = TempDir::new("anchor");
-        let feature = Vec2::new(12.05, 15.05);
-        let lethal_at_feature = |p: Vec2| {
+        let feature = DVec2::new(12.05, 15.05);
+        let lethal_at_feature = |p: DVec2| {
             if p.distance(feature) < 0.01 {
                 COST_LETHAL
             } else {
@@ -445,7 +451,7 @@ mod tests {
         let stored = write_map(
             &dir,
             "stored.tif",
-            Vec2::new(120.0, 20.1),
+            DVec2::new(120.0, 20.1),
             0.1,
             lethal_at_feature,
         );
@@ -461,7 +467,7 @@ mod tests {
             let from_file = matches!(overview.source, OverviewSource::FileLevel { factor: 4 });
             assert_eq!(from_file, stored_level, "{:?}", overview.source);
             let costs = &overview.costs;
-            let lethal: Vec<Vec2> = (costs.indexed_iter())
+            let lethal: Vec<DVec2> = (costs.indexed_iter())
                 .filter(|&(_, &c)| c == COST_LETHAL)
                 .map(|(cell, _)| costs.map_to_world(cell))
                 .collect();
@@ -490,7 +496,7 @@ mod tests {
 
     #[test]
     fn resample_keeps_corners_and_bounds_spacing() {
-        let corners = [Vec2::ZERO, Vec2::new(1.2, 0.0), Vec2::new(1.2, 0.2)];
+        let corners = [DVec2::ZERO, DVec2::new(1.2, 0.0), DVec2::new(1.2, 0.2)];
         let points = resample(&corners, 0.5);
         assert_eq!(points.len(), 5);
         assert_eq!(points[3], corners[1]);
@@ -524,7 +530,7 @@ mod tests {
         });
         let overview = uninflated(costs);
         let (a, b) = overview.default_endpoints().unwrap();
-        let cell = |p: Vec2| overview.inflated.world_to_map(p).unwrap();
+        let cell = |p: DVec2| overview.inflated.world_to_map(p).unwrap();
         assert!(
             plan(&overview.inflated, cell(a), cell(b), &GLOBAL_PLAN).is_some(),
             "{a} to {b}"
@@ -543,7 +549,7 @@ mod tests {
             width: 40,
             height: 20,
             resolution: 0.4,
-            origin: Vec2::ZERO,
+            origin: DVec2::ZERO,
         };
         let costs = Costmap::from_fn(info, |x, y| {
             let inside = (2..38).contains(&x) && (2..18).contains(&y);
@@ -572,7 +578,10 @@ mod tests {
             elapsed.as_secs_f32() < ENDPOINTS_TIME_LIMIT_S,
             "{elapsed:?}"
         );
-        let corners = [Vec2::splat(0.25), Vec2::splat(side as f32 * 0.5 - 0.25)];
+        let corners = [
+            DVec2::splat(0.25),
+            DVec2::splat(f64::from(side) * 0.5 - 0.25),
+        ];
         assert!(corners.contains(&a) && corners.contains(&b), "{a} {b}");
     }
 

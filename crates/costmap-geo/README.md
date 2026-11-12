@@ -148,4 +148,3 @@ The output raster is assembled in memory before it is written, at one byte per c
 - No reprojection. All inputs, and the overrides file, must be in the same projected CRS. Rasters without an EPSG code, with rotation, or in a geographic CRS are rejected, as are differing EPSG codes.
 - Orthophoto cells outside the orthophoto's extent are unknown. The orthophoto's extent usually differs slightly from the DEMs', so a thin strip along some edges is unknown.
 - `--resolution` coarser than the DTM samples the nearest DTM pixel and does not average, so features thinner than the cell may be missed or kept at random.
-- The cost map's pixel size is stored through the core crate's `f32` resolution. A 0.05 m cell is written as 0.0500000007 m, which moves the far edge of the Aukerman raster by about 4 micrometres in y.

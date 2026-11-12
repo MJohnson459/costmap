@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::{IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     DenseGrid,
@@ -12,7 +12,7 @@ use crate::{
 const MAX_CHUNK_SIZE: u32 = 1 << 15;
 
 /// Relative tolerance when comparing the resolution of a window to the grid's.
-const RESOLUTION_TOLERANCE: f32 = 1e-4;
+const RESOLUTION_TOLERANCE: f64 = 1e-4;
 
 /// Sparse grid of fixed-size square chunks addressed by signed global cell coordinates.
 ///
@@ -24,7 +24,7 @@ const RESOLUTION_TOLERANCE: f32 = 1e-4;
 pub struct TiledGrid<T> {
     chunks: HashMap<IVec2, Box<[T]>>,
     chunk_size: u32,
-    resolution: f32,
+    resolution: f64,
     fill: T,
 }
 
@@ -81,7 +81,7 @@ impl<T: Clone> TiledGrid<T> {
     ///
     /// Fails if `chunk_size` is zero or above 32768, or if `resolution` is not
     /// finite and positive.
-    pub fn new(resolution: f32, chunk_size: u32, fill: T) -> Result<Self, VoxelError> {
+    pub fn new(resolution: f64, chunk_size: u32, fill: T) -> Result<Self, VoxelError> {
         if chunk_size == 0 || chunk_size > MAX_CHUNK_SIZE {
             return Err(VoxelError::InvalidArgument(format!(
                 "chunk size {chunk_size} must be in 1..={MAX_CHUNK_SIZE}"
@@ -101,7 +101,7 @@ impl<T: Clone> TiledGrid<T> {
     }
 
     /// Cell edge length in metres.
-    pub fn resolution(&self) -> f32 {
+    pub fn resolution(&self) -> f64 {
         self.resolution
     }
 
@@ -152,18 +152,18 @@ impl<T: Clone> TiledGrid<T> {
     }
 
     /// Cell containing the local-frame position `pos` (floor, so negative positions round down).
-    pub fn world_to_cell(&self, pos: Vec2) -> IVec2 {
+    pub fn world_to_cell(&self, pos: DVec2) -> IVec2 {
         (pos / self.resolution).floor().as_ivec2()
     }
 
     /// Lower-left corner of `cell` in the local frame.
-    pub fn cell_origin(&self, cell: IVec2) -> Vec2 {
-        cell.as_vec2() * self.resolution
+    pub fn cell_origin(&self, cell: IVec2) -> DVec2 {
+        cell.as_dvec2() * self.resolution
     }
 
     /// Centre of `cell` in the local frame.
-    pub fn cell_center(&self, cell: IVec2) -> Vec2 {
-        self.cell_origin(cell) + Vec2::splat(0.5 * self.resolution)
+    pub fn cell_center(&self, cell: IVec2) -> DVec2 {
+        self.cell_origin(cell) + DVec2::splat(0.5 * self.resolution)
     }
 
     /// Coordinate of the chunk containing `cell`.
@@ -174,7 +174,7 @@ impl<T: Clone> TiledGrid<T> {
     }
 
     /// Whether `resolution` is within a relative 1e-4 of this grid's.
-    pub fn resolution_matches(&self, resolution: f32) -> bool {
+    pub fn resolution_matches(&self, resolution: f64) -> bool {
         (resolution - self.resolution).abs() <= RESOLUTION_TOLERANCE * self.resolution
     }
 
@@ -263,7 +263,7 @@ impl<T: Clone> TiledGrid<T> {
     }
 
     /// Like [`window`](Self::window), covering `size` cells with the cell containing `center` in the middle.
-    pub fn window_centered(&self, center: Vec2, size: UVec2) -> DenseGrid<T> {
+    pub fn window_centered(&self, center: DVec2, size: UVec2) -> DenseGrid<T> {
         let min_cell = self.world_to_cell(center) - (size / 2).as_ivec2();
         self.window(min_cell, size)
     }
@@ -335,7 +335,7 @@ impl TiledGrid<u8> {
                 VoxelError::InvalidArgument(format!("overview factor {factor} must be >= 1"))
             })?;
         let mut out = TiledGrid::new(
-            self.resolution * factor as f32,
+            self.resolution * factor as f64,
             self.chunk_size,
             COST_UNKNOWN,
         )?;
@@ -373,8 +373,8 @@ mod tests {
         assert!(TiledGrid::new(0.05, MAX_CHUNK_SIZE + 1, 0u8).is_err());
         assert!(TiledGrid::new(0.0, 8, 0u8).is_err());
         assert!(TiledGrid::new(-1.0, 8, 0u8).is_err());
-        assert!(TiledGrid::new(f32::NAN, 8, 0u8).is_err());
-        assert!(TiledGrid::new(f32::INFINITY, 8, 0u8).is_err());
+        assert!(TiledGrid::new(f64::NAN, 8, 0u8).is_err());
+        assert!(TiledGrid::new(f64::INFINITY, 8, 0u8).is_err());
     }
 
     #[test]
@@ -435,10 +435,10 @@ mod tests {
     #[test]
     fn world_cell_conversions() {
         let g = grid(16);
-        assert_eq!(g.world_to_cell(Vec2::new(0.49, -0.01)), IVec2::new(0, -1));
-        assert_eq!(g.world_to_cell(Vec2::new(-0.5, 0.5)), IVec2::new(-1, 1));
-        assert_eq!(g.cell_origin(IVec2::new(-2, 3)), Vec2::new(-1.0, 1.5));
-        assert_eq!(g.cell_center(IVec2::new(-2, 3)), Vec2::new(-0.75, 1.75));
+        assert_eq!(g.world_to_cell(DVec2::new(0.49, -0.01)), IVec2::new(0, -1));
+        assert_eq!(g.world_to_cell(DVec2::new(-0.5, 0.5)), IVec2::new(-1, 1));
+        assert_eq!(g.cell_origin(IVec2::new(-2, 3)), DVec2::new(-1.0, 1.5));
+        assert_eq!(g.cell_center(IVec2::new(-2, 3)), DVec2::new(-0.75, 1.75));
     }
 
     #[test]
@@ -534,7 +534,7 @@ mod tests {
             width: 4,
             height: 4,
             resolution: 0.5,
-            origin: Vec2::new(0.52, 0.98),
+            origin: DVec2::new(0.52, 0.98),
         };
         let mut target = DenseGrid::filled(info, 99u8);
         g.read_into(&mut target).unwrap();

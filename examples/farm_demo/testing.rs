@@ -9,7 +9,7 @@ use std::{
 use costmap::{
     DenseGrid, GeoReference, MapInfo, TiledGrid, types::COST_UNKNOWN, write_cost_geotiff_region,
 };
-use glam::{DVec2, IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2};
 
 const GEOREFERENCE: GeoReference = GeoReference {
     epsg: Some(32630),
@@ -48,19 +48,19 @@ impl Drop for TempDir {
 pub fn write_map(
     dir: &TempDir,
     name: &str,
-    size_m: Vec2,
-    resolution: f32,
-    cost: impl Fn(Vec2) -> u8,
+    size_m: DVec2,
+    resolution: f64,
+    cost: impl Fn(DVec2) -> u8,
 ) -> PathBuf {
     let size = (size_m / resolution).round().as_uvec2();
     let info = MapInfo {
         width: size.x,
         height: size.y,
         resolution,
-        origin: Vec2::ZERO,
+        origin: DVec2::ZERO,
     };
     let raster = DenseGrid::from_fn(info, |x, y| {
-        cost(info.origin + (UVec2::new(x, y).as_vec2() + 0.5) * resolution)
+        cost(info.origin + (UVec2::new(x, y).as_dvec2() + 0.5) * resolution)
     });
     let mut tiles = TiledGrid::new(resolution, WRITE_CHUNK_CELLS, COST_UNKNOWN).unwrap();
     tiles.write_window(&raster).unwrap();

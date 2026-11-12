@@ -59,8 +59,8 @@ fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
     let info = costmap.info();
     let (width, height, cells) = costmap_to_l_bytes(costmap);
     grid_map(
-        info.origin,
-        info.resolution,
+        info.origin.as_vec2(),
+        info.resolution as f32,
         z_world,
         width,
         height,
@@ -104,8 +104,8 @@ fn occupancy_grid_map(grid: &OccupancyGrid, z_world: f32) -> rerun::GridMap {
     let info = grid.info();
     let (width, height, cells) = occupancy_to_l_bytes(grid);
     grid_map(
-        info.origin,
-        info.resolution,
+        info.origin.as_vec2(),
+        info.resolution as f32,
         z_world,
         width,
         height,

@@ -9,7 +9,7 @@
 //! This layer pattern is inspired by Nav2's `CostmapLayer`, but generalized to
 //! support any cell type `T` with a semantic → cost projection closure.
 
-use glam::Vec2;
+use glam::DVec2;
 
 use crate::{
     DenseGrid,
@@ -91,7 +91,7 @@ impl<T: Clone + 'static> Layer for ProjectionLayer<T> {
         // Expand bounds to the source grid's (now current) world extent.
         let info = self.source.info();
         bounds.expand_to_include(info.origin);
-        bounds.expand_to_include(info.origin + Vec2::new(info.world_width(), info.world_height()));
+        bounds.expand_to_include(info.origin + DVec2::new(info.world_width(), info.world_height()));
     }
 
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
@@ -291,7 +291,7 @@ mod tests {
 
         let mut bounds = Bounds::empty();
         let robot = Pose2 {
-            position: Vec2::new(5.0, 5.0),
+            position: DVec2::new(5.0, 5.0),
             yaw: 0.0,
         };
         layer.update_bounds(robot, &mut bounds);
@@ -299,11 +299,11 @@ mod tests {
         // Rolling: the source is re-centred on the robot during update_bounds. The
         // origin snaps to whole cells (update_origin shifts by integer cell offsets),
         // so centring on (5,5) with 1 m cells gives origin (2.0, 2.0), not (2.5, 2.5).
-        assert_eq!(layer.source().info().origin, Vec2::new(2.0, 2.0));
+        assert_eq!(layer.source().info().origin, DVec2::new(2.0, 2.0));
         // Bounds cover exactly the (re-centred) source world extent — i.e. where the
         // layer can actually write, not some larger nominal range.
-        assert_eq!(bounds.min, Vec2::new(2.0, 2.0));
-        assert_eq!(bounds.max, Vec2::new(7.0, 7.0));
+        assert_eq!(bounds.min, DVec2::new(2.0, 2.0));
+        assert_eq!(bounds.max, DVec2::new(7.0, 7.0));
     }
 
     #[test]
@@ -318,16 +318,16 @@ mod tests {
         let mut bounds = Bounds::empty();
         layer.update_bounds(
             Pose2 {
-                position: Vec2::new(5.0, 5.0),
+                position: DVec2::new(5.0, 5.0),
                 yaw: 0.0,
             },
             &mut bounds,
         );
 
         // Not rolling: the source stays put and bounds are its fixed world extent.
-        assert_eq!(layer.source().info().origin, Vec2::ZERO);
-        assert_eq!(bounds.min, Vec2::ZERO);
-        assert_eq!(bounds.max, Vec2::new(5.0, 5.0));
+        assert_eq!(layer.source().info().origin, DVec2::ZERO);
+        assert_eq!(bounds.min, DVec2::ZERO);
+        assert_eq!(bounds.max, DVec2::new(5.0, 5.0));
     }
 
     #[test]
@@ -354,7 +354,7 @@ mod tests {
             .set(glam::UVec2::new(3, 3), 1.0)
             .unwrap();
         layered.update_map(Pose2 {
-            position: Vec2::new(2.5, 2.5),
+            position: DVec2::new(2.5, 2.5),
             yaw: 0.0,
         });
         // World (3.5,3.5) → cell (3,3) with origin (0,0).
@@ -366,7 +366,7 @@ mod tests {
         // Move the window +1 m in x → origin snaps to (1,0). No re-marking: the source
         // persists data by world position across the shift.
         layered.update_map(Pose2 {
-            position: Vec2::new(3.5, 2.5),
+            position: DVec2::new(3.5, 2.5),
             yaw: 0.0,
         });
         // World (3.5,3.5) now maps to cell (2,3) with origin (1,0).

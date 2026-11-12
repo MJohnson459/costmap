@@ -69,19 +69,19 @@ Load a map and perform raycasting for obstacle detection:
 
 ```rust
 use costmap::RosMapLoader;
-use glam::Vec2;
+use glam::{DVec2, Vec2};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load a ROS2 map (YAML + image format)
     let grid = RosMapLoader::load_from_yaml("map.yaml")?;
 
     // Raycast from origin in a given direction
-    let origin = Vec2::new(10.0, 10.0);  // meters, world coordinates
+    let origin = DVec2::new(10.0, 10.0);  // meters, world coordinates
     let direction = Vec2::new(1.0, 0.0); // unit vector
     let max_range = 30.0;
 
     // Check for obstacles along the ray
-    if let Some(hit) = grid.raycast_dda(&origin, &direction, max_range) {
+    if let Some(hit) = grid.raycast_dda(origin, direction, max_range) {
         println!("Hit obstacle at distance: {:.2}m", hit.hit_distance);
         println!("Cell coordinates: {:?}", hit.cell);
     } else {

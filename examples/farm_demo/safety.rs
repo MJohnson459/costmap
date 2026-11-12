@@ -8,7 +8,7 @@
 //! Unknown map cells are not obstacles: the map has no data there.
 
 use costmap::{TiledGrid, types::COST_LETHAL};
-use glam::{IVec2, Vec2};
+use glam::{DVec2, IVec2};
 
 use crate::{route::resample, world::Obstacle};
 
@@ -55,10 +55,10 @@ impl SafetyMonitor {
         &mut self,
         tiles: &TiledGrid<u8>,
         obstacles: &[Obstacle],
-        path: &[Vec2],
+        path: &[DVec2],
     ) -> f32 {
         let resolution = tiles.resolution();
-        let points = resample(path, SAMPLE_SPACING_CELLS * resolution);
+        let points = resample(path, SAMPLE_SPACING_CELLS * resolution as f32);
         let reach = self.radius_m + CLEARANCE_HORIZON_M;
         let lethal = lethal_cells_near(tiles, &points, reach);
         let clearance = points
@@ -81,13 +81,14 @@ impl SafetyMonitor {
 
 /// Lower-left corners of the lethal cells of `tiles` within `reach` of the bounding box
 /// of `points`.
-fn lethal_cells_near(tiles: &TiledGrid<u8>, points: &[Vec2], reach: f32) -> Vec<Vec2> {
+fn lethal_cells_near(tiles: &TiledGrid<u8>, points: &[DVec2], reach: f32) -> Vec<DVec2> {
     let Some(&first) = points.first() else {
         return Vec::new();
     };
     let (min, max) = points
         .iter()
         .fold((first, first), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+    let reach = f64::from(reach);
     let lo = tiles.world_to_cell(min - reach);
     let hi = tiles.world_to_cell(max + reach);
     let size = (hi - lo + IVec2::ONE).as_uvec2();
@@ -101,16 +102,17 @@ fn lethal_cells_near(tiles: &TiledGrid<u8>, points: &[Vec2], reach: f32) -> Vec<
 
 /// Distance from `point` to the square of side `side` whose lower-left corner is `corner`;
 /// zero inside it.
-fn distance_to_square(point: Vec2, corner: Vec2, side: f32) -> f32 {
+fn distance_to_square(point: DVec2, corner: DVec2, side: f64) -> f32 {
     let outside = (corner - point)
         .max(point - (corner + side))
-        .max(Vec2::ZERO);
-    outside.length()
+        .max(DVec2::ZERO);
+    outside.length() as f32
 }
 
 #[cfg(test)]
 mod tests {
     use costmap::types::{COST_FREE, COST_UNKNOWN};
+    use glam::Vec2;
 
     use super::*;
 
@@ -129,7 +131,7 @@ mod tests {
 
     fn trailer() -> Obstacle {
         Obstacle {
-            centre: Vec2::new(10.0, 10.0),
+            centre: DVec2::new(10.0, 10.0),
             axis: Vec2::X,
             half_size: Vec2::new(1.5, 1.0),
         }
@@ -138,7 +140,7 @@ mod tests {
     #[test]
     fn driving_through_a_surprise_obstacle_is_a_violation() {
         let mut monitor = SafetyMonitor::new(RADIUS_M);
-        let path = [Vec2::new(5.0, 10.0), Vec2::new(15.0, 10.0)];
+        let path = [DVec2::new(5.0, 10.0), DVec2::new(15.0, 10.0)];
         let clearance = monitor.check_path(&free_tiles(), &[trailer()], &path);
         assert_eq!(clearance, -RADIUS_M);
         assert_eq!(monitor.violations(), 1);
@@ -148,7 +150,7 @@ mod tests {
     fn grazing_past_an_obstacle_is_measured_to_the_footprint_edge() {
         let mut monitor = SafetyMonitor::new(RADIUS_M);
         // 1.5 m from the trailer's side, which is 1 m from its centre line.
-        let path = [Vec2::new(5.0, 12.5), Vec2::new(15.0, 12.5)];
+        let path = [DVec2::new(5.0, 12.5), DVec2::new(15.0, 12.5)];
         let clearance = monitor.check_path(&free_tiles(), &[trailer()], &path);
         assert!((clearance - 1.1).abs() < 1e-4, "{clearance}");
         assert_eq!(monitor.violations(), 0);
@@ -161,7 +163,7 @@ mod tests {
         // Cell (100, 103) spans x 10.0..10.1 and y 10.3..10.4: 0.3 m from the path.
         tiles.set(IVec2::new(100, 103), COST_LETHAL);
         let mut monitor = SafetyMonitor::new(RADIUS_M);
-        let path = [Vec2::new(5.0, 10.0), Vec2::new(15.0, 10.0)];
+        let path = [DVec2::new(5.0, 10.0), DVec2::new(15.0, 10.0)];
         let clearance = monitor.check_path(&tiles, &[], &path);
         assert!((clearance + 0.1).abs() < 1e-4, "{clearance}");
         assert_eq!(monitor.violations(), 1);
@@ -170,7 +172,7 @@ mod tests {
     #[test]
     fn a_single_pose_on_open_ground_has_the_horizon_as_clearance() {
         let mut monitor = SafetyMonitor::new(RADIUS_M);
-        let path = [Vec2::new(5.0, 5.0)];
+        let path = [DVec2::new(5.0, 5.0)];
         assert_eq!(
             monitor.check_path(&free_tiles(), &[], &path),
             CLEARANCE_HORIZON_M

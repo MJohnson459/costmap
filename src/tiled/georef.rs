@@ -1,11 +1,11 @@
-use glam::{DVec2, Vec2};
+use glam::DVec2;
 
 /// Where the local frame sits in a projected coordinate reference system.
 ///
 /// UTM eastings are around 500,000 m, and `f32` has a 24-bit mantissa, so an
-/// `f32` near that value resolves only about 3 cm. All per-cell arithmetic
-/// therefore stays in `f32` metres relative to [`anchor`](Self::anchor), and
-/// only this type touches `f64` projected coordinates.
+/// `f32` near that value resolves only about 3 cm. World positions are therefore
+/// `f64`; per-cell arithmetic narrows to `f32` metres relative to a grid origin or
+/// [`anchor`](Self::anchor).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GeoReference {
     /// EPSG code of the projected coordinate reference system, if known.
@@ -17,14 +17,13 @@ pub struct GeoReference {
 impl GeoReference {
     /// Convert projected coordinates to the local frame.
     ///
-    /// The subtraction happens in `f64`; only the small difference is narrowed to `f32`.
-    pub fn to_local(&self, projected: DVec2) -> Vec2 {
-        (projected - self.anchor).as_vec2()
+    pub fn to_local(&self, projected: DVec2) -> DVec2 {
+        projected - self.anchor
     }
 
     /// Convert local-frame metres to projected coordinates.
-    pub fn to_projected(&self, local: Vec2) -> DVec2 {
-        self.anchor + local.as_dvec2()
+    pub fn to_projected(&self, local: DVec2) -> DVec2 {
+        self.anchor + local
     }
 }
 
@@ -40,10 +39,10 @@ mod tests {
     #[test]
     fn local_round_trip_is_sub_millimetre_within_5_km() {
         let offsets = [
-            Vec2::new(0.0, 0.0),
-            Vec2::new(4999.9, -4999.9),
-            Vec2::new(-4321.123, 1234.567),
-            Vec2::new(0.013, 4999.99),
+            DVec2::new(0.0, 0.0),
+            DVec2::new(4999.9, -4999.9),
+            DVec2::new(-4321.123, 1234.567),
+            DVec2::new(0.013, 4999.99),
         ];
         for local in offsets {
             let back = UTM.to_local(UTM.to_projected(local));

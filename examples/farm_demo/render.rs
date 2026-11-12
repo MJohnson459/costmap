@@ -10,7 +10,7 @@ use costmap::{
     Costmap,
     types::{COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, Pose2},
 };
-use glam::{UVec2, Vec2};
+use glam::{DVec2, UVec2, Vec2};
 use image::{Rgb, RgbImage};
 
 pub const FRAME_SIZE: UVec2 = UVec2::new(1280, 720);
@@ -48,17 +48,17 @@ const HEADING_LENGTH_PX: f32 = 12.0;
 /// Everything one frame shows, in the map's local frame.
 pub struct Scene<'a> {
     pub overview: &'a Costmap,
-    pub route: &'a [Vec2],
-    pub driven: &'a [Vec2],
+    pub route: &'a [DVec2],
+    pub driven: &'a [DVec2],
     pub robot: Pose2,
     pub robot_radius_m: f32,
     /// Lower-left and upper-right corners of each loaded tile chunk.
-    pub chunks: Vec<(Vec2, Vec2)>,
+    pub chunks: Vec<(DVec2, DVec2)>,
     pub local: &'a Costmap,
-    pub hits: &'a [Vec2],
-    pub local_plan: Vec<Vec2>,
+    pub hits: &'a [DVec2],
+    pub local_plan: Vec<DVec2>,
     /// Corners of each surprise obstacle.
-    pub surprises: Vec<[Vec2; 4]>,
+    pub surprises: Vec<[DVec2; 4]>,
 }
 
 /// Colour of a cost cell.
@@ -95,20 +95,20 @@ impl PixelRect {
 #[derive(Debug, Clone, Copy)]
 pub struct View {
     /// World position of the top-left corner of `pixels`.
-    top_left: Vec2,
+    top_left: DVec2,
     /// Pixels per metre.
-    scale: f32,
+    scale: f64,
     pub pixels: PixelRect,
 }
 
 impl View {
     /// Fit the world rectangle `[min, max]` into `area`, centred, keeping its aspect ratio.
-    pub fn fit(min: Vec2, max: Vec2, area: PixelRect) -> Self {
+    pub fn fit(min: DVec2, max: DVec2, area: PixelRect) -> Self {
         let extent = max - min;
-        let scale = (area.size.as_vec2() / extent).min_element();
+        let scale = (area.size.as_dvec2() / extent).min_element();
         let size = (extent * scale).round().as_uvec2().min(area.size);
         Self {
-            top_left: Vec2::new(min.x, max.y),
+            top_left: DVec2::new(min.x, max.y),
             scale,
             pixels: PixelRect {
                 min: area.min + (area.size - size) / 2,
@@ -120,20 +120,20 @@ impl View {
     /// Fit the extent of `grid` into `area`.
     pub fn fit_grid(grid: &Costmap, area: PixelRect) -> Self {
         let info = grid.info();
-        let max = info.origin + Vec2::new(info.world_width(), info.world_height());
+        let max = info.origin + DVec2::new(info.world_width(), info.world_height());
         Self::fit(info.origin, max, area)
     }
 
     /// Image position of world point `p`; y grows downwards, so north is up.
-    pub fn to_pixel(self, p: Vec2) -> Vec2 {
-        let offset = (p - self.top_left) * self.scale;
+    pub fn to_pixel(self, p: DVec2) -> Vec2 {
+        let offset = ((p - self.top_left) * self.scale).as_vec2();
         self.pixels.min.as_vec2() + Vec2::new(offset.x, -offset.y)
     }
 
     /// World position of the centre of image pixel `(x, y)`.
-    fn to_world(self, x: u32, y: u32) -> Vec2 {
-        let offset = (UVec2::new(x, y) - self.pixels.min).as_vec2() + 0.5;
-        self.top_left + Vec2::new(offset.x, -offset.y) / self.scale
+    fn to_world(self, x: u32, y: u32) -> DVec2 {
+        let offset = (UVec2::new(x, y) - self.pixels.min).as_dvec2() + 0.5;
+        self.top_left + DVec2::new(offset.x, -offset.y) / self.scale
     }
 }
 
@@ -167,7 +167,7 @@ pub fn render(scene: &Scene) -> RgbImage {
     }
     let local_info = scene.local.info();
     let local_max =
-        local_info.origin + Vec2::new(local_info.world_width(), local_info.world_height());
+        local_info.origin + DVec2::new(local_info.world_width(), local_info.world_height());
     rectangle(
         &mut image,
         &map,
@@ -199,7 +199,7 @@ pub fn render(scene: &Scene) -> RgbImage {
         &mut image,
         &local,
         scene.robot,
-        scene.robot_radius_m * local.scale,
+        scene.robot_radius_m * local.scale as f32,
     );
 
     legend(
@@ -254,20 +254,27 @@ fn robot(image: &mut RgbImage, view: &View, pose: Pose2, radius_px: f32) {
     segment(image, &view.pixels, centre, tip, ROBOT, LINE_PX);
 }
 
-fn polyline(image: &mut RgbImage, view: &View, points: &[Vec2], colour: Rgb<u8>, width: f32) {
+fn polyline(image: &mut RgbImage, view: &View, points: &[DVec2], colour: Rgb<u8>, width: f32) {
     for pair in points.windows(2) {
         let (a, b) = (view.to_pixel(pair[0]), view.to_pixel(pair[1]));
         segment(image, &view.pixels, a, b, colour, width);
     }
 }
 
-fn polygon(image: &mut RgbImage, view: &View, corners: &[Vec2], colour: Rgb<u8>, width: f32) {
-    let closed: Vec<Vec2> = corners.iter().chain(corners.first()).copied().collect();
+fn polygon(image: &mut RgbImage, view: &View, corners: &[DVec2], colour: Rgb<u8>, width: f32) {
+    let closed: Vec<DVec2> = corners.iter().chain(corners.first()).copied().collect();
     polyline(image, view, &closed, colour, width);
 }
 
-fn rectangle(image: &mut RgbImage, view: &View, min: Vec2, max: Vec2, colour: Rgb<u8>, width: f32) {
-    let corners = [min, Vec2::new(max.x, min.y), max, Vec2::new(min.x, max.y)];
+fn rectangle(
+    image: &mut RgbImage,
+    view: &View,
+    min: DVec2,
+    max: DVec2,
+    colour: Rgb<u8>,
+    width: f32,
+) {
+    let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
     polygon(image, view, &corners, colour, width);
 }
 
@@ -345,8 +352,8 @@ mod tests {
     #[test]
     fn north_is_up() {
         let view = View::fit(
-            Vec2::ZERO,
-            Vec2::new(10.0, 5.0),
+            DVec2::ZERO,
+            DVec2::new(10.0, 5.0),
             PixelRect {
                 min: UVec2::ZERO,
                 size: UVec2::new(100, 100),
@@ -354,8 +361,8 @@ mod tests {
         );
         // A 10 x 5 m area in a square panel is letterboxed vertically.
         assert_eq!(view.pixels.min, UVec2::new(0, 25));
-        assert_eq!(view.to_pixel(Vec2::new(0.0, 5.0)), Vec2::new(0.0, 25.0));
-        assert_eq!(view.to_pixel(Vec2::new(10.0, 0.0)), Vec2::new(100.0, 75.0));
+        assert_eq!(view.to_pixel(DVec2::new(0.0, 5.0)), Vec2::new(0.0, 25.0));
+        assert_eq!(view.to_pixel(DVec2::new(10.0, 0.0)), Vec2::new(100.0, 75.0));
     }
 
     #[test]

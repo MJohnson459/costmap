@@ -9,7 +9,7 @@ use costmap::{
     planning::Regions,
     types::{COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, Pose2},
 };
-use glam::{IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     ROBOT_RADIUS_M,
@@ -67,7 +67,7 @@ pub enum Status {
     Reached,
     /// The robot can reach no point of the route and the recovery failed.
     Blocked {
-        at: Vec2,
+        at: DVec2,
         reason: BlockReason,
     },
     TimedOut,
@@ -128,10 +128,10 @@ pub struct Simulation {
     steps: u64,
     /// Index of the route point the robot has progressed to.
     progress: usize,
-    local_plan: VecDeque<Vec2>,
+    local_plan: VecDeque<DVec2>,
     steps_since_plan: u64,
-    driven: Vec<Vec2>,
-    hits: Vec<Vec2>,
+    driven: Vec<DVec2>,
+    hits: Vec<DVec2>,
     status: Status,
     stats: Stats,
     safety: SafetyMonitor,
@@ -149,13 +149,13 @@ impl Simulation {
         speed_mps: f32,
     ) -> Result<Self, VoxelError> {
         let resolution = map.resolution();
-        let chunk_cells = (CHUNK_EDGE_M / resolution).round().max(1.0) as u32;
+        let chunk_cells = (f64::from(CHUNK_EDGE_M) / resolution).round().max(1.0) as u32;
         let tiles = TiledGrid::new(resolution, chunk_cells, COST_UNKNOWN)?;
         let start = route.points()[0];
-        let side = (LOCAL_WINDOW_M / resolution).round() as u32;
+        let side = (f64::from(LOCAL_WINDOW_M) / resolution).round() as u32;
         // The window origin sits on a tile cell boundary, and the rolling window moves
         // in whole cells, so the tiles stamp into the window without resampling.
-        let half = Vec2::splat(side as f32 * resolution / 2.0);
+        let half = DVec2::splat(f64::from(side) * resolution / 2.0);
         let info = MapInfo {
             width: side,
             height: side,
@@ -163,7 +163,7 @@ impl Simulation {
             origin: ((start - half) / resolution).floor() * resolution,
         };
         let mut costmap = LayeredCostmap::new(info, COST_UNKNOWN, true);
-        let hit_range_m = LIDAR_RANGE_M + HIT_RANGE_SLACK_CELLS * resolution;
+        let hit_range_m = LIDAR_RANGE_M + HIT_RANGE_SLACK_CELLS * resolution as f32;
         let tiles_layer = costmap.add_layer(Box::new(TiledMapLayer::new(
             Arc::new(tiles),
             MergePolicy::Overwrite,
@@ -231,7 +231,7 @@ impl Simulation {
         let tiles = tiles_of(&self.costmap, self.tiles_layer);
         self.safety.check_path(tiles, &self.surprises, &driven);
         self.steps += 1;
-        if self.pose.position.distance(self.route.goal()) <= GOAL_TOLERANCE_M {
+        if self.pose.position.distance(self.route.goal()) <= f64::from(GOAL_TOLERANCE_M) {
             self.status = Status::Reached;
         } else if self.time_s() > self.timeout_s {
             self.status = Status::TimedOut;
@@ -250,8 +250,9 @@ impl Simulation {
         let tiles = layer.grid_mut();
         let resolution = tiles.resolution();
         let centre = tiles.world_to_cell(position);
-        let load = IVec2::splat(((half_window + LOAD_MARGIN_M) / resolution).ceil() as i32);
-        let evict = ((half_window + EVICT_MARGIN_M) / resolution).ceil() as u32;
+        let load =
+            IVec2::splat((f64::from(half_window + LOAD_MARGIN_M) / resolution).ceil() as i32);
+        let evict = (f64::from(half_window + EVICT_MARGIN_M) / resolution).ceil() as u32;
         self.stats.tile_loads += self
             .map
             .load_region(tiles, centre - load, centre + load + 1)?;
@@ -342,7 +343,7 @@ impl Simulation {
         }
         let master = self.costmap.master();
         let regions = Regions::new(master, &LOCAL_PLAN);
-        let region_of = |p: Vec2| master.world_to_map(p).and_then(|c| regions.region(c));
+        let region_of = |p: DVec2| master.world_to_map(p).and_then(|c| regions.region(c));
         let Some(robot) = region_of(self.pose.position) else {
             return false;
         };
@@ -396,7 +397,7 @@ impl Simulation {
         let Some(path) = plan(master, start, goal, &LOCAL_PLAN) else {
             return false;
         };
-        let mut points: Vec<Vec2> = path
+        let mut points: Vec<DVec2> = path
             .shortcut(master, &LOCAL_PLAN)
             .into_iter()
             .map(|cell| master.map_to_world(cell))
@@ -429,7 +430,7 @@ impl Simulation {
         let to_route = self
             .pose
             .position
-            .distance(self.route.points()[self.progress]);
+            .distance(self.route.points()[self.progress]) as f32;
         to_route + self.route.distance_to_point(index) - self.route.distance_to_point(self.progress)
     }
 
@@ -441,10 +442,10 @@ impl Simulation {
     fn carrots(&self) -> Vec<usize> {
         let master = self.costmap.master();
         let info = master.info();
-        let margin = Vec2::splat(CARROT_EDGE_MARGIN_M);
+        let margin = DVec2::splat(f64::from(CARROT_EDGE_MARGIN_M));
         let min = info.origin + margin;
-        let max = info.origin + Vec2::new(info.world_width(), info.world_height()) - margin;
-        let passable = |p: Vec2| {
+        let max = info.origin + DVec2::new(info.world_width(), info.world_height()) - margin;
+        let passable = |p: DVec2| {
             master
                 .world_to_map(p)
                 .is_some_and(|c| master[c] < COST_INSCRIBED)
@@ -456,7 +457,8 @@ impl Simulation {
             .enumerate()
             .map(|(i, &p)| (self.progress + i, p))
             .filter(|&(i, p)| {
-                passable(p) && (i == goal || p.distance(position) >= MIN_CARROT_DISTANCE_M)
+                passable(p)
+                    && (i == goal || p.distance(position) >= f64::from(MIN_CARROT_DISTANCE_M))
             })
             .map(|(i, _)| i)
             .collect();
@@ -470,8 +472,8 @@ impl Simulation {
     /// cross only cells that were passable when the plan was made and that
     /// [`plan_blocked`](Self::plan_blocked) rechecks every step. Returns the path driven
     /// in this step: the start, each waypoint reached, and the end.
-    fn drive(&mut self) -> Vec<Vec2> {
-        let mut budget = self.speed_mps * STEP_S;
+    fn drive(&mut self) -> Vec<DVec2> {
+        let mut budget = f64::from(self.speed_mps * STEP_S);
         let start = self.pose.position;
         let mut path = vec![start];
         let mut position = start;
@@ -491,7 +493,7 @@ impl Simulation {
             path.push(position);
         }
         if let Some(heading) = (position - start).try_normalize() {
-            self.pose = Pose2::new(position, heading.to_angle());
+            self.pose = Pose2::new(position, heading.to_angle() as f32);
         }
         self.stats.driven_m += polyline_length(&path);
         self.driven.push(position);
@@ -531,17 +533,17 @@ impl Simulation {
         &self.surprises
     }
 
-    pub fn driven(&self) -> &[Vec2] {
+    pub fn driven(&self) -> &[DVec2] {
         &self.driven
     }
 
     /// Lidar hit points of the latest scan.
-    pub fn hits(&self) -> &[Vec2] {
+    pub fn hits(&self) -> &[DVec2] {
         &self.hits
     }
 
     /// The rest of the local plan, starting at the robot.
-    pub fn local_plan(&self) -> Vec<Vec2> {
+    pub fn local_plan(&self) -> Vec<DVec2> {
         std::iter::once(self.pose.position)
             .chain(self.local_plan.iter().copied())
             .collect()
@@ -588,16 +590,17 @@ fn tiles_of(costmap: &LayeredCostmap, id: LayerId) -> &TiledGrid<u8> {
         .grid()
 }
 
-fn polyline_length(points: &[Vec2]) -> f32 {
+fn polyline_length(points: &[DVec2]) -> f32 {
     points
         .windows(2)
-        .map(|pair| pair[0].distance(pair[1]))
+        .map(|pair| pair[0].distance(pair[1]) as f32)
         .sum()
 }
 
 #[cfg(test)]
 mod tests {
     use costmap::types::COST_FREE;
+    use glam::Vec2;
 
     use super::*;
     use crate::{
@@ -608,7 +611,11 @@ mod tests {
     const SPEED_MPS: f32 = 1.5;
 
     /// A map `size_m` across at 0.1 m with costs `cost`, written to `dir`, and its overview.
-    fn open_map(dir: &TempDir, size_m: Vec2, cost: impl Fn(Vec2) -> u8) -> (CostGeoTiff, Overview) {
+    fn open_map(
+        dir: &TempDir,
+        size_m: DVec2,
+        cost: impl Fn(DVec2) -> u8,
+    ) -> (CostGeoTiff, Overview) {
         let path = write_map(dir, "map.tif", size_m, 0.1, cost);
         let mut map = CostGeoTiff::open(path).unwrap();
         let overview =
@@ -619,10 +626,10 @@ mod tests {
     /// A simulation on a straight route from `from` to `to`, whatever the overview holds.
     fn straight_run(
         dir: &TempDir,
-        size_m: Vec2,
-        cost: impl Fn(Vec2) -> u8,
-        from: Vec2,
-        to: Vec2,
+        size_m: DVec2,
+        cost: impl Fn(DVec2) -> u8,
+        from: DVec2,
+        to: DVec2,
     ) -> Simulation {
         let (map, overview) = open_map(dir, size_m, cost);
         let route = Route::new(resample(&[from, to], ROUTE_POINT_SPACING_M));
@@ -632,9 +639,9 @@ mod tests {
     /// A simulation on the route the overview plans from `from` to `to`.
     fn planned_run(
         dir: &TempDir,
-        size_m: Vec2,
-        cost: impl Fn(Vec2) -> u8,
-        (from, to): (Vec2, Vec2),
+        size_m: DVec2,
+        cost: impl Fn(DVec2) -> u8,
+        (from, to): (DVec2, DVec2),
         surprises: Vec<Obstacle>,
     ) -> Simulation {
         let (map, overview) = open_map(dir, size_m, cost);
@@ -643,7 +650,7 @@ mod tests {
     }
 
     /// A wall `length` long and 0.5 m thick, centred on `centre`, along `axis`.
-    fn wall(centre: Vec2, axis: Vec2, length: f32) -> Obstacle {
+    fn wall(centre: DVec2, axis: Vec2, length: f32) -> Obstacle {
         Obstacle {
             centre,
             axis,
@@ -653,8 +660,8 @@ mod tests {
 
     /// Two east-west corridors, 6 m wide, at y 8..14 and 26..32, joined at both ends;
     /// everything else is lethal.
-    fn two_corridors(p: Vec2) -> u8 {
-        let between = |v: f32, lo: f32, hi: f32| (lo..hi).contains(&v);
+    fn two_corridors(p: DVec2) -> u8 {
+        let between = |v: f64, lo: f64, hi: f64| (lo..hi).contains(&v);
         let along = between(p.x, 10.0, 110.0);
         let corridor = along && (between(p.y, 8.0, 14.0) || between(p.y, 26.0, 32.0));
         let link =
@@ -669,12 +676,12 @@ mod tests {
     #[test]
     fn a_blocked_corridor_leads_to_a_new_route_through_the_other() {
         let dir = TempDir::new("corridors");
-        let ends = (Vec2::new(20.0, 11.0), Vec2::new(100.0, 11.0));
+        let ends = (DVec2::new(20.0, 11.0), DVec2::new(100.0, 11.0));
         // Fills the southern corridor's width at x = 60.
-        let block = wall(Vec2::new(60.0, 11.0), Vec2::Y, 8.0);
+        let block = wall(DVec2::new(60.0, 11.0), Vec2::Y, 8.0);
         let mut sim = planned_run(
             &dir,
-            Vec2::new(120.0, 40.0),
+            DVec2::new(120.0, 40.0),
             two_corridors,
             ends,
             vec![block],
@@ -691,17 +698,17 @@ mod tests {
     #[test]
     fn an_enclosed_robot_ends_blocked() {
         let dir = TempDir::new("enclosed");
-        let ends = (Vec2::new(10.0, 20.0), Vec2::new(35.0, 20.0));
-        let box_around = |c: Vec2| {
+        let ends = (DVec2::new(10.0, 20.0), DVec2::new(35.0, 20.0));
+        let box_around = |c: DVec2| {
             vec![
-                wall(c + Vec2::new(0.0, 3.0), Vec2::X, 7.0),
-                wall(c - Vec2::new(0.0, 3.0), Vec2::X, 7.0),
-                wall(c + Vec2::new(3.0, 0.0), Vec2::Y, 7.0),
-                wall(c - Vec2::new(3.0, 0.0), Vec2::Y, 7.0),
+                wall(c + DVec2::new(0.0, 3.0), Vec2::X, 7.0),
+                wall(c - DVec2::new(0.0, 3.0), Vec2::X, 7.0),
+                wall(c + DVec2::new(3.0, 0.0), Vec2::Y, 7.0),
+                wall(c - DVec2::new(3.0, 0.0), Vec2::Y, 7.0),
             ]
         };
         let surprises = box_around(ends.0);
-        let mut sim = planned_run(&dir, Vec2::new(40.0, 40.0), |_| COST_FREE, ends, surprises);
+        let mut sim = planned_run(&dir, DVec2::new(40.0, 40.0), |_| COST_FREE, ends, surprises);
         run_to_end(&mut sim, 1000);
 
         assert!(
@@ -731,15 +738,15 @@ mod tests {
     fn the_robot_does_not_plan_across_a_band_of_no_data() {
         let dir = TempDir::new("no_data");
         let band = 48.0..52.0;
-        let cost = |p: Vec2| {
+        let cost = |p: DVec2| {
             if band.contains(&p.x) {
                 COST_UNKNOWN
             } else {
                 COST_FREE
             }
         };
-        let (from, to) = (Vec2::new(40.0, 20.0), Vec2::new(60.0, 20.0));
-        let mut sim = straight_run(&dir, Vec2::new(100.0, 40.0), cost, from, to);
+        let (from, to) = (DVec2::new(40.0, 20.0), DVec2::new(60.0, 20.0));
+        let mut sim = straight_run(&dir, DVec2::new(100.0, 40.0), cost, from, to);
         run_to_end(&mut sim, 1000);
 
         assert!(
@@ -754,7 +761,7 @@ mod tests {
             "entered the band"
         );
         let local = sim.local_costmap();
-        let in_band = local.world_to_map(Vec2::new(50.0, 20.0)).unwrap();
+        let in_band = local.world_to_map(DVec2::new(50.0, 20.0)).unwrap();
         assert_eq!(local[in_band], COST_UNKNOWN);
     }
 
@@ -763,23 +770,23 @@ mod tests {
         // At 1 m cells, the 45 degree beam from (10.5, 10.5) enters lethal cell (21, 21)
         // at its corner, 14.85 m out, and the hit sits at the cell's centre, 15.56 m out.
         let dir = TempDir::new("hit_range");
-        let block = |p: Vec2| {
+        let block = |p: DVec2| {
             if p.x > 21.0 && p.y > 21.0 {
                 COST_LETHAL
             } else {
                 COST_FREE
             }
         };
-        let path = write_map(&dir, "map.tif", Vec2::splat(40.0), 1.0, block);
+        let path = write_map(&dir, "map.tif", DVec2::splat(40.0), 1.0, block);
         let mut map = CostGeoTiff::open(path).unwrap();
         let overview =
             Overview::load(&mut map, crate::route::DEFAULT_OVERVIEW_RESOLUTION_M).unwrap();
-        let route = Route::new(vec![Vec2::splat(10.5), Vec2::new(10.5, 12.5)]);
+        let route = Route::new(vec![DVec2::splat(10.5), DVec2::new(10.5, 12.5)]);
         let mut sim = Simulation::new(map, overview, route, Vec::new(), SPEED_MPS).unwrap();
         sim.page_tiles().unwrap();
         sim.sense();
 
-        let hit = Vec2::splat(21.5);
+        let hit = DVec2::splat(21.5);
         assert!(sim.hits().contains(&hit), "{:?}", sim.hits());
         let layer = sim
             .costmap
@@ -792,8 +799,8 @@ mod tests {
     #[test]
     fn peak_chunks_count_chunks_loaded_before_eviction() {
         let dir = TempDir::new("paging");
-        let (from, to) = (Vec2::new(20.0, 25.0), Vec2::new(280.0, 25.0));
-        let mut sim = straight_run(&dir, Vec2::new(300.0, 50.0), |_| COST_FREE, from, to);
+        let (from, to) = (DVec2::new(20.0, 25.0), DVec2::new(280.0, 25.0));
+        let mut sim = straight_run(&dir, DVec2::new(300.0, 50.0), |_| COST_FREE, from, to);
         sim.page_tiles().unwrap();
         let held_at_start = sim.tiles().loaded_chunks().count();
 

@@ -34,6 +34,39 @@ The old names still compile, with a deprecation warning, and will be removed in 
 
 `with_fill` sets the value that `clear`, `update_origin`, `resize_map` and `reset_map` give to new or reset cells. `filled` uses its value as the fill value; the other constructors use `Default::default`.
 
+### World coordinates are `f64`
+
+Positions in the world frame, map resolution and map extents are now `f64` (`glam::DVec2`). An `f32` resolves about half a metre at a UTM northing of 6,200,000 m, and a rolling grid's origin drifted by 1.8 cells after 1.4 km. Quantities local to a grid or a robot stay `f32`: ray directions, ranges, radii, yaw, costs and cell-space coordinates.
+
+| Item | 0.2 | 0.3 |
+| --- | --- | --- |
+| `MapInfo::resolution` | `f32` | `f64` |
+| `MapInfo::origin` | `Vec2` | `DVec2` |
+| `MapInfo::world_width`, `world_height` | `f32` | `f64` |
+| `MapInfo::world_center` | `Vec2` | `DVec2` |
+| `Pose2::position` | `Vec2` | `DVec2` |
+| `Bounds::min`, `max` | `Vec2` | `DVec2` |
+| `Footprint::transform` | `Vec<Vec2>` | `Vec<DVec2>` |
+| `map_to_world`, `map_to_world_continuous` | return `Vec2` | return `DVec2` |
+| `world_to_map`, `world_to_map_continuous` | take `Vec2` | take `DVec2` |
+| `resize_map`, `update_origin`, `update_center` | `f32`, `Vec2` | `f64`, `DVec2` |
+| `raycast_dda`, `raycast_grid_step`, `line` | `origin: Vec2` | `origin: DVec2` |
+| `polygon`, `polygon_value` | `&[Vec2]` | `&[DVec2]` |
+| `RosMapMetadata::resolution`, `origin` | `f32`, `Vec3` | `f64`, `DVec3` |
+
+Unchanged: `Pose2::yaw`, `Footprint::points` (robot frame), ray `dir` and `max_t`, `RayHit2D::hit_distance`, `InflationConfig`, and the cell-space `Vec2` that `world_to_map_continuous` returns and `map_to_world_continuous` takes.
+
+Most call sites change a constructor and nothing else:
+
+```rust
+// 0.2
+let pose = Pose2::new(Vec2::new(5.0, 5.0), 0.0);
+// 0.3
+let pose = Pose2::new(DVec2::new(5.0, 5.0), 0.0);
+```
+
+To pass an `f32` vector where a world position is wanted, call `.as_dvec2()`; to go back, `.as_vec2()`.
+
 ### `LayeredCostmap::add_layer` returns a `Result`
 
 `add_layer` calls the new `Layer::attach` and returns its error, so a layer that cannot work with the costmap is rejected when it is added.
