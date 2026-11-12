@@ -39,6 +39,8 @@ This library is designed for:
 - **Nav2-compatible semantics** — lethal / inscribed / free / unknown cost values matching costmap_2d conventions.
 - **ROS2 map loading** — load occupancy grids from the standard YAML + image format.
 - **Rerun visualisation** (optional) — log grids and costmaps as native `GridMap` archetypes with the built-in RViz colormaps.
+- **Tiled maps** — `TiledGrid<T>` stores a map as sparse fixed-size chunks with signed cell coordinates. `window()` returns a dense `Grid2d<T>`, so every algorithm in the crate runs on a piece of a map of any size. `TiledMapLayer` stamps the part under a rolling costmap.
+- **GeoTIFF maps** (feature `geotiff`) — cost maps are single-band `u8` GeoTIFFs that QGIS and GDAL open. `CostGeoTiff::load_region` reads only the chunks a region needs. `GeoReference` keeps projected coordinates in `f64` and per-cell maths in `f32`.
 
 ## Installation
 

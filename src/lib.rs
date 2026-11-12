@@ -5,6 +5,7 @@ pub mod layers;
 pub mod loaders;
 pub mod planning;
 pub mod raycast;
+pub mod tiled;
 pub mod types;
 
 #[cfg(feature = "rerun")]
@@ -14,6 +15,9 @@ pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_
 pub use grid::Grid2d;
 pub use layers::obstacle::{Beam, ObstacleConfig, ObstacleLayer};
 pub use layers::{InflationConfig, ProjectionLayer, WavefrontInflationLayer};
+#[cfg(feature = "geotiff")]
+pub use loaders::geotiff::{CostGeoTiff, write_cost_geotiff, write_cost_geotiff_region};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use planning::{Path, PlanOptions, line_passable, plan};
+pub use tiled::{GeoReference, TiledGrid};
 pub use types::{MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
