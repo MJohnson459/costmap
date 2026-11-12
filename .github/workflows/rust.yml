@@ -20,7 +20,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
@@ -32,7 +32,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy --all-targets --features geotiff -- -D warnings
+        run: cargo clippy --workspace --all-targets --features costmap/geotiff -- -D warnings
 
   doc:
     name: Docs
@@ -46,7 +46,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build docs
-        run: cargo doc --no-deps --features geotiff
+        run: cargo doc --no-deps --workspace --features costmap/geotiff
 
   test:
     name: Test
@@ -63,7 +63,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gdal-bin
 
       - name: Run tests
-        run: cargo test --features geotiff
+        run: cargo test --workspace --features costmap/geotiff
 
   build:
     name: Build
@@ -75,4 +75,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build
+        run: cargo build --workspace
