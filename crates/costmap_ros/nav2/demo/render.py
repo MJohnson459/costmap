@@ -101,8 +101,10 @@ def main():
         (left_w, HEIGHT), Image.BILINEAR
     )
 
+    origin_x, origin_y = raster["origin"]
+
     def to_px(x, y):
-        return x * scale, HEIGHT - y * scale
+        return (x - origin_x) * scale, HEIGHT - (y - origin_y) * scale
 
     occ_colours = occupancy_palette()
     font = ImageFont.load_default(size=18)

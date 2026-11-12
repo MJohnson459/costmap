@@ -38,6 +38,9 @@ cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap
     --bin costmap_window_server --bin costmap_planner_server
 
 enter_ros_env
+# The measured nodes are started by path: `ros2 run` would leave a Python
+# process in each one's process group, and its memory in the node's total.
+ROS_LIB="$CONDA_PREFIX/lib"
 RESOLUTION="$(python -u "$NAV2_DIR/test/check_costmap.py" --map "$BENCH_MAP" --print-resolution)" ||
     fail "could not read the resolution of $BENCH_MAP"
 [[ "$RESOLUTION" == *.* ]] || RESOLUTION="$RESOLUTION.0"
@@ -66,9 +69,9 @@ run_nav2() {
     log "case nav2: map_server and a global costmap of the whole map"
     python -u "$HERE/to_ros_map.py" --map "$BENCH_MAP" --out "$LOG_DIR/ros_map" >/dev/null
     start_common
-    start map_server ros2 run nav2_map_server map_server --ros-args \
+    start map_server "$ROS_LIB/nav2_map_server/map_server" --ros-args \
         --params-file "$HERE/nav2_params.yaml" -p "yaml_filename:=$LOG_DIR/ros_map/map.yaml"
-    start planner ros2 run nav2_planner planner_server --ros-args \
+    start planner "$ROS_LIB/nav2_planner/planner_server" --ros-args \
         --params-file "$HERE/nav2_params.yaml"
     start lifecycle ros2 run nav2_lifecycle_manager lifecycle_manager --ros-args \
         --params-file "$HERE/nav2_params.yaml"
@@ -92,7 +95,7 @@ run_costmap() {
     wait_for "costmap_planner_server" "$STAGE_TIMEOUT_S" log_has route "serving"
     grep -o "built the tile graph in [0-9.]* s" "$LOG_DIR/route.log" | sed "s/^/[bench] /" || true
     # The demo publishes the global costmap for its recording; a robot need not.
-    start planner ros2 run nav2_planner planner_server --ros-args \
+    start planner "$ROS_LIB/nav2_planner/planner_server" --ros-args \
         --params-file "$NAV2_DIR/demo/nav2_params.yaml" -p "resolution:=$RESOLUTION" \
         -p "publish_frequency:=0.0"
     start lifecycle ros2 run nav2_lifecycle_manager lifecycle_manager --ros-args \
