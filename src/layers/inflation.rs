@@ -8,8 +8,8 @@
 //! precomputed cache. This is significantly faster than stamping disks for
 //! dense obstacle maps.
 //!
-//! [`InflationLayer`] implements the layered costmap [`Layer`](crate::grid::Layer)
-//! trait so it can be used inside [`LayeredGrid2d`](crate::grid::LayeredGrid2d).
+//! [`WavefrontInflationLayer`] implements the layered costmap [`Layer`]
+//! trait so it can be used inside [`LayeredCostmap`](crate::LayeredCostmap).
 
 use bitvec::prelude::*;
 use glam::{IVec2, UVec2};
@@ -53,7 +53,7 @@ impl Default for InflationConfig {
 
 /// Layer that inflates lethal obstacles within the update region.
 ///
-/// Use [`InflationLayer::new`] or [`InflationLayer::from_config`] to construct.
+/// Construct with [`WavefrontInflationLayer::new`].
 /// Uses wavefront propagation with a precomputed inscribed cost cache.
 pub struct WavefrontInflationLayer {
     config: InflationConfig,
@@ -660,13 +660,15 @@ mod tests {
         }
 
         let mut layered = LayeredCostmap::new(info, 0, false);
-        layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
-            inflation_radius_m: 0.5,
-            inscribed_radius_m: 0.2,
-            cost_scaling_factor: 3.0,
-            ..Default::default()
-        })));
+        layered.add_layer(Box::new(OneLethalLayer)).unwrap();
+        layered
+            .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
+                inflation_radius_m: 0.5,
+                inscribed_radius_m: 0.2,
+                cost_scaling_factor: 3.0,
+                ..Default::default()
+            })))
+            .unwrap();
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,
@@ -730,14 +732,16 @@ mod tests {
         }
 
         let mut layered = LayeredCostmap::new(info, COST_UNKNOWN, false);
-        layered.add_layer(Box::new(OneLethalLayer));
-        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
-            inflate_unknown: true,
-            inflation_radius_m: 0.5,
-            inscribed_radius_m: 0.4,
-            cost_scaling_factor: 3.0,
-            ..Default::default()
-        })));
+        layered.add_layer(Box::new(OneLethalLayer)).unwrap();
+        layered
+            .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
+                inflate_unknown: true,
+                inflation_radius_m: 0.5,
+                inscribed_radius_m: 0.4,
+                cost_scaling_factor: 3.0,
+                ..Default::default()
+            })))
+            .unwrap();
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,
@@ -778,14 +782,16 @@ mod tests {
         }
 
         let mut layered = LayeredCostmap::new(info, COST_FREE, false);
-        layered.add_layer(Box::new(OneUnknownLayer));
-        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
-            inflation_radius_m: 0.5,
-            inscribed_radius_m: 0.4,
-            cost_scaling_factor: 3.0,
-            inflate_around_unknown: true,
-            ..Default::default()
-        })));
+        layered.add_layer(Box::new(OneUnknownLayer)).unwrap();
+        layered
+            .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
+                inflation_radius_m: 0.5,
+                inscribed_radius_m: 0.4,
+                cost_scaling_factor: 3.0,
+                inflate_around_unknown: true,
+                ..Default::default()
+            })))
+            .unwrap();
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
             yaw: 0.0,

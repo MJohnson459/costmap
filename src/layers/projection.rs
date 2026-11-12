@@ -2,8 +2,8 @@
 //!
 //! `ProjectionLayer<T>` is the first-class way to integrate a custom `Grid2d<T>`
 //! into a [`LayeredCostmap`](crate::LayeredCostmap) for either global or rolling-window
-//! costmaps. The caller can ingest data via [`Self::source_mut`], read it back via
-//! [`Self::source`], and the layer handles both the geometric transformation (rolling
+//! costmaps. The caller can ingest data via [`ProjectionLayer::source_mut`], read it back via
+//! [`ProjectionLayer::source`], and the layer handles both the geometric transformation (rolling
 //! window centering) and cost merging.
 //!
 //! This layer pattern is inspired by Nav2's `CostmapLayer`, but generalized to
@@ -117,15 +117,17 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
         let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
-        let id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-            source,
-            MergePolicy::Overwrite,
-            false,
-            |v| {
-                // Map 0.0 → COST_FREE, 1.0 → COST_LETHAL
-                Some((v * 254.0).round() as u8)
-            },
-        )));
+        let id = layered
+            .add_layer(Box::new(ProjectionLayer::from_grid(
+                source,
+                MergePolicy::Overwrite,
+                false,
+                |v| {
+                    // Map 0.0 → COST_FREE, 1.0 → COST_LETHAL
+                    Some((v * 254.0).round() as u8)
+                },
+            )))
+            .unwrap();
 
         // Write a value into the source
         {
@@ -158,12 +160,14 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
         let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
-        let id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-            source,
-            MergePolicy::Overwrite,
-            false,
-            |v| Some((*v * 254.0) as u8),
-        )));
+        let id = layered
+            .add_layer(Box::new(ProjectionLayer::from_grid(
+                source,
+                MergePolicy::Overwrite,
+                false,
+                |v| Some((*v * 254.0) as u8),
+            )))
+            .unwrap();
 
         // Try to fetch as the wrong type
         let wrong_type = layered.layer::<WavefrontInflationLayer>(id);
@@ -180,21 +184,25 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
         let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
-        let proj_id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-            source,
-            MergePolicy::Overwrite,
-            false,
-            |v| Some((*v * 254.0) as u8),
-        )));
+        let proj_id = layered
+            .add_layer(Box::new(ProjectionLayer::from_grid(
+                source,
+                MergePolicy::Overwrite,
+                false,
+                |v| Some((*v * 254.0) as u8),
+            )))
+            .unwrap();
 
         // Add inflation after projection. Radius 1.5 m (> 1 cell) so the cell adjacent
         // to a lethal seed gets an inflated halo.
-        layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
-            inflation_radius_m: 1.5,
-            inscribed_radius_m: 0.0,
-            cost_scaling_factor: 1.0,
-            ..Default::default()
-        })));
+        layered
+            .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
+                inflation_radius_m: 1.5,
+                inscribed_radius_m: 0.0,
+                cost_scaling_factor: 1.0,
+                ..Default::default()
+            })))
+            .unwrap();
 
         // Project a lethal cell (1.0 * 254 == COST_LETHAL) so it seeds inflation.
         {
@@ -229,12 +237,14 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
         let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
-        let id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-            source,
-            MergePolicy::Overwrite,
-            false,
-            |v| Some((*v * 254.0) as u8),
-        )));
+        let id = layered
+            .add_layer(Box::new(ProjectionLayer::from_grid(
+                source,
+                MergePolicy::Overwrite,
+                false,
+                |v| Some((*v * 254.0) as u8),
+            )))
+            .unwrap();
 
         // Write data
         {
@@ -327,12 +337,14 @@ mod tests {
         // at the right master cell as the window moves, and master/source must stay
         // layout-aligned (project_into's debug_assert fires here, in debug test builds).
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, true);
-        let id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-            Grid2d::<f32>::new_with_value(default_info(), 0.0),
-            MergePolicy::Max,
-            true,
-            |t| (*t > 0.5).then_some(COST_LETHAL),
-        )));
+        let id = layered
+            .add_layer(Box::new(ProjectionLayer::from_grid(
+                Grid2d::<f32>::new_with_value(default_info(), 0.0),
+                MergePolicy::Max,
+                true,
+                |t| (*t > 0.5).then_some(COST_LETHAL),
+            )))
+            .unwrap();
 
         // Robot centred so the window origin stays at (0,0). Mark world (3.5, 3.5).
         layered

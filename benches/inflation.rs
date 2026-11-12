@@ -234,8 +234,8 @@ fn bench_inflation(c: &mut Criterion) {
             ..Default::default()
         });
         let mut layered = LayeredCostmap::new(info, COST_FREE, false);
-        layered.add_layer(Box::new(static_layer));
-        layered.add_layer(Box::new(inflation_layer));
+        layered.add_layer(Box::new(static_layer)).unwrap();
+        layered.add_layer(Box::new(inflation_layer)).unwrap();
         let robot = Pose2 {
             position: Vec2::new(6.4, 6.4),
             yaw: 0.0,

@@ -9,11 +9,11 @@
 
 use std::any::Any;
 
-use glam::{UVec2, Vec2};
+use glam::Vec2;
 
 use crate::{
     Costmap,
-    types::{Bounds, CellRegion, Footprint, MapInfo, Pose2},
+    types::{Bounds, CellRegion, Footprint, MapInfo, Pose2, VoxelError},
 };
 
 /// Identifier returned by [`LayeredCostmap::add_layer`], used to fetch a layer
@@ -52,6 +52,14 @@ pub trait Layer: Any {
 
     /// Called when the master grid is resized. Default: no-op.
     fn match_size(&mut self, _info: &MapInfo) {}
+
+    /// Called once by [`LayeredCostmap::add_layer`] with the master's layout and
+    /// whether it is a rolling window. Return an error if the layer cannot work
+    /// with that costmap, so a misconfigured layer fails when it is added
+    /// instead of contributing nothing at run time. Default: accept.
+    fn attach(&mut self, _master: &MapInfo, _rolling_window: bool) -> Result<(), VoxelError> {
+        Ok(())
+    }
 }
 
 /// Container of layers and a master costmap. Runs update_bounds then update_costs
@@ -85,11 +93,14 @@ impl LayeredCostmap {
     /// Add a layer. Order matters: layers are updated in insertion order.
     ///
     /// Returns a [`LayerId`] that can be passed to [`Self::layer`] /
-    /// [`Self::layer_mut`] to access the layer by its concrete type later.
-    pub fn add_layer(&mut self, layer: Box<dyn Layer>) -> LayerId {
+    /// [`Self::layer_mut`] to access the layer by its concrete type later, or the
+    /// error from [`Layer::attach`] if the layer rejects this costmap; a rejected
+    /// layer is not added.
+    pub fn add_layer(&mut self, mut layer: Box<dyn Layer>) -> Result<LayerId, VoxelError> {
+        layer.attach(self.master.info(), self.rolling_window)?;
         let id = LayerId(self.layers.len());
         self.layers.push(layer);
-        id
+        Ok(id)
     }
 
     /// Borrow a previously added layer as its concrete type `T`.
@@ -150,29 +161,9 @@ impl LayeredCostmap {
             return;
         }
 
-        let width = self.master.width();
-        let height = self.master.height();
-
-        let min_cell = self.master.world_to_map(bounds.min);
-        let max_cell = self.master.world_to_map(bounds.max);
-
-        let (x0, y0) = match min_cell {
-            Some(c) => (c.x.min(width), c.y.min(height)),
-            None => (0, 0),
-        };
-        let (xn, yn) = match max_cell {
-            Some(c) => ((c.x + 1).min(width), (c.y + 1).min(height)),
-            None => (width, height),
-        };
-
-        if x0 >= xn || y0 >= yn {
+        let Some(region) = clip_to_cells(bounds, self.master.info()) else {
             self.updated_bounds = bounds;
             return;
-        }
-
-        let region = CellRegion {
-            min: UVec2::new(x0, y0),
-            max: UVec2::new(xn, yn),
         };
 
         self.master.reset_map(region.min, region.max);
@@ -185,10 +176,25 @@ impl LayeredCostmap {
     }
 }
 
+/// Cell region of `info` covered by world `bounds`, or `None` if they do not overlap.
+///
+/// The cell containing `bounds.max` is included. Indices are computed in `f32`
+/// and clamped before the integer conversion, so bounds far outside the grid
+/// clip to its edge.
+fn clip_to_cells(bounds: Bounds, info: &MapInfo) -> Option<CellRegion> {
+    let size = Vec2::new(info.width as f32, info.height as f32);
+    let lower = ((bounds.min - info.origin) / info.resolution).floor();
+    let upper = ((bounds.max - info.origin) / info.resolution).floor() + Vec2::ONE;
+    let min = lower.clamp(Vec2::ZERO, size).as_uvec2();
+    let max = upper.clamp(Vec2::ZERO, size).as_uvec2();
+    (min.x < max.x && min.y < max.y).then_some(CellRegion { min, max })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::MapInfo;
+    use glam::UVec2;
 
     fn default_info() -> MapInfo {
         MapInfo {
@@ -233,7 +239,9 @@ mod tests {
         }
 
         let mut layered = LayeredCostmap::new(default_info(), 0, false);
-        layered.add_layer(Box::new(BoundsLayer { margin: 0.5 }));
+        layered
+            .add_layer(Box::new(BoundsLayer { margin: 0.5 }))
+            .unwrap();
 
         layered.update_map(Pose2 {
             position: Vec2::new(0.5, 0.5),
@@ -244,5 +252,65 @@ mod tests {
         assert!(!b.is_empty());
         assert!(b.min.x <= 0.5 && b.max.x >= 0.5);
         assert!(b.min.y <= 0.5 && b.max.y >= 0.5);
+    }
+
+    fn bounds(min: Vec2, max: Vec2) -> Bounds {
+        Bounds { min, max }
+    }
+
+    #[test]
+    fn clip_to_cells_inside_includes_max_cell() {
+        let region = clip_to_cells(
+            bounds(Vec2::new(0.25, 0.25), Vec2::new(0.55, 0.35)),
+            &default_info(),
+        )
+        .unwrap();
+        assert_eq!(region.min, UVec2::new(2, 2));
+        assert_eq!(region.max, UVec2::new(6, 4));
+    }
+
+    #[test]
+    fn clip_to_cells_partial_overlap_clips_to_edge() {
+        let region = clip_to_cells(
+            bounds(Vec2::new(-5.0, 0.85), Vec2::new(0.15, 50.0)),
+            &default_info(),
+        )
+        .unwrap();
+        assert_eq!(region.min, UVec2::new(0, 8));
+        assert_eq!(region.max, UVec2::new(2, 10));
+    }
+
+    #[test]
+    fn clip_to_cells_no_overlap_is_none() {
+        let info = default_info();
+        let beyond = bounds(Vec2::new(5.0, 5.0), Vec2::new(6.0, 6.0));
+        let before = bounds(Vec2::new(-6.0, -6.0), Vec2::new(-5.0, -5.0));
+        assert!(clip_to_cells(beyond, &info).is_none());
+        assert!(clip_to_cells(before, &info).is_none());
+    }
+
+    #[test]
+    fn update_outside_master_leaves_it_untouched() {
+        struct FarLayer;
+        impl Layer for FarLayer {
+            fn reset(&mut self) {}
+            fn is_clearable(&self) -> bool {
+                true
+            }
+            fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
+                bounds.expand_to_include(Vec2::new(5.0, 5.0));
+                bounds.expand_to_include(Vec2::new(6.0, 6.0));
+            }
+            fn update_costs(&mut self, _master: &mut Costmap, _region: CellRegion) {
+                panic!("no cells of the master are inside the bounds");
+            }
+        }
+
+        let mut layered = LayeredCostmap::new(default_info(), 0, false);
+        layered.master_mut().set(UVec2::new(3, 3), 42).unwrap();
+        layered.add_layer(Box::new(FarLayer)).unwrap();
+        layered.update_map(Pose2::new(Vec2::ZERO, 0.0));
+
+        assert_eq!(layered.master().get(UVec2::new(3, 3)), Some(&42));
     }
 }
