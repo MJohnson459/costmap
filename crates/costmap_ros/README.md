@@ -1,13 +1,14 @@
 # costmap_ros
 
-Two ROS 2 nodes that let Nav2 navigate a map too large for it to hold.
+A ROS 2 node that lets Nav2 navigate a map too large for it to hold.
+`costmap_window_server` takes the place of `nav2_map_server` and does two
+things:
 
-- **`costmap_window_server`** takes the place of `nav2_map_server`. It
-  publishes a square window of the map around the robot on `/map`, as a
-  `nav_msgs/OccupancyGrid`. Nav2's costmaps read it with their stock
-  `StaticLayer`.
-- **`costmap_planner_server`** plans a route across the whole map. A behaviour
-  tree asks it which way to go and asks Nav2's own planner for the next 15 m.
+- **It serves a window of the map.** It publishes the square of the map
+  around the robot on `/map`, as a `nav_msgs/OccupancyGrid`. Nav2's costmaps
+  read it with their stock `StaticLayer`.
+- **It plans routes across the whole map.** A behaviour tree asks it which way
+  to go and asks Nav2's own planner for the next 15 m.
 
 Nav2 itself is unchanged: no plugin, no patch, no C++ from this package. Its
 planners, controllers, costmap layers and recoveries act as before.
@@ -15,16 +16,16 @@ planners, controllers, costmap layers and recoveries act as before.
 Measured against `nav2_map_server` with a global costmap of the whole map, on
 a 166 x 196 m survey at 0.03 m (36 M cells):
 
-| | Nav2 alone | With these nodes |
+| | Nav2 alone | With this node |
 | --- | --- | --- |
-| Resident memory | 744 MB | 178 MB |
-| Plan of a 99 m trip, median | 328 ms | 5.5 ms |
-| Plan of the next 15 m, median | 274 ms | 3.3 ms |
-| CPU at rest, share of one core | 1.75 % | 8.15 % |
+| Resident memory | 768 MB | 158 MB |
+| Plan of a 99 m trip, median | 316 ms | 4.9 ms |
+| Plan of the next 15 m, median | 267 ms | 5.2 ms |
+| CPU at rest, share of one core | 1.8 % | 3.2 % |
 
-CPU at rest is higher: each node subscribes to `/tf`, and a rolling global
-costmap redraws its window every update. [nav2/README.md](nav2/README.md) has
-the method and the full table.
+CPU at rest is higher by 1.4 % of one core: the node subscribes to `/tf` for
+the robot pose, which `map_server` does not need.
+[nav2/README.md](nav2/README.md) has the method and the full table.
 
 ## Is it for you
 
@@ -46,9 +47,9 @@ not run on a physical robot, on another Nav2 release, or beside AMCL.
 
 ## Install
 
-All three ways install the same files: the two nodes and
-`costmap-from-ros-map` under `lib/costmap_ros`, and the launch file and
-behaviour tree under `share/costmap_ros`. Afterwards
+All three ways install the same files: `costmap_window_server`,
+`costmap_planner_server` and `costmap-from-ros-map` under `lib/costmap_ros`,
+and the launch file and behaviour tree under `share/costmap_ros`. Afterwards
 `ros2 pkg executables costmap_ros` lists the three programs.
 
 ### A Debian package
@@ -109,10 +110,10 @@ colcon, so a release is possible if that changes or the crates are vendored.
 ## Replace map_server
 
 1. **Stop starting `map_server`.** Remove it from the launch file and from the
-   `node_names` of its lifecycle manager. These nodes are not lifecycle nodes;
-   they serve as soon as they start.
+   `node_names` of its lifecycle manager. `costmap_window_server` is not a
+   lifecycle node; it serves as soon as it starts.
 
-2. **Start the two nodes** on the map `map_server` was given:
+2. **Start `costmap_window_server`** on the map `map_server` was given:
 
    ```sh
    ros2 launch costmap_ros costmap.launch.py map:=/maps/site.yaml
@@ -129,29 +130,44 @@ colcon, so a release is possible if that changes or the crates are vendored.
    )
    ```
 
-   Both connect to the Zenoh router the robot already runs for
+   It connects to the Zenoh router the robot already runs for
    `rmw_zenoh_cpp`. `ros2 launch costmap_ros costmap.launch.py --show-args`
    lists the arguments.
 
-3. **Make both costmaps rolling**, at the map's resolution:
+3. **Set the costmaps to follow the window**, at the map's resolution:
 
    ```yaml
-   global_costmap:              # and the same in local_costmap, at its size
+   global_costmap:
      global_costmap:
        ros__parameters:
-         rolling_window: true
-         width: 40              # see "Choosing the sizes"
-         height: 40
-         resolution: 0.05       # the map's resolution
+         rolling_window: false    # takes the size of each window served
+         resolution: 0.05         # the map's resolution
          track_unknown_space: true
          trinary_costmap: false
          lethal_cost_threshold: 100
-         plugins: ["static_layer", "inflation_layer"]  # and your sensor layers
+         plugins: ["static_layer", "inflation_layer"]
          static_layer:
            plugin: nav2_costmap_2d::StaticLayer
            map_topic: /map
            map_subscribe_transient_local: true
+
+   local_costmap:
+     local_costmap:
+       ros__parameters:
+         rolling_window: true     # as on any Nav2 robot
+         width: 6
+         height: 6
+         resolution: 0.05         # the map's resolution
+         # the same three costmap parameters and static_layer as above,
+         # then your sensor layers and inflation
    ```
+
+   The global costmap is not rolling. Its `StaticLayer` resizes it to each
+   window, as it does for a map that grows under SLAM, and Nav2 recomputes it
+   only then. A rolling global costmap redraws its whole area every update:
+   5.7 % of a core at 1 Hz for a 40 m costmap at 0.03 m, against 1.95 % this
+   way. Use a rolling one only if the global costmap carries sensor layers,
+   because a resize clears them.
 
    Use the map's own resolution. `StaticLayer` point-samples a map of another
    resolution: a costmap at 0.05 m over a 0.03 m map dropped a 9 cm obstacle,
@@ -164,7 +180,7 @@ colcon, so a release is possible if that changes or the crates are vendored.
    echo "$(ros2 pkg prefix --share costmap_ros)/behavior_trees/navigate_to_pose_on_route.xml"
    ```
 
-   Skip this step and Nav2 still works, for goals inside its global costmap.
+   Skip this step and Nav2 still works, for goals inside the served window.
 
 5. **Keep publishing `map -> base_link` on `/tf`**, as Nav2 already needs.
 
@@ -192,7 +208,7 @@ has one `ComputePathToPose` node, this has four.
 </RateController>
 ```
 
-1. Every 5 s it asks `costmap_planner_server` for the route to the goal.
+1. Every 5 s it asks `costmap_window_server` for the route to the goal.
 2. Every second it cuts the route to the 15 m ahead of the robot, takes the
    end of that stretch as a goal, and asks Nav2's planner for a path to it.
 3. The controller follows that path, as in the stock tree.
@@ -208,27 +224,30 @@ place of its `ComputePathToPose` and keeps the rest.
 
 ## Choosing the sizes
 
-Four sizes are involved: the window the server publishes (`window_m`, `W`),
-the widths of Nav2's global (`G`) and local costmaps, and the tree's
-`distance_forward` (`D`). None grows with the map.
+Three sizes are involved: the window the server publishes (`window_m`, `W`),
+the tree's `distance_forward` (`D`), and the local costmap. None grows with
+the map. The global costmap is the window.
 
 1. **Local costmap.** Size it for the controller, as on any Nav2 robot: 3 to
    6 m.
 2. **Planning distance `D`.** How far ahead Nav2's planner looks along the
    route. It sets how wide a detour around a sensed obstacle can be. The tree
    uses 15 m.
-3. **Global costmap `G`.** It is centred on the robot and must contain the
-   point `D` along the route, so `G / 2 > D`. 40 m fits the tree.
-4. **Server window `W`.** The global costmap must stay inside the last window
-   until the next one arrives, so the margin `(W - G) / 2` must exceed the
-   distance the robot covers in that time:
+3. **Server window `W`.** The point `D` along the route must lie inside the
+   last window until the next one arrives. A window is centred on the robot
+   when it is sent, and the next is sent `min_move_m` later, so:
 
-   `margin > min_move_m + v_max * (1 / rate_hz + 0.2)`
+   `W / 2 > D + min_move_m + v_max * (1 / rate_hz + 0.2)`
 
-   With the defaults (`--min-move-m 1`, `--rate-hz 2`) and 1 m/s that is
-   1.7 m; `W = 50` leaves 5 m. The 0.2 s is the longest time measured from a
-   robot move to Nav2 holding the new window. Outside the window Nav2 sees
-   unknown cells.
+   With the defaults (`W` 50, `--min-move-m 5`, `--rate-hz 2`) and 1 m/s:
+   25 > 15 + 5 + 0.7. The 0.2 s is the longest time measured from a robot
+   move to Nav2 holding the new window. Outside the window Nav2 sees unknown
+   cells.
+
+A smaller `min_move_m` sends windows more often, and Nav2 recomputes its
+global costmap for each. With a rolling global costmap of width `G` instead,
+the rule is `(W - G) / 2 > min_move_m + v_max * (1 / rate_hz + 0.2)` and
+`G / 2 > D`.
 
 A larger `W` costs memory and bandwidth: each window is one message of
 `(W / resolution)^2` bytes, and each `StaticLayer` keeps a copy.
@@ -267,21 +286,24 @@ and y north. A robot localised in projected coordinates (RTK GNSS in UTM,
 say) needs a static transform from that frame to `map`; the window server
 logs the corner's coordinates at start. It does no reprojection.
 
-**The route graph.** `costmap_planner_server` plans on a graph of the map:
+**The route graph.** Routes are planned on a graph of the map:
 where each 256-cell tile's border can be crossed, and what it costs to travel
 between crossings, on costs inflated for the robot. It is built at the map's
 own resolution, so a doorway the robot fits through stays open. For a GeoTIFF
 the first start builds the graph (5.5 s for 36 M cells on 16 cores) and
 stores it beside the raster as `site.tif.tilegraph` (0.7 MB); later starts
-read it. It is rebuilt when the raster's length or modification time,
-`--robot-radius-m`, `--inflation-m` or this package's version changes. If the directory cannot be written, the node logs a warning and
-builds the graph at every start. For a ROS map the graph is built at every
+read it. It is rebuilt when `--robot-radius-m`, `--inflation-m` or this
+package's version changes, or when the raster's length, modification time or
+first or last 64 KiB change. A raster edited in the middle with its length
+and time kept is not noticed; delete the `.tilegraph` file to force a
+rebuild. If the directory cannot be written, the
+node logs a warning and builds the graph at every start. For a ROS map the graph is built at every
 start: 4.4 s for the 30.5 M-cell warehouse map, with the node's memory
 peaking at 150 MB.
 
 ## Node reference
 
-Both nodes take command-line options, not ROS parameters, and cannot be
+The programs take command-line options, not ROS parameters, and cannot be
 remapped or namespaced with `--ros-args`. The launch file passes its arguments
 through as options.
 
@@ -289,11 +311,16 @@ through as options.
 
 Publishes the window on `--topic` with QoS reliable, transient local, depth 1,
 which is what `StaticLayer` requests with `map_subscribe_transient_local:
-true`. It checks the robot pose `--rate-hz` times a second and publishes when
-no window has been sent, when the robot is `--min-move-m` from the centre of
-the last one, or when the last one is `--keep-alive-s` old. The window origin
-is a whole number of cells from the map origin, so Nav2 never sees a cell
-resampled.
+true`: a subscriber that starts late receives the last window. It checks the
+robot pose `--rate-hz` times a second and publishes when no window has been
+sent or when the robot is `--min-move-m` from the centre of the last one. The
+window origin is a whole number of cells from the map origin, so Nav2 never
+sees a cell resampled.
+
+With `--routes`, which the launch file passes, the same process serves the
+routes described under [costmap_planner_server](#costmap_planner_server). The
+two then share one `/tf` subscription and one copy of the program: 52 MB and
+1.25 % of a core at rest, against 78 MB and 2.45 % as two processes.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -303,10 +330,16 @@ resampled.
 | `--map-frame` | `map` | frame of the map and of the published grid |
 | `--base-frame` | `base_link` | robot frame |
 | `--rate-hz` | 2 | pose checks per second |
-| `--min-move-m` | 1 | movement that triggers a new window, metres |
-| `--keep-alive-s` | 10 | age that triggers a new window, seconds |
+| `--min-move-m` | 5 | movement that triggers a new window, metres |
+| `--keep-alive-s` | 0 | age at which the same window is sent again, seconds; 0 never sends it again |
+| `--routes` | off | also plan routes |
+| `--route-action`, `--route-topic`, `--robot-radius-m`, `--inflation-m` | | with `--routes`: as for `costmap_planner_server` |
 
 ### costmap_planner_server
+
+The routes on their own, for running them apart from the window. Its options
+other than `--map` are also `costmap_window_server`'s, with `--action` there
+named `--route-action`.
 
 Serves `nav2_msgs/action/ComputePathToPose` as `compute_route_to_pose` and
 publishes each route on `/route`.
@@ -344,7 +377,7 @@ costmap can be removed. The robot then drives the route itself. That suits
 only a robot that turns on the spot, is close to circular, and needs no
 costmap filters or sensed obstacles in its global plan.
 
-### Both nodes
+### Both programs
 
 - **Zenoh.** The session follows `rmw_zenoh_cpp`'s conventions: it connects to
   a router at `tcp/localhost:7447` and reads `ZENOH_SESSION_CONFIG_URI`,
@@ -379,12 +412,16 @@ at their defaults.
 
 - **Zenoh only.** Every node that talks to these runs `rmw_zenoh_cpp` and
   reaches the same router.
-- **Static map only.** Both nodes read the file. Sensed obstacles go in Nav2's
+- **Static map only.** The node reads the file. Sensed obstacles go in Nav2's
   own layers, and Nav2's planner routes around them within its global
   costmap. The route across the map does not change: a route that stays
   blocked is not replanned around.
 - **No ROS parameters, lifecycle or composition.** See
   [Node reference](#node-reference).
+- **A non-rolling global costmap loses its sensed obstacles at each new
+  window**, every `min_move_m`. Nav2 resets every layer of a costmap when it
+  resizes. Keep sensor layers in the local costmap, or make the global one
+  rolling.
 - **Robot pose.** The nodes use the latest transform of each frame, with no
   interpolation to a common time and no history. That places a window, where
   a few centimetres do not matter. It is not a tf2 replacement.
@@ -396,16 +433,16 @@ at their defaults.
 
 [nav2/README.md](nav2/README.md) describes each of these and how to run it.
 
-- **Unit tests**, in CI: 48 in this crate, among them a route through a 0.9 m
+- **Unit tests**, in CI: 49 in this crate, among them a route through a 0.9 m
   doorway for a 0.3 m robot.
 - **colcon build**, in CI: builds the package in a scratch workspace and
-  starts both nodes with `ros2 launch`.
+  starts the node with `ros2 launch`.
 - **Integration test**, by hand: every cell a Nav2 costmap holds equals the
   source map, across five 65 m moves, for both map formats.
 - **Drive demo**, by hand: Nav2 drove a simulated robot 96.4 m in 99 s across
-  the survey GeoTIFF to a goal 30 m outside its global costmap, with 0.47 m
+  the survey GeoTIFF to a goal 43 m outside the first window, with 0.47 m
   least distance to a lethal cell; and 101.6 m in 103 s across the warehouse
-  ROS map, served from its YAML, with 0.72 m.
+  ROS map, served from its YAML, with 0.71 m.
 - **Benchmark**, by hand: the table at the top.
 
 ## The library

@@ -6,15 +6,16 @@
 # DRIVE_MAP is a cost GeoTIFF or a ROS map YAML.
 #
 # costmap_window_server publishes a SERVER_WINDOW_M (default 50) metre window
-# of the map around the robot. Nav2's global costmap is a 40 m rolling window
-# and its local costmap a 6 m one; both hold only that window plus inflation.
-# costmap_planner_server plans a route across the whole map. The behaviour
-# tree navigate_to_pose_on_route.xml has Nav2's planner plan to the point 15 m
-# along that route, once a second. The mission sends one goal.
+# of the map around the robot. Nav2's global costmap takes the size of each
+# window and its local costmap is a 6 m rolling one; both hold only that
+# window plus inflation.
+# Started with --routes, it also plans a route across the whole map. The
+# behaviour tree navigate_to_pose_on_route.xml has Nav2's planner plan to the
+# point 15 m along that route, once a second. The mission sends one goal.
 #
-# Starts a Zenoh router, a kinematic robot (sim_robot.py), the window server,
-# the route planner, Nav2's planner, controller and behaviour tree navigator,
-# and the mission (mission.py), which reports PASS/FAIL and writes recording.npz to
+# Starts a Zenoh router, a kinematic robot (sim_robot.py), the window server
+# with routes, Nav2's planner, controller and behaviour tree navigator, and
+# the mission (mission.py), which reports PASS/FAIL and writes recording.npz to
 # DRIVE_OUT (default: the log directory). render.py turns that into a
 # video. Every process is started in its own process group and stopped by that
 # group id; nothing else on the machine is signalled.
@@ -36,11 +37,10 @@ DRIVE_OUT="${DRIVE_OUT:-$LOG_DIR}"
 LOG_TAG=drive
 source "$NAV2_DIR/lib.sh"
 
-log "building costmap_window_server and costmap_planner_server"
+log "building costmap_window_server"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
-    --bin costmap_window_server --bin costmap_planner_server
+    --bin costmap_window_server
 SERVER="$REPO/target/release/costmap_window_server"
-PLANNER="$REPO/target/release/costmap_planner_server"
 
 enter_ros_env
 RESOLUTION="$(python -u "$NAV2_DIR/test/check_costmap.py" --map "$DRIVE_MAP" --print-resolution)" ||
@@ -53,13 +53,10 @@ start sim python -u "$HERE/sim_robot.py" --x "${DRIVE_START%,*}" --y "${DRIVE_ST
 wait_for "simulated robot" "$STAGE_TIMEOUT_S" log_has sim "sim: robot at"
 
 RUST_LOG="warn,costmap_window_server=debug,costmap_ros=debug" start server "$SERVER" \
-    --map "$DRIVE_MAP" --window-m "$SERVER_WINDOW_M" --rate-hz 5 --min-move-m 2
+    --map "$DRIVE_MAP" --window-m "$SERVER_WINDOW_M" --routes
+wait_for "routes" "$STAGE_TIMEOUT_S" log_has server "serving compute_route_to_pose"
 wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
 require_alive server "$server_pid"
-
-start route "$PLANNER" --map "$DRIVE_MAP"
-wait_for "costmap_planner_server" "$STAGE_TIMEOUT_S" log_has route "serving"
-require_alive route "$route_pid"
 
 # Both costmaps run at the map's resolution. StaticLayer point-samples a map of
 # another resolution and drops obstacles smaller than a costmap cell.

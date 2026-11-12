@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the costmap_ros package with colcon in a scratch workspace, then
-# checks that ROS finds what it installs and that the launch file starts both
-# nodes.
+# checks that ROS finds what it installs and that the launch file starts the
+# window server with routes.
 #
 # Usage: bash test/colcon.sh
 #
@@ -12,7 +12,7 @@
 # - the behaviour tree is in the package's share directory,
 # - the installed binaries carry no debug information,
 # - `ros2 launch costmap_ros costmap.launch.py` on the warehouse ROS map
-#   starts both nodes, connected to a Zenoh router.
+#   starts the window server with routes, connected to a Zenoh router.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,7 +66,7 @@ start launch ros2 launch costmap_ros costmap.launch.py \
     "map:=$REPO/tests/fixtures/warehouse.yaml"
 wait_for "costmap_window_server under ros2 launch" "$STAGE_TIMEOUT_S" \
     log_has launch "costmap_window_server.*serving"
-wait_for "costmap_planner_server under ros2 launch" "$STAGE_TIMEOUT_S" \
+wait_for "routes under ros2 launch" "$STAGE_TIMEOUT_S" \
     log_has launch "serving compute_route_to_pose"
 require_alive launch "$launch_pid"
 

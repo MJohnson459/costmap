@@ -13,7 +13,7 @@ Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 - **`ObstacleLayer`.** Marks sensor hits, clears along beams and forgets obstacles after a set time.
 - **`cost_from_occupancy`, `occupancy_from_cost`, `costmap_from_occupancy`.** Nav2's `StaticLayer` rule and its inverse.
 - **`costmap-geo`.** `costmap-from-ortho` builds a cost GeoTIFF from an OpenDroneMap DSM, DTM and orthophoto; `costmap-from-ros-map` converts a ROS map.
-- **`costmap_ros`.** A ROS 2 package of two nodes for Nav2 on `rmw_zenoh_cpp`. `costmap_window_server` takes the place of `nav2_map_server` and publishes a window of the map around the robot. `costmap_planner_server` plans routes across the whole map for Nav2's planner to follow. It installs from a release tarball, with colcon, or as a conda package.
+- **`costmap_ros`.** A ROS 2 package for Nav2 on `rmw_zenoh_cpp`. `costmap_window_server` takes the place of `nav2_map_server`: it publishes a window of the map around the robot and plans routes across the whole map for Nav2's planner to follow. `costmap_planner_server` serves the routes alone. It installs from a release tarball, with colcon, or as a conda package.
 - **Farm demo.** An example that drives a simulated robot across a cost GeoTIFF it never holds whole.
 
 ### Changed

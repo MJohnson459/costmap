@@ -8,7 +8,7 @@
 //! through, so memory use does not grow with the raster.
 
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Instant, UNIX_EPOCH};
@@ -198,9 +198,9 @@ fn crop(grid: &Costmap, min: UVec2, size: UVec2) -> Result<Costmap, VoxelError> 
     Costmap::from_vec(info, data)
 }
 
-/// What a stored graph was built from: the raster's length and modification
-/// time, the options that shape its costs, and this crate's version. A raster
-/// replaced by one of the same length and time is not told apart.
+/// What a stored graph was built from: the raster's length, modification time
+/// and a hash of its first and last 64 KiB, the options that shape its costs,
+/// and this crate's version.
 fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
@@ -209,6 +209,7 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
         .unwrap_or_default();
     let mut bytes = GRAPH_MAGIC.to_vec();
     bytes.extend(metadata.len().to_le_bytes());
+    bytes.extend(ends_hash(map, metadata.len())?.to_le_bytes());
     bytes.extend(modified.as_nanos().to_le_bytes());
     bytes.extend(options.robot_radius_m.to_le_bytes());
     bytes.extend(options.inflation_m.to_le_bytes());
@@ -216,6 +217,24 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
     // A later version may inflate or place crossings differently.
     bytes.extend(env!("CARGO_PKG_VERSION").as_bytes());
     Ok(bytes)
+}
+
+/// FNV-1a hash of the first and last 64 KiB of the file at `path`, which hold
+/// a TIFF's header, its directory and its first and last strips or tiles. A
+/// raster written again with the same size and time differs there.
+fn ends_hash(path: &Path, length: u64) -> Result<u64, VoxelError> {
+    const SPAN: u64 = 64 * 1024;
+    let mut file = File::open(path)?;
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for start in [0, length.saturating_sub(SPAN)] {
+        file.seek(SeekFrom::Start(start))?;
+        let mut span = Vec::new();
+        (&mut file).take(SPAN).read_to_end(&mut span)?;
+        for byte in span {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    Ok(hash)
 }
 
 /// Where the graph of the raster at `map` is stored: beside it, with
@@ -756,6 +775,20 @@ mod tests {
         };
         let other = fingerprint_of(&map, &wider);
         assert!(read_graph(&graph_path(&map), &other, &wider).is_none());
+
+        // The same bytes but for one, with the length and time kept.
+        let modified = fs::metadata(&map).unwrap().modified().unwrap();
+        let mut raster = fs::read(&map).unwrap();
+        let last = raster.len() - 1;
+        raster[last] ^= 0xff;
+        fs::write(&map, raster).unwrap();
+        File::options()
+            .write(true)
+            .open(&map)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert_ne!(fingerprint_of(&map, &OPTIONS), fingerprint);
         fs::remove_dir_all(&dir).unwrap();
     }
 
