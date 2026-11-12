@@ -281,8 +281,8 @@ where
         let src_row = y * width * 4;
         let dest = &mut data[grid_row..grid_row + width];
         let src = &raw[src_row..src_row + width * 4];
-        for (dest_cell, rgba) in dest.iter_mut().zip(src.chunks_exact(4)) {
-            *dest_cell = f(rgba[0], rgba[1], rgba[2], rgba[3]);
+        for (dest_cell, &[r, g, b, a]) in dest.iter_mut().zip(src.as_chunks::<4>().0) {
+            *dest_cell = f(r, g, b, a);
         }
     }
 }
@@ -296,8 +296,8 @@ where
         let src_row = y * width * 3;
         let dest = &mut data[grid_row..grid_row + width];
         let src = &raw[src_row..src_row + width * 3];
-        for (dest_cell, rgb) in dest.iter_mut().zip(src.chunks_exact(3)) {
-            *dest_cell = f(rgb[0], rgb[1], rgb[2]);
+        for (dest_cell, &[r, g, b]) in dest.iter_mut().zip(src.as_chunks::<3>().0) {
+            *dest_cell = f(r, g, b);
         }
     }
 }
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(metadata.origin, Vec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
-        assert_eq!(metadata.negate.is_negated(), false);
+        assert!(!metadata.negate.is_negated());
         assert!(matches!(metadata.mode, MapMode::Trinary));
     }
 
@@ -346,7 +346,7 @@ mod tests {
         assert_eq!(metadata.origin, Vec3::ZERO);
         assert_eq!(metadata.occupied_thresh, 0.65);
         assert_eq!(metadata.free_thresh, 0.196);
-        assert_eq!(metadata.negate.is_negated(), false);
+        assert!(!metadata.negate.is_negated());
         assert!(matches!(metadata.mode, MapMode::Trinary));
     }
 }

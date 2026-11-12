@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum VoxelError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -12,4 +13,8 @@ pub enum VoxelError {
     OutOfBounds(String),
     #[error("invalid metadata: {0}")]
     InvalidMetadata(String),
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
+    #[error("unsupported: {0}")]
+    Unsupported(String),
 }

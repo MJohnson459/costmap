@@ -22,7 +22,7 @@ pub struct Grid2d<T> {
 }
 
 impl<T> Grid2d<T> {
-    /// Create a grid from existing data, using [`T::default`] as the fill value.
+    /// Create a grid from existing data, using [`Default::default`] as the fill value.
     pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
     where
         T: Default,
@@ -52,7 +52,7 @@ impl<T> Grid2d<T> {
         })
     }
 
-    /// Create an empty grid filled with [`T::default`].
+    /// Create an empty grid filled with [`Default::default`].
     pub fn new(info: MapInfo) -> Self
     where
         T: Default + Clone,
@@ -60,7 +60,7 @@ impl<T> Grid2d<T> {
         Self::new_with_value(info, T::default())
     }
 
-    /// Create a grid where every cell is initialised to [`Self::fill_value`].
+    /// Create a grid where every cell is initialised to `fill_value`.
     ///
     /// The same value is used by [`Self::clear`], [`Self::update_origin`],
     /// [`Self::resize_map`], and [`Self::reset_map`] when new or reset cells

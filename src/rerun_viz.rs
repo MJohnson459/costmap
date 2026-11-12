@@ -10,7 +10,7 @@ pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
 /// Log a `Costmap` as a native Rerun `GridMap` archetype.
 ///
 /// Cost values are translated to nav2's published cost convention (see
-/// [`cost_to_rviz_value`]) and logged as a single-channel (L/U8) grid coloured by
+/// `cost_to_rviz_value`) and logged as a single-channel (L/U8) grid coloured by
 /// Rerun's built-in `RvizCostmap` colormap, which matches the classic RViz costmap
 /// palette (blue→red gradient, highlight colours for special costs, transparent free
 /// space). The grid is anchored at its world-space origin (lower-left corner) and

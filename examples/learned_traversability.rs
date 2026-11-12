@@ -53,13 +53,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         MergePolicy::Max,
         true, // rolling window
         |t| Some(cost_from_unit(*t)),
-    )));
+    )))?;
     layered.add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
         inflation_radius_m: 0.4,
         inscribed_radius_m: 0.1,
         cost_scaling_factor: 3.0,
         ..Default::default()
-    })));
+    })))?;
 
     let waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
     let (segment_lengths, total_length) = build_segments(&waypoints);
