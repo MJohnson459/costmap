@@ -22,8 +22,13 @@ only a square window of the map around the robot. Nav2 runs its costmap with
   - `tf`: a transform tree fed from `/tf` and `/tf_static`, and a resolver for
     the robot pose.
 - Binary: `costmap_window_server`.
-- Example: `yaml_to_cost_geotiff`, which converts a ROS map YAML to a cost GeoTIFF.
-- `nav2_e2e/`: an end-to-end test against a real Nav2 costmap node.
+- Examples:
+  - `yaml_to_cost_geotiff` converts a ROS map YAML to a cost GeoTIFF.
+  - `route_waypoints` plans a route across a whole cost GeoTIFF with `costmap`'s
+    A* and prints waypoints along it.
+- `nav2_e2e/`:
+  - `run_e2e.sh`: an end-to-end test against a real Nav2 costmap node.
+  - `run_drive.sh`: Nav2 plans and drives a simulated robot across a cost GeoTIFF.
 
 ## Running the server
 
@@ -151,6 +156,10 @@ the node. `inscribed_obstacle_cost_value` (99) and `unknown_cost_value` (255)
 must stay at their defaults. Use the map's resolution and leave `origin_x` and
 `origin_y` on the map's cell grid, so Nav2's cells coincide with the map's.
 
+The resolution matters for safety. StaticLayer point-samples a map whose
+resolution differs from the costmap's. A Nav2 costmap at 0.05 m over a 0.03 m
+map dropped a 9 cm obstacle, and Nav2 planned and drove through it.
+
 Nav2 must run with `RMW_IMPLEMENTATION=rmw_zenoh_cpp` and reach the same Zenoh
 router as the server.
 
@@ -230,6 +239,67 @@ different raster than the checker reads with `E2E_SERVE_MAP=/path/shifted.tif`,
 for example the raster shifted one pixel with
 `gdal_translate -srcwin 1 0 W-1 H -a_ullr ULX ULY LRX-res LRY in.tif shifted.tif`.
 
+## Drive demo
+
+`run_drive.sh` has Nav2 plan and drive across a cost GeoTIFF that it never
+holds whole.
+
+```sh
+cd crates/costmap_ros/nav2_e2e
+DRIVE_MAP=/path/cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash run_drive.sh
+pixi run python render_drive.py --map /path/cost.tif \
+    --recording /tmp/costmap_ros_drive.XXXXXX/recording.npz --out drive.mp4
+```
+
+It starts:
+
+- a Zenoh router;
+- `sim_robot.py`, a kinematic differential-drive robot that integrates Nav2's
+  `/cmd_vel` and publishes `odom -> base_link` and `/odom`;
+- `costmap_window_server` on the GeoTIFF, with 60 m windows republished every 2 m;
+- Nav2's planner (NavFn), controller (Regulated Pure Pursuit) and behaviour
+  tree navigator, configured by `drive_params.yaml`. The global costmap is a
+  50 m rolling window and the local costmap a 6 m one. Each holds a
+  StaticLayer on `/map` and an inflation layer, and nothing else;
+- `drive_mission.py`, which sends the waypoints as `NavigateToPose` goals.
+
+Nav2 cannot plan to a goal outside its global costmap. `route_waypoints` plans
+the whole route on a max-pooled overview of the raster with `costmap`'s A*,
+and the mission sends Nav2 one waypoint every 15 m of it.
+
+The mission passes when:
+
+- Nav2 reports success for every waypoint with the robot within 0.5 m of it;
+- no lethal cell of the raster, read from the file with Pillow, lies under the
+  0.3 m robot disc at any recorded pose.
+
+Result on a 166 x 196 m vineyard survey at 0.03 m (5,547 x 6,525 cells, 36 M):
+
+| | |
+| --- | --- |
+| Waypoints reached | 7 of 7, each within 0.29 m |
+| Distance driven | 96.6 m in 101 s |
+| Windows published | 45, of 2,000 x 2,000 cells each |
+| Plans | 7, one per waypoint |
+| Lethal cells under the robot disc | 0 |
+| Least distance from robot centre to a lethal cell | 0.40 m |
+| Chunks of the file read | 2,712 of 8,874; 2,235 held at the end |
+
+`render_drive.py` draws the recording as a video: Nav2's global and local
+costmaps as Nav2 published them, the outline of the last window served, the
+plan and the track, over the dimmed raster.
+
+The demo does not cover:
+
+- sensors. There is no obstacle layer; Nav2 sees only the served map;
+- localisation. `map -> odom` is a fixed identity transform;
+- dynamics. The robot follows the commanded velocity exactly;
+- recovery behaviours. The behaviour tree is the stock
+  `navigate_w_replanning_only_if_goal_is_updated.xml`, which plans once per
+  goal. With the 1 Hz replanning tree a plan was still running when a waypoint
+  was reached, and Nav2 started the next goal on the previous path and
+  reported success at once.
+
 ## Latency
 
 Latency is the time from the checker publishing a moved tf to the checker
@@ -265,3 +335,5 @@ size does. At 50 Hz every number falls by a factor of 2 to 5, and the
   fixed map, and the window origin moves, so updates are not used.
 - Nav2 must run `rmw_zenoh_cpp`, and a Zenoh router must connect both sides.
 - `MapInfo` has no yaw, so maps with a rotated origin are rejected.
+- A Nav2 goal must lie inside Nav2's global costmap, so a goal farther away
+  than the window needs intermediate waypoints. See the drive demo.

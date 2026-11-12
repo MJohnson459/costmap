@@ -10,7 +10,7 @@ The goal is to provide a standalone, composable alternative to [costmap_2d](http
 
 > **AI Disclaimer:** I have been using this project as a way to test different workflows with AI generation. The majority of the code has been written by AI using a mix of Cursor Composer/Auto and Claude Opus 4.6. In all cases I had them generate a plan before implementation began. After generation, I have reviewed all code, however there are still many "odd decisions" that have embedded themselves in the code. Contributions in code or experience are welcome!
 
-> **Status:** Work in progress. The core grid, raycasting, coordinate transforms, inflation, and ROS2 map loading are functional.
+> **Status:** Work in progress. The core grid, raycasting, inflation, obstacle layer, A* planner, tiled storage, GeoTIFF loading and the Nav2 bridge work and are tested.
 
 ## Goals
 
@@ -48,6 +48,7 @@ This library is designed for:
 | --- | --- |
 | `costmap` (repository root) | The library. No ROS dependency. |
 | [`crates/costmap-geo`](crates/costmap-geo) | `costmap-from-ortho` builds a cost GeoTIFF from an OpenDroneMap DSM, DTM and orthophoto. |
+| [`crates/costmap_ros`](crates/costmap_ros) | `costmap_window_server` publishes a rolling window of a map to Nav2's `StaticLayer` over [Hiroz](https://github.com/ZettaScaleLabs/hiroz) (Zenoh). It builds with plain `cargo` and no ROS install. |
 
 ## Installation
 
@@ -130,7 +131,7 @@ A map of a field is larger than a robot's costmap and is georeferenced. The piec
 1. **Survey.** Process a drone survey with OpenDroneMap with `--dsm --dtm`. It writes an orthophoto, a surface model and a terrain model.
 2. **Cost map.** `costmap-from-ortho` turns those three rasters into a single-band `u8` cost GeoTIFF: obstacles from height above ground, graded cost from slope. See [`crates/costmap-geo`](crates/costmap-geo) for the rules and the keep-out polygon overrides.
 3. **Inspect and edit.** Open the cost GeoTIFF in QGIS. Value 0 is free, 254 lethal, 255 unknown.
-4. **Navigate.** Load it with `CostGeoTiff` into a `TiledGrid`. The farm demo below does this.
+4. **Navigate.** Load it with `CostGeoTiff` into a `TiledGrid`, as the farm demo below does, or serve it to Nav2 with `costmap_window_server --map cost.tif`. See [`crates/costmap_ros`](crates/costmap_ros).
 
 ```bash
 cargo run --release -p costmap-geo --bin costmap-from-ortho -- \
@@ -196,6 +197,20 @@ cargo run --release -p costmap-geo --bin costmap-from-ortho -- \
 cargo run --release --example farm_demo --features rerun,geotiff -- \
     --map cost.tif --overview-m 0.12 --start 53.5,30 --goal 100.1,80
 ```
+
+### Nav2
+
+`costmap_window_server` publishes the part of the map around the robot as `nav_msgs/OccupancyGrid`; Nav2's `StaticLayer` consumes it. Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:
+
+```bash
+cd crates/costmap_ros/nav2_e2e
+# Compare every cell a Nav2 costmap holds with the source map.
+bash run_e2e.sh
+# Nav2 plans and drives a simulated robot across a cost GeoTIFF.
+DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash run_drive.sh
+```
+
+On a 166 x 196 m vineyard survey of 36 M cells, Nav2 drove 96.6 m through 7 waypoints while holding a 50 m window. See [`crates/costmap_ros`](crates/costmap_ros#drive-demo).
 
 ## Roadmap
 

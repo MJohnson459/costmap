@@ -6,6 +6,13 @@ platforms = ["linux-64"]
 [dependencies]
 ros-lyrical-nav2-costmap-2d = ">=1.5.2,<2"
 ros-lyrical-nav2-msgs = ">=1.5.2,<2"
+ros-lyrical-nav2-planner = ">=1.5.2,<2"
+ros-lyrical-nav2-navfn-planner = ">=1.5.2,<2"
+ros-lyrical-nav2-controller = ">=1.5.2,<2"
+ros-lyrical-nav2-regulated-pure-pursuit-controller = ">=1.5.2,<2"
+ros-lyrical-nav2-bt-navigator = ">=1.5.2,<2"
+ros-lyrical-nav2-lifecycle-manager = ">=1.5.2,<2"
+ros-lyrical-nav2-bringup = ">=1.5.2,<2"
 ros-lyrical-rmw-zenoh-cpp = "*"
 ros-lyrical-tf2-ros = "*"
 ros-lyrical-rclpy = "*"
