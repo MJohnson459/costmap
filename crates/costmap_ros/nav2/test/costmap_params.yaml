@@ -1,0 +1,33 @@
+# Standalone Nav2 costmap (nav2_costmap_2d executable, node /costmap) that
+# reads costmap_window_server's windows through a StaticLayer and nothing else.
+costmap:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_link
+    rolling_window: true
+    # test/run.sh overrides width, height and resolution from the map. Smaller
+    # than every window the integration test publishes.
+    width: 8
+    height: 8
+    # Same resolution (overridden per map) and grid origin as the map, so the rolling
+    # window's cells coincide with the published cells.
+    resolution: 0.05
+    origin_x: 0.0
+    origin_y: 0.0
+    robot_radius: 0.1
+    footprint_padding: 0.0
+    update_frequency: 10.0
+    publish_frequency: 10.0
+    always_send_full_costmap: true
+    # StaticLayer reads these three from the costmap node, not the layer.
+    # Together with the defaults lethal_cost_threshold 100,
+    # inscribed_obstacle_cost_value 99 and unknown_cost_value 255 they give
+    # the occupancy -> cost rule costmap_ros::convert inverts.
+    track_unknown_space: true
+    trinary_costmap: false
+    lethal_cost_threshold: 100
+    plugins: ["static_layer"]
+    static_layer:
+      plugin: nav2_costmap_2d::StaticLayer
+      map_topic: /map
+      map_subscribe_transient_local: true

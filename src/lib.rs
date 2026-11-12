@@ -11,7 +11,10 @@ pub mod types;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
-pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_into};
+pub use costmap::{
+    Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, cost_from_occupancy,
+    costmap_from_occupancy, occupancy_from_cost, project_into,
+};
 pub use grid::DenseGrid;
 #[allow(deprecated)]
 pub use grid::Grid2d;

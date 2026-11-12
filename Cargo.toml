@@ -95,4 +95,4 @@ name = "tiled_window"
 harness = false
 
 [workspace]
-members = [".", "crates/costmap-geo"]
+members = [".", "crates/costmap-geo", "crates/costmap_ros"]
