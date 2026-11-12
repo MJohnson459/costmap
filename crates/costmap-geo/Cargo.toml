@@ -1,0 +1,23 @@
+[package]
+name = "costmap-geo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT OR Apache-2.0"
+description = "Turn OpenDroneMap orthophoto, DSM and DTM rasters into a navigation cost GeoTIFF"
+publish = false
+
+[[bin]]
+name = "costmap-from-ortho"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+costmap = { path = "../..", features = ["geotiff"] }
+glam = "0.33"
+serde_json = "1.0"
+thiserror = "2.0"
+tiff = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
