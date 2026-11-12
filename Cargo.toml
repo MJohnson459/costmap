@@ -61,6 +61,10 @@ name = "raycast"
 harness = false
 
 [[bench]]
+name = "astar"
+harness = false
+
+[[bench]]
 name = "line_iterator"
 harness = false
 

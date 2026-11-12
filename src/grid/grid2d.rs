@@ -198,6 +198,20 @@ impl<T> Grid2d<T> {
         Some(Vec2::new(mx, my))
     }
 
+    /// All cells as a slice in row-major order, starting at cell (0, 0).
+    ///
+    /// Row `y` occupies `[y * width, (y + 1) * width)`.
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    /// All cells as a mutable slice in row-major order, starting at cell (0, 0).
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
     /// Iterate over all cells in row-major order.
     pub fn iter(&self) -> Iter<'_, T> {
         self.data.iter()

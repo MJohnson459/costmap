@@ -3,6 +3,7 @@ pub mod grid;
 pub mod iterators;
 pub mod layers;
 pub mod loaders;
+pub mod planning;
 pub mod raycast;
 pub mod types;
 
@@ -13,4 +14,5 @@ pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_
 pub use grid::Grid2d;
 pub use layers::{InflationConfig, ProjectionLayer, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
+pub use planning::{Path, PlanOptions, line_passable, plan};
 pub use types::{MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
