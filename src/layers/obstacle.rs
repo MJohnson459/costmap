@@ -12,7 +12,7 @@
 //! must already be in the costmap's world frame. Callers transform sensor data
 //! (origin, beam endpoints, sensor pose) before inserting it.
 
-use glam::{UVec2, Vec2};
+use glam::{DVec2, UVec2, Vec2};
 
 use crate::{
     DenseGrid,
@@ -59,7 +59,7 @@ impl Default for ObstacleConfig {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Beam {
     /// World-frame endpoint of the beam.
-    pub end: Vec2,
+    pub end: DVec2,
     /// `true` if the beam hit an obstacle at `end`; `false` for a maximum-range
     /// return, which only clears.
     pub hit: bool,
@@ -84,12 +84,12 @@ pub struct ObstacleLayer {
     touched: Bounds,
     /// Hit endpoints collected while clearing, marked once every beam has cleared.
     /// Kept between calls so its allocation is reused.
-    pending_hits: Vec<Vec2>,
+    pending_hits: Vec<DVec2>,
 }
 
 /// One ray to trace: `range` metres from `origin` along the unit vector `dir`.
 struct Ray {
-    origin: Vec2,
+    origin: DVec2,
     dir: Vec2,
     range: f32,
     hit: bool,
@@ -118,12 +118,12 @@ impl ObstacleLayer {
     /// observation time used for decay.
     pub fn insert_beams(
         &mut self,
-        origin: Vec2,
+        origin: DVec2,
         beams: impl IntoIterator<Item = Beam>,
         stamp_s: f64,
     ) {
         let rays = beams.into_iter().map(|beam| {
-            let offset = beam.end - origin;
+            let offset = (beam.end - origin).as_vec2();
             let range = offset.length();
             Ray {
                 origin,
@@ -193,7 +193,7 @@ impl ObstacleLayer {
 
     /// Clear the cells `ray` crosses. Returns the endpoint to mark if the ray is a hit
     /// within the obstacle and raytrace ranges.
-    fn clear_ray(&mut self, ray: &Ray) -> Option<Vec2> {
+    fn clear_ray(&mut self, ray: &Ray) -> Option<DVec2> {
         let Ray {
             origin,
             dir,
@@ -205,7 +205,7 @@ impl ObstacleLayer {
         }
         let mark =
             hit && range <= self.config.obstacle_range_m && range <= self.config.raytrace_range_m;
-        let end = origin + dir * range.min(self.config.raytrace_range_m);
+        let end = origin + (dir * range.min(self.config.raytrace_range_m)).as_dvec2();
         if !end.is_finite() {
             return None;
         }
@@ -215,7 +215,7 @@ impl ObstacleLayer {
     }
 
     /// Mark the cell containing `end` lethal, if it lies inside the grid.
-    fn mark_hit(&mut self, end: Vec2, stamp_s: f64) {
+    fn mark_hit(&mut self, end: DVec2, stamp_s: f64) {
         if let Some(cell) = self.grid.world_to_map(end) {
             self.set_cell(cell, COST_LETHAL, Some(stamp_s));
             touch(&mut self.touched, end, self.grid.info().resolution);
@@ -223,7 +223,7 @@ impl ObstacleLayer {
     }
 
     /// Clear the part of the segment `origin`..`end` that lies inside the grid.
-    fn clear_along(&mut self, origin: Vec2, end: Vec2) {
+    fn clear_along(&mut self, origin: DVec2, end: DVec2) {
         let info = *self.grid.info();
         let Some((start, exit)) = clip_segment(&info, origin, end) else {
             return;
@@ -231,7 +231,7 @@ impl ObstacleLayer {
         touch(&mut self.touched, start, info.resolution);
         touch(&mut self.touched, exit, info.resolution);
 
-        let offset = end - start;
+        let offset = (end - start).as_vec2();
         let Some(cells) = LineIterator::new(&self.grid, start, offset, offset.length()) else {
             return;
         };
@@ -249,7 +249,7 @@ impl ObstacleLayer {
     }
 
     /// Move the grid, and the stamps with it, so that it is centred on `center`.
-    fn recenter(&mut self, center: Vec2) {
+    fn recenter(&mut self, center: DVec2) {
         self.grid.update_center(center);
         if let Some(stamps) = self.stamps.as_mut() {
             stamps.update_center(center);
@@ -261,16 +261,16 @@ impl ObstacleLayer {
         let info = self.grid.info();
         Bounds {
             min: info.origin,
-            max: info.origin + Vec2::new(info.world_width(), info.world_height()),
+            max: info.origin + DVec2::new(info.world_width(), info.world_height()),
         }
     }
 }
 
 /// Grow `bounds` to include the cell-sized neighbourhood of `point`. Padding keeps
 /// the bounds of a single point from being empty.
-fn touch(bounds: &mut Bounds, point: Vec2, pad: f32) {
-    bounds.expand_to_include(point - Vec2::splat(pad));
-    bounds.expand_to_include(point + Vec2::splat(pad));
+fn touch(bounds: &mut Bounds, point: DVec2, pad: f64) {
+    bounds.expand_to_include(point - DVec2::splat(pad));
+    bounds.expand_to_include(point + DVec2::splat(pad));
 }
 
 /// Clip the segment `origin`..`end` to the grid described by `info`.
@@ -278,9 +278,10 @@ fn touch(bounds: &mut Bounds, point: Vec2, pad: f32) {
 /// Returns the world-frame entry and exit points, or `None` if the segment misses
 /// the grid. The entry point lies at least [`CLIP_MARGIN_CELLS`] inside the grid,
 /// which makes it a valid start for [`LineIterator`].
-fn clip_segment(info: &MapInfo, origin: Vec2, end: Vec2) -> Option<(Vec2, Vec2)> {
-    let a = (origin - info.origin) / info.resolution;
-    let delta = (end - info.origin) / info.resolution - a;
+fn clip_segment(info: &MapInfo, origin: DVec2, end: DVec2) -> Option<(DVec2, DVec2)> {
+    let resolution = info.resolution as f32;
+    let a = (origin - info.origin).as_vec2() / resolution;
+    let delta = (end - origin).as_vec2() / resolution;
     let size = Vec2::new(info.width as f32, info.height as f32);
 
     let (mut t_in, mut t_out) = (0.0_f32, 1.0_f32);
@@ -303,7 +304,7 @@ fn clip_segment(info: &MapInfo, origin: Vec2, end: Vec2) -> Option<(Vec2, Vec2)>
     let margin = Vec2::splat(CLIP_MARGIN_CELLS);
     let entry = (a + delta * t_in).clamp(margin, size - margin);
     let exit = a + delta * t_out;
-    let to_world = |cell: Vec2| info.origin + cell * info.resolution;
+    let to_world = |cell: Vec2| info.origin + cell.as_dvec2() * info.resolution;
     Some((to_world(entry), to_world(exit)))
 }
 
@@ -413,16 +414,16 @@ mod tests {
         *layer.grid().get(UVec2::new(x, y)).unwrap()
     }
 
-    fn hit(x: f32, y: f32) -> Beam {
+    fn hit(x: f64, y: f64) -> Beam {
         Beam {
-            end: Vec2::new(x, y),
+            end: DVec2::new(x, y),
             hit: true,
         }
     }
 
-    fn miss(x: f32, y: f32) -> Beam {
+    fn miss(x: f64, y: f64) -> Beam {
         Beam {
-            end: Vec2::new(x, y),
+            end: DVec2::new(x, y),
             hit: false,
         }
     }
@@ -443,7 +444,7 @@ mod tests {
     #[test]
     fn marks_hit_and_clears_path() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         for x in 0..8 {
             assert_eq!(cost(&layer, x, 5), COST_FREE, "x={x}");
@@ -456,7 +457,7 @@ mod tests {
     #[test]
     fn later_beam_clears_earlier_mark() {
         let mut layer = ObstacleLayer::new(info(), config());
-        let origin = Vec2::new(0.5, 5.5);
+        let origin = DVec2::new(0.5, 5.5);
         layer.insert_beams(origin, [hit(8.5, 5.5)], 0.0);
         layer.insert_beams(origin, [hit(4.5, 5.5)], 1.0);
         assert_eq!(cost(&layer, 4, 5), COST_LETHAL);
@@ -470,7 +471,7 @@ mod tests {
     #[test]
     fn hit_cell_survives_its_own_clearing_ray() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(0.5, 0.5), [hit(7.5, 7.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 0.5), [hit(7.5, 7.5)], 0.0);
         assert_eq!(cost(&layer, 7, 7), COST_LETHAL);
         assert_eq!(cost(&layer, 3, 3), COST_FREE);
     }
@@ -478,7 +479,7 @@ mod tests {
     #[test]
     fn hits_of_one_call_survive_beams_that_cross_them() {
         let mut layer = ObstacleLayer::new(info(), config());
-        let origin = Vec2::new(0.5, 5.5);
+        let origin = DVec2::new(0.5, 5.5);
         layer.insert_beams(origin, [hit(4.5, 5.5), hit(8.5, 5.5)], 0.0);
         assert_eq!(cost(&layer, 4, 5), COST_LETHAL);
         assert_eq!(cost(&layer, 8, 5), COST_LETHAL);
@@ -488,7 +489,7 @@ mod tests {
     #[test]
     fn second_scan_clears_a_mark_from_the_first() {
         let mut layer = ObstacleLayer::new(info(), config());
-        let sensor = Pose2::new(Vec2::new(0.5, 5.5), 0.0);
+        let sensor = Pose2::new(DVec2::new(0.5, 5.5), 0.0);
         layer.insert_laser_scan(sensor, 0.0, 0.0, &[4.0], 0.0);
         assert_eq!(cost(&layer, 4, 5), COST_LETHAL);
 
@@ -506,7 +507,7 @@ mod tests {
             width: 400,
             height: 400,
             resolution,
-            origin: Vec2::ZERO,
+            origin: DVec2::ZERO,
         };
         let mut layer = ObstacleLayer::new(
             grid_info,
@@ -516,8 +517,8 @@ mod tests {
                 ..Default::default()
             },
         );
-        let sensor = Vec2::new(10.0, 2.0);
-        let (wall_start, wall_end) = (Vec2::new(2.0, 12.0), Vec2::new(18.0, 16.0));
+        let sensor = DVec2::new(10.0, 2.0);
+        let (wall_start, wall_end) = (DVec2::new(2.0, 12.0), DVec2::new(18.0, 16.0));
         let (beams, angle_min) = (1081, 0.3_f32);
         let increment = 2.5 / (beams - 1) as f32;
 
@@ -526,13 +527,13 @@ mod tests {
         let mut hit_cells = std::collections::HashSet::new();
         for i in 0..beams {
             let angle = angle_min + i as f32 * increment;
-            let dir = Vec2::new(angle.cos(), angle.sin());
+            let dir = Vec2::new(angle.cos(), angle.sin()).as_dvec2();
             let to_wall = wall_start - sensor;
             let det = -dir.x * wall.y + dir.y * wall.x;
             let along_beam = (-to_wall.x * wall.y + to_wall.y * wall.x) / det;
             let along_wall = (dir.x * to_wall.y - dir.y * to_wall.x) / det;
             if along_beam > 0.0 && (0.0..=1.0).contains(&along_wall) {
-                ranges.push(along_beam);
+                ranges.push(along_beam as f32);
                 let point = sensor + dir * along_beam;
                 hit_cells.insert((point / resolution).floor().as_uvec2());
             } else {
@@ -557,7 +558,7 @@ mod tests {
     #[test]
     fn unknown_cells_leave_master_untouched() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(3.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(3.5, 5.5)], 0.0);
 
         let mut master = Costmap::filled(info(), 77);
         layer.update_costs(&mut master, full_region());
@@ -570,7 +571,7 @@ mod tests {
     #[test]
     fn free_observation_does_not_lower_lethal_master_under_max() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let mut master = Costmap::filled(info(), COST_FREE);
         master.set(UVec2::new(2, 5), COST_LETHAL).unwrap();
@@ -589,7 +590,7 @@ mod tests {
                 ..config()
             },
         );
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let mut master = Costmap::filled(info(), COST_FREE);
         master.set(UVec2::new(2, 5), COST_LETHAL).unwrap();
@@ -608,7 +609,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let sensor = Pose2::new(Vec2::new(0.5, 10.5), 0.0);
+        let sensor = Pose2::new(DVec2::new(0.5, 10.5), 0.0);
 
         layer.insert_laser_scan(sensor, 0.0, 0.0, &[4.0], 0.0);
         assert_eq!(cost(&layer, 4, 10), COST_LETHAL);
@@ -630,7 +631,13 @@ mod tests {
                 ..Default::default()
             },
         );
-        layer.insert_laser_scan(Pose2::new(Vec2::new(0.5, 10.5), 0.0), 0.0, 0.0, &[9.0], 0.0);
+        layer.insert_laser_scan(
+            Pose2::new(DVec2::new(0.5, 10.5), 0.0),
+            0.0,
+            0.0,
+            &[9.0],
+            0.0,
+        );
 
         assert_eq!(cost(&layer, 8, 10), COST_FREE);
         assert_eq!(cost(&layer, 9, 10), COST_UNKNOWN);
@@ -640,7 +647,7 @@ mod tests {
     #[test]
     fn invalid_ranges_are_skipped_and_infinity_only_clears() {
         let mut layer = ObstacleLayer::new(info(), config());
-        let centre = Pose2::new(Vec2::new(10.5, 10.5), 0.0);
+        let centre = Pose2::new(DVec2::new(10.5, 10.5), 0.0);
         let ranges = [f32::NAN, 0.0, -1.0, f32::INFINITY];
         layer.insert_laser_scan(centre, 0.0, std::f32::consts::FRAC_PI_2, &ranges, 0.0);
 
@@ -655,18 +662,18 @@ mod tests {
     #[test]
     fn non_finite_beams_are_ignored() {
         let mut layer = ObstacleLayer::new(info(), config());
-        let origin = Vec2::new(5.5, 5.5);
-        layer.insert_beams(origin, [hit(f32::NAN, 1.0), hit(f32::INFINITY, 1.0)], 0.0);
+        let origin = DVec2::new(5.5, 5.5);
+        layer.insert_beams(origin, [hit(f64::NAN, 1.0), hit(f64::INFINITY, 1.0)], 0.0);
         layer.insert_beams(origin, [hit(5.5, 5.5)], 0.0);
-        layer.insert_beams(Vec2::NAN, [hit(5.5, 5.5)], 0.0);
-        layer.insert_beams(Vec2::INFINITY, [hit(5.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::NAN, [hit(5.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::INFINITY, [hit(5.5, 5.5)], 0.0);
         assert_eq!(observed_cells(&layer), 0);
     }
 
     #[test]
     fn origin_outside_grid_still_clears_and_marks_inside() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(-5.5, 5.5), [hit(3.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(-5.5, 5.5), [hit(3.5, 5.5)], 0.0);
 
         for x in 0..3 {
             assert_eq!(cost(&layer, x, 5), COST_FREE, "x={x}");
@@ -678,7 +685,7 @@ mod tests {
     #[test]
     fn origin_beyond_upper_edge_enters_grid() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(25.5, 5.5), [hit(15.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(25.5, 5.5), [hit(15.5, 5.5)], 0.0);
 
         for x in 16..SIZE {
             assert_eq!(cost(&layer, x, 5), COST_FREE, "x={x}");
@@ -697,10 +704,10 @@ mod tests {
             },
         );
         let across = Beam {
-            end: Vec2::new(31.5, 5.5),
+            end: DVec2::new(31.5, 5.5),
             hit: true,
         };
-        layer.insert_beams(Vec2::new(-10.5, 5.5), [across], 0.0);
+        layer.insert_beams(DVec2::new(-10.5, 5.5), [across], 0.0);
 
         for x in 0..SIZE {
             assert_eq!(cost(&layer, x, 5), COST_FREE, "x={x}");
@@ -711,15 +718,15 @@ mod tests {
     #[test]
     fn beam_missing_grid_changes_nothing() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(-5.5, 30.5), [hit(3.5, 30.5)], 0.0);
-        layer.insert_beams(Vec2::new(-5.5, -5.5), [hit(-1.5, 30.5)], 0.0);
+        layer.insert_beams(DVec2::new(-5.5, 30.5), [hit(3.5, 30.5)], 0.0);
+        layer.insert_beams(DVec2::new(-5.5, -5.5), [hit(-1.5, 30.5)], 0.0);
         assert_eq!(observed_cells(&layer), 0);
     }
 
     #[test]
     fn marked_cells_decay_after_stream_stops() {
         let mut layer = decaying(2.0);
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         layer.expire(1.0);
         assert_eq!(cost(&layer, 8, 5), COST_LETHAL);
@@ -734,7 +741,7 @@ mod tests {
     #[test]
     fn re_observation_refreshes_decay() {
         let mut layer = decaying(2.0);
-        let origin = Vec2::new(0.5, 5.5);
+        let origin = DVec2::new(0.5, 5.5);
         layer.insert_beams(origin, [hit(8.5, 5.5)], 0.0);
         layer.insert_beams(origin, [hit(8.5, 5.5)], 1.5);
 
@@ -747,7 +754,7 @@ mod tests {
     #[test]
     fn cleared_cell_is_not_expired() {
         let mut layer = decaying(2.0);
-        let origin = Vec2::new(0.5, 5.5);
+        let origin = DVec2::new(0.5, 5.5);
         layer.insert_beams(origin, [hit(8.5, 5.5)], 0.0);
         layer.insert_beams(origin, [miss(10.5, 5.5)], 1.0);
 
@@ -761,7 +768,7 @@ mod tests {
         assert!(decaying(1.0).stamps.is_some());
 
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
         layer.expire(1e9);
         assert_eq!(cost(&layer, 8, 5), COST_LETHAL);
     }
@@ -779,22 +786,22 @@ mod tests {
                 },
             )))
             .unwrap();
-        let obstacle = Vec2::new(15.5, 10.5);
-        let lethal_at = |layered: &LayeredCostmap, world: Vec2| {
+        let obstacle = DVec2::new(15.5, 10.5);
+        let lethal_at = |layered: &LayeredCostmap, world: DVec2| {
             let cell = layered.master().world_to_map(world);
             cell.and_then(|c| layered.master().get(c).copied())
         };
 
-        layered.update_map(Pose2::new(Vec2::new(10.0, 10.0), 0.0));
+        layered.update_map(Pose2::new(DVec2::new(10.0, 10.0), 0.0));
         layered
             .layer_mut::<ObstacleLayer>(id)
             .unwrap()
-            .insert_beams(Vec2::new(10.5, 10.5), [hit(obstacle.x, obstacle.y)], 0.0);
+            .insert_beams(DVec2::new(10.5, 10.5), [hit(obstacle.x, obstacle.y)], 0.0);
 
         for robot in [
-            Vec2::new(10.0, 10.0),
-            Vec2::new(13.3, 9.7),
-            Vec2::new(16.1, 8.2),
+            DVec2::new(10.0, 10.0),
+            DVec2::new(13.3, 9.7),
+            DVec2::new(16.1, 8.2),
         ] {
             layered.update_map(Pose2::new(robot, 0.0));
             assert_eq!(lethal_at(&layered, obstacle), Some(COST_LETHAL), "{robot}");
@@ -802,7 +809,7 @@ mod tests {
             assert!(layered.master().layout_matches(layer.grid()), "{robot}");
         }
 
-        layered.update_map(Pose2::new(Vec2::new(60.0, 10.0), 0.0));
+        layered.update_map(Pose2::new(DVec2::new(60.0, 10.0), 0.0));
         assert_eq!(lethal_at(&layered, obstacle), None);
         let layer = layered.layer::<ObstacleLayer>(id).unwrap();
         assert!(layered.master().layout_matches(layer.grid()));
@@ -811,7 +818,7 @@ mod tests {
     #[test]
     fn rolling_layer_off_the_master_lattice_still_marks() {
         let master = MapInfo {
-            origin: Vec2::new(-10.5, -10.5),
+            origin: DVec2::new(-10.5, -10.5),
             ..info()
         };
         let mut layered = LayeredCostmap::new(master, COST_FREE, true);
@@ -824,9 +831,9 @@ mod tests {
                 },
             )))
             .unwrap();
-        let robot = Pose2::new(Vec2::new(3.2, 1.7), 0.0);
+        let robot = Pose2::new(DVec2::new(3.2, 1.7), 0.0);
         layered.update_map(robot);
-        let obstacle = Vec2::new(6.2, 1.7);
+        let obstacle = DVec2::new(6.2, 1.7);
         layered
             .layer_mut::<ObstacleLayer>(id)
             .unwrap()
@@ -846,11 +853,11 @@ mod tests {
                 ..config()
             },
         );
-        layer.insert_beams(Vec2::new(10.5, 10.5), [hit(15.5, 10.5)], 0.0);
+        layer.insert_beams(DVec2::new(10.5, 10.5), [hit(15.5, 10.5)], 0.0);
 
         let mut bounds = Bounds::empty();
-        layer.update_bounds(Pose2::new(Vec2::new(13.0, 10.0), 0.0), &mut bounds);
-        assert_eq!(layer.grid().info().origin, Vec2::new(3.0, 0.0));
+        layer.update_bounds(Pose2::new(DVec2::new(13.0, 10.0), 0.0), &mut bounds);
+        assert_eq!(layer.grid().info().origin, DVec2::new(3.0, 0.0));
 
         layer.expire(3.0);
         assert!(layer.grid().as_slice().iter().all(|&c| c != COST_LETHAL));
@@ -860,13 +867,13 @@ mod tests {
     fn fixed_bounds_cover_only_touched_area() {
         let big = MapInfo::square(100, 1.0);
         let mut layer = ObstacleLayer::new(big, config());
-        let robot = Pose2::new(Vec2::new(80.0, 80.0), 0.0);
+        let robot = Pose2::new(DVec2::new(80.0, 80.0), 0.0);
 
         let mut bounds = Bounds::empty();
         layer.update_bounds(robot, &mut bounds);
         assert!(bounds.is_empty());
 
-        layer.insert_beams(Vec2::new(10.5, 10.5), [hit(14.5, 10.5)], 0.0);
+        layer.insert_beams(DVec2::new(10.5, 10.5), [hit(14.5, 10.5)], 0.0);
         layer.update_bounds(robot, &mut bounds);
         assert!(!bounds.is_empty());
         assert!(bounds.min.x >= 8.0 && bounds.min.y >= 8.0, "{bounds:?}");
@@ -890,7 +897,7 @@ mod tests {
                 ..config()
             },
         );
-        layer.insert_beams(Vec2::new(40.5, 40.5), [hit(44.5, 40.5)], 0.0);
+        layer.insert_beams(DVec2::new(40.5, 40.5), [hit(44.5, 40.5)], 0.0);
         let mut master = Costmap::filled(big, COST_FREE);
         layer.update_costs(&mut master, CellRegion::new(UVec2::ZERO, UVec2::splat(100)));
 
@@ -904,7 +911,7 @@ mod tests {
     #[test]
     fn reset_returns_grid_to_unknown_and_reports_full_extent() {
         let mut layer = decaying(2.0);
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
         assert!(layer.is_clearable());
 
         layer.reset();
@@ -914,14 +921,14 @@ mod tests {
 
         let mut bounds = Bounds::empty();
         layer.update_bounds(Pose2::default(), &mut bounds);
-        assert_eq!(bounds.min, Vec2::ZERO);
-        assert_eq!(bounds.max, Vec2::splat(SIZE as f32));
+        assert_eq!(bounds.min, DVec2::ZERO);
+        assert_eq!(bounds.max, DVec2::splat(SIZE as f64));
     }
 
     #[test]
     fn match_size_adopts_master_layout_and_forgets_cells() {
         let mut layer = decaying(2.0);
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let bigger = MapInfo::square(40, 0.5);
         layer.match_size(&bigger);
@@ -934,7 +941,7 @@ mod tests {
     #[test]
     fn mismatched_layout_is_not_projected() {
         let mut layer = ObstacleLayer::new(info(), config());
-        layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
+        layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let other = MapInfo::square(SIZE, 0.5);
         let mut master = Costmap::filled(other, 9);
@@ -962,7 +969,7 @@ mod tests {
         let finer = ObstacleLayer::new(MapInfo::square(SIZE, 0.5), config());
         let shifted = ObstacleLayer::new(
             MapInfo {
-                origin: Vec2::new(3.0, 0.0),
+                origin: DVec2::new(3.0, 0.0),
                 ..info()
             },
             config(),

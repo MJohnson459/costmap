@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::f32::consts::SQRT_2;
 
-use glam::{IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     Costmap, DenseGrid,
@@ -67,15 +67,15 @@ pub struct Path {
 
 impl Path {
     /// World coordinates of the cell centres along the path.
-    pub fn to_world<T>(&self, grid: &DenseGrid<T>) -> Vec<Vec2> {
+    pub fn to_world<T>(&self, grid: &DenseGrid<T>) -> Vec<DVec2> {
         self.cells.iter().map(|&c| grid.map_to_world(c)).collect()
     }
 
     /// Geometric length of the path in metres, ignoring cell costs.
-    pub fn length_m(&self, resolution: f32) -> f32 {
+    pub fn length_m(&self, resolution: f64) -> f64 {
         self.cells
             .windows(2)
-            .map(|pair| pair[0].as_vec2().distance(pair[1].as_vec2()) * resolution)
+            .map(|pair| pair[0].as_dvec2().distance(pair[1].as_dvec2()) * resolution)
             .sum()
     }
 }
@@ -238,12 +238,12 @@ impl<'a> Search<'a> {
     fn heuristic(&self, cell: UVec2, goal: UVec2) -> f32 {
         let d = (cell.as_ivec2() - goal.as_ivec2()).abs();
         let (long, short) = (d.x.max(d.y) as f32, d.x.min(d.y) as f32);
-        (long - short + SQRT_2 * short) * self.grid.info().resolution
+        (long - short + SQRT_2 * short) * self.grid.info().resolution as f32
     }
 
     /// Neighbours of `cell` reachable in one move, with the cost of the move.
     fn neighbours(&self, cell: UVec2) -> impl Iterator<Item = (UVec2, f32)> + '_ {
-        let resolution = self.grid.info().resolution;
+        let resolution = self.grid.info().resolution as f32;
         moves(self.grid, cell, self.options).map(move |step| {
             let length_m = step.length_cells * resolution;
             (step.cell, step_cost(length_m, step.cost, self.cost_weight))
@@ -340,7 +340,7 @@ mod tests {
         path.cells
             .windows(2)
             .map(|pair| {
-                let length = pair[0].as_vec2().distance(pair[1].as_vec2()) * resolution;
+                let length = pair[0].as_vec2().distance(pair[1].as_vec2()) * resolution as f32;
                 let cell_cost = f32::from(*grid.get(pair[1]).unwrap());
                 length * (1.0 + options.cost_weight * cell_cost / 252.0)
             })
@@ -354,7 +354,7 @@ mod tests {
 
         let expected = (5.0 + 5.0 * SQRT_2) * 0.5;
         assert_relative_eq!(path.cost, expected, epsilon = 1e-4);
-        assert_relative_eq!(path.length_m(0.5), expected, epsilon = 1e-4);
+        assert_relative_eq!(path.length_m(0.5), f64::from(expected), epsilon = 1e-4);
         assert_eq!(path.cells.first(), Some(&cell(1, 2)));
         assert_eq!(path.cells.last(), Some(&cell(11, 7)));
     }
@@ -560,9 +560,9 @@ mod tests {
         assert_eq!(
             path.to_world(&g),
             vec![
-                Vec2::new(0.25, 0.25),
-                Vec2::new(0.75, 0.25),
-                Vec2::new(1.25, 0.25)
+                DVec2::new(0.25, 0.25),
+                DVec2::new(0.75, 0.25),
+                DVec2::new(1.25, 0.25)
             ]
         );
     }

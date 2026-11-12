@@ -1,16 +1,16 @@
 //! Geometric and spatial types used across the grid and costmap APIs.
 
-use glam::{UVec2, Vec2};
+use glam::{DVec2, UVec2, Vec2};
 
 /// Robot pose in world coordinates (meters).
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct Pose2 {
-    pub position: Vec2,
+    pub position: DVec2,
     pub yaw: f32,
 }
 
 impl Pose2 {
-    pub fn new(position: Vec2, yaw: f32) -> Self {
+    pub fn new(position: DVec2, yaw: f32) -> Self {
         Self { position, yaw }
     }
 }
@@ -19,8 +19,8 @@ impl Pose2 {
 /// Convention: [min.x, max.x) x [min.y, max.y) in world coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
-    pub min: Vec2,
-    pub max: Vec2,
+    pub min: DVec2,
+    pub max: DVec2,
 }
 
 impl Bounds {
@@ -28,8 +28,8 @@ impl Bounds {
     /// value before layers expand it; layers should only expand, never shrink.
     pub fn empty() -> Self {
         Self {
-            min: Vec2::new(f32::INFINITY, f32::INFINITY),
-            max: Vec2::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
+            min: DVec2::INFINITY,
+            max: DVec2::NEG_INFINITY,
         }
     }
 
@@ -39,7 +39,7 @@ impl Bounds {
     }
 
     /// Expand this bounds to include the point (in place).
-    pub fn expand_to_include(&mut self, p: Vec2) {
+    pub fn expand_to_include(&mut self, p: DVec2) {
         self.min.x = self.min.x.min(p.x);
         self.min.y = self.min.y.min(p.y);
         self.max.x = self.max.x.max(p.x);
@@ -48,6 +48,7 @@ impl Bounds {
 
     /// Expand by a margin in meters in all directions (e.g. for inflation halo).
     pub fn expand_by(&mut self, margin: f32) {
+        let margin = f64::from(margin);
         self.min.x -= margin;
         self.min.y -= margin;
         self.max.x += margin;
@@ -97,7 +98,7 @@ impl Footprint {
     }
 
     /// Transform footprint points from robot-local frame to world frame.
-    pub fn transform(&self, pose: Pose2) -> Vec<Vec2> {
+    pub fn transform(&self, pose: Pose2) -> Vec<DVec2> {
         let cos_yaw = pose.yaw.cos();
         let sin_yaw = pose.yaw.sin();
         self.points
@@ -105,7 +106,7 @@ impl Footprint {
             .map(|p| {
                 let rotated =
                     Vec2::new(p.x * cos_yaw - p.y * sin_yaw, p.x * sin_yaw + p.y * cos_yaw);
-                pose.position + rotated
+                pose.position + rotated.as_dvec2()
             })
             .collect()
     }

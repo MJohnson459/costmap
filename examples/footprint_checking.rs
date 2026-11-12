@@ -20,12 +20,12 @@ use std::time::Duration;
 use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
 use costmap::types::{COST_FREE, COST_UNKNOWN, Footprint, Pose2};
 use costmap::{DenseGrid, MapInfo};
-use glam::Vec2;
+use glam::DVec2;
 
 // Funnel map dimensions
 const WIDTH: u32 = 50;
 const HEIGHT: u32 = 80;
-const RESOLUTION: f32 = 0.05;
+const RESOLUTION: f64 = 0.05;
 
 // Footprint: length along direction of travel, width across
 const ROBOT_LENGTH: f32 = 0.9;
@@ -72,11 +72,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             (FRAMES_PER_LEG - 1 - out_pos) as f32 / (FRAMES_PER_LEG - 1).max(1) as f32
         };
 
-        let position = Vec2::new(center.x, start_y + t * (end_y - start_y));
+        let position = DVec2::new(center.x, start_y + f64::from(t) * (end_y - start_y));
         let pose = Pose2::new(position, yaw);
 
         let cost = costmap.footprint_cost(pose, &footprint);
-        let world_footprint = footprint.transform(pose);
+        let world_footprint: Vec<_> = footprint
+            .transform(pose)
+            .into_iter()
+            .map(|p| p.as_vec2())
+            .collect();
         // Use costmap palette, but white when cost matches background (free=blue, unknown=teal)
         let color = if cost == COST_UNKNOWN || cost == COST_FREE {
             rerun::Color::from_rgb(255, 255, 255)

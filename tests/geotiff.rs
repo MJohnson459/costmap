@@ -67,7 +67,7 @@ fn pattern(cell: IVec2) -> u8 {
     }
 }
 
-fn patterned_grid(resolution: f32, chunk_size: u32, min: IVec2, size: UVec2) -> TiledGrid<u8> {
+fn patterned_grid(resolution: f64, chunk_size: u32, min: IVec2, size: UVec2) -> TiledGrid<u8> {
     let mut grid = TiledGrid::new(resolution, chunk_size, UNKNOWN).unwrap();
     let info = MapInfo {
         width: size.x,
@@ -417,7 +417,7 @@ fn gdalinfo_reads_the_written_file() {
     );
 
     let (min, max) = grid.loaded_cell_bounds().unwrap();
-    let res = f64::from(grid.resolution());
+    let res = grid.resolution();
     let transform = as_f64s(&info["geoTransform"]);
     let expected_x = UTM_17N.anchor.x + f64::from(min.x) * res;
     let expected_y = UTM_17N.anchor.y + f64::from(max.y) * res;
@@ -519,7 +519,7 @@ fn gdal_converted_files_load_back_cell_for_cell() {
         assert_eq!(tiff.georeference().epsg, Some(32617));
         let anchor = tiff.georeference().anchor;
         let (min, _) = grid.loaded_cell_bounds().unwrap();
-        let expected = UTM_17N.anchor + min.as_dvec2() * f64::from(grid.resolution());
+        let expected = UTM_17N.anchor + min.as_dvec2() * grid.resolution();
         assert!(
             (anchor - expected).abs().max_element() < 1e-6,
             "{converted:?}"
@@ -670,13 +670,11 @@ fn written_overviews_are_listed_and_read_as_max_pooled_levels() {
     let size = base.size();
     assert_eq!(base.overview_factors(), [2, 4]);
 
-    let top = |t: &CostGeoTiff| {
-        t.georeference().anchor.y + f64::from(t.size().y) * f64::from(t.resolution())
-    };
+    let top = |t: &CostGeoTiff| t.georeference().anchor.y + f64::from(t.size().y) * t.resolution();
     for (index, factor) in base.overview_factors().into_iter().enumerate() {
         let mut overview = base.overview(index).unwrap();
         assert_eq!(overview.size(), size.map(|s| s.div_ceil(factor)));
-        assert!((overview.resolution() - base.resolution() * factor as f32).abs() < 1e-6);
+        assert!((overview.resolution() - base.resolution() * f64::from(factor)).abs() < 1e-12);
         assert!(overview.overview_factors().is_empty());
         assert!((top(&overview) - top(&base)).abs() < 1e-3);
         assert_eq!(
@@ -804,7 +802,7 @@ fn gdal_overview_factors_satisfy_both_axes() {
     assert_eq!(tiff.overview_factors(), [2, 3, 64]);
     let coarsest = tiff.overview(2).unwrap();
     assert_eq!(coarsest.size(), UVec2::new(16, 13));
-    assert!((coarsest.resolution() - 0.05 * 64.0).abs() < 1e-5);
+    assert!((coarsest.resolution() - 0.05 * 64.0).abs() < 1e-12);
 }
 
 /// Free ground with a one-cell lethal fence down column 500, written by this crate.
@@ -815,7 +813,7 @@ fn write_fence_map(path: &Path) {
         width: size.x,
         height: size.y,
         resolution: 0.1,
-        origin: glam::Vec2::ZERO,
+        origin: glam::DVec2::ZERO,
     };
     grid.write_window(&DenseGrid::from_fn(
         info,
@@ -951,7 +949,7 @@ fn load_region_does_not_decode_unknown_chunks_twice() {
 fn with_pixel_size(dir: &TempDir, source: &Path, pixel: DVec2) -> PathBuf {
     let tiff = CostGeoTiff::open(source).unwrap();
     let lower_left = tiff.georeference().anchor;
-    let top = lower_left.y + f64::from(tiff.size().y) * f64::from(tiff.resolution());
+    let top = lower_left.y + f64::from(tiff.size().y) * tiff.resolution();
     let bounds = [
         lower_left.x,
         top,

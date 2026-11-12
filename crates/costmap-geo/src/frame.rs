@@ -1,5 +1,5 @@
 use costmap::MapInfo;
-use glam::{DVec2, UVec2, Vec2};
+use glam::{DVec2, UVec2};
 
 /// Layout of a working grid of `size` cells in cell space: one unit per cell, origin at
 /// the corner of cell `(0, 0)`. Projected positions come from a [`CellFrame`], which
@@ -9,7 +9,7 @@ pub fn cells(size: UVec2) -> MapInfo {
         width: size.x,
         height: size.y,
         resolution: 1.0,
-        origin: Vec2::ZERO,
+        origin: DVec2::ZERO,
     }
 }
 

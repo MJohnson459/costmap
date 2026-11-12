@@ -341,7 +341,7 @@ impl fmt::Display for Summary {
 mod tests {
     use std::path::Path;
 
-    use glam::Vec2;
+    use glam::DVec2;
 
     use super::*;
     use crate::{
@@ -351,12 +351,12 @@ mod tests {
         testing::{self, TempDir},
     };
 
-    const FENCE_RESOLUTION_M: f32 = 0.1;
-    const FENCE_X_M: f32 = 200.0;
-    const GATE_Y_M: (f32, f32) = (140.0, 145.0);
+    const FENCE_RESOLUTION_M: f64 = 0.1;
+    const FENCE_X_M: f64 = 200.0;
+    const GATE_Y_M: (f64, f64) = (140.0, 145.0);
 
     /// Free ground with a one-cell lethal fence at x = 200 m and a 5 m gate in it.
-    fn fence(p: Vec2) -> u8 {
+    fn fence(p: DVec2) -> u8 {
         let fence_column = (FENCE_X_M / FENCE_RESOLUTION_M) as i32;
         let in_gate = (GATE_Y_M.0..GATE_Y_M.1).contains(&p.y);
         if (p.x / FENCE_RESOLUTION_M).floor() as i32 == fence_column && !in_gate {
@@ -372,7 +372,7 @@ mod tests {
             return;
         }
         let dir = TempDir::new("fence");
-        let size = Vec2::new(400.0, 200.0);
+        let size = DVec2::new(400.0, 200.0);
         let ours = testing::write_map(&dir, "fence.tif", size, FENCE_RESOLUTION_M, fence);
         let averaged = dir.path().join("averaged.tif");
         run_gdal("gdal_translate", &[&ours, &averaged]);
@@ -394,7 +394,7 @@ mod tests {
             overview.source,
             OverviewSource::Streamed { factor: 4, reason }
         );
-        let (start, goal) = (Vec2::new(180.0, 60.0), Vec2::new(220.0, 60.0));
+        let (start, goal) = (DVec2::new(180.0, 60.0), DVec2::new(220.0, 60.0));
         let route = overview.plan_route(start, goal).unwrap();
         let crossing = route
             .points()

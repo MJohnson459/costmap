@@ -12,7 +12,7 @@ use costmap::{
     rerun_viz::{log_costmap, log_occupancy_grid_static},
     types::{COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, OCCUPIED, UNKNOWN},
 };
-use glam::Vec2;
+use glam::{DVec2, Vec2};
 use rerun::{
     Color, RecordingStream, RecordingStreamBuilder,
     blueprint::{Blueprint, Horizontal, Spatial3DView},
@@ -101,8 +101,8 @@ impl RerunLog {
         )?;
         // The outline is fixed in the robot's frame, which `world/robot` moves.
         let outline = (0..=ROBOT_OUTLINE_SEGMENTS).map(|i| {
-            Vec2::from_angle(std::f32::consts::TAU * i as f32 / ROBOT_OUTLINE_SEGMENTS as f32)
-                * ROBOT_RADIUS_M
+            DVec2::from_angle(std::f64::consts::TAU * i as f64 / ROBOT_OUTLINE_SEGMENTS as f64)
+                * f64::from(ROBOT_RADIUS_M)
         });
         self.rec.log_static(
             "world/robot/outline",
@@ -135,7 +135,7 @@ impl RerunLog {
         let position = pose.position;
         rec.log(
             "world/robot",
-            &rerun::Transform3D::from_translation([position.x, position.y, 0.0]),
+            &rerun::Transform3D::from_translation([position.x as f32, position.y as f32, 0.0]),
         )?;
         let heading = Vec2::from_angle(pose.yaw) * HEADING_ARROW_RADII * ROBOT_RADIUS_M;
         rec.log(
@@ -146,7 +146,7 @@ impl RerunLog {
         )?;
         rec.log(
             "world/lidar_hits",
-            &rerun::Points3D::new(sim.hits().iter().map(|h| [h.x, h.y, Z_HITS]))
+            &rerun::Points3D::new(sim.hits().iter().map(|h| [h.x as f32, h.y as f32, Z_HITS]))
                 .with_colors([rgb(HIT)])
                 .with_radii([rerun::Radius::new_ui_points(HIT_UI_POINTS)]),
         )?;
@@ -171,14 +171,14 @@ impl RerunLog {
             let tiles = sim.tiles();
             let mut chunks: Vec<_> = tiles.loaded_chunks().collect();
             chunks.sort_by_key(|c| (c.y, c.x));
-            let edge = tiles.chunk_size() as f32 * tiles.resolution();
+            let edge = f64::from(tiles.chunk_size()) * tiles.resolution();
             let outlines = chunks.into_iter().map(|c| {
-                let min = c.as_vec2() * edge;
+                let min = c.as_dvec2() * edge;
                 closed(&[
                     min,
-                    min + Vec2::new(edge, 0.0),
+                    min + DVec2::new(edge, 0.0),
                     min + edge,
-                    min + Vec2::new(0.0, edge),
+                    min + DVec2::new(0.0, edge),
                 ])
             });
             rec.log(
@@ -199,7 +199,7 @@ impl RerunLog {
 /// index and points. Piece `k` runs from point `k * DRIVEN_PIECE_STEPS` to the next
 /// piece's first point, so consecutive pieces join, and a piece logged at the step it
 /// ends on is complete.
-fn driven_piece(driven: &[Vec2], steps: u64) -> (u64, &[Vec2]) {
+fn driven_piece(driven: &[DVec2], steps: u64) -> (u64, &[DVec2]) {
     let piece = steps.saturating_sub(1) / DRIVEN_PIECE_STEPS;
     let first = (piece * DRIVEN_PIECE_STEPS) as usize;
     (piece, &driven[first.min(driven.len())..])
@@ -225,33 +225,33 @@ fn to_occupancy(costs: &Costmap) -> OccupancyGrid {
     })
 }
 
-fn extent_corners(grid: &Costmap) -> [Vec2; 4] {
+fn extent_corners(grid: &Costmap) -> [DVec2; 4] {
     let info = grid.info();
-    let size = Vec2::new(info.world_width(), info.world_height());
+    let size = DVec2::new(info.world_width(), info.world_height());
     let min = info.origin;
     [
         min,
-        min + Vec2::new(size.x, 0.0),
+        min + DVec2::new(size.x, 0.0),
         min + size,
-        min + Vec2::new(0.0, size.y),
+        min + DVec2::new(0.0, size.y),
     ]
 }
 
-fn closed(corners: &[Vec2]) -> Vec<Vec2> {
+fn closed(corners: &[DVec2]) -> Vec<DVec2> {
     corners.iter().chain(corners.first()).copied().collect()
 }
 
 fn strips(
-    lines: impl IntoIterator<Item = Vec<Vec2>>,
+    lines: impl IntoIterator<Item = Vec<DVec2>>,
     z: f32,
     colour: [u8; 3],
     radius_ui_points: f32,
 ) -> rerun::LineStrips3D {
-    rerun::LineStrips3D::new(
-        lines
-            .into_iter()
-            .map(|line| line.into_iter().map(|p| [p.x, p.y, z]).collect::<Vec<_>>()),
-    )
+    rerun::LineStrips3D::new(lines.into_iter().map(|line| {
+        line.into_iter()
+            .map(|p| [p.x as f32, p.y as f32, z])
+            .collect::<Vec<_>>()
+    }))
     .with_colors([rgb(colour)])
     .with_radii([rerun::Radius::new_ui_points(radius_ui_points)])
 }
@@ -267,8 +267,8 @@ mod tests {
     #[test]
     fn driven_pieces_are_bounded_join_up_and_cover_the_path() {
         let steps = 3 * DRIVEN_PIECE_STEPS + 70;
-        let driven: Vec<Vec2> = (0..=steps).map(|i| Vec2::new(i as f32, 0.0)).collect();
-        let mut last_logged: Vec<Vec<Vec2>> = Vec::new();
+        let driven: Vec<DVec2> = (0..=steps).map(|i| DVec2::new(i as f64, 0.0)).collect();
+        let mut last_logged: Vec<Vec<DVec2>> = Vec::new();
         for step in (SLOW_LOG_PERIOD_STEPS..=steps).step_by(SLOW_LOG_PERIOD_STEPS as usize) {
             let (piece, points) = driven_piece(&driven[..=step as usize], step);
             assert!(points.len() as u64 <= DRIVEN_PIECE_STEPS + 1, "step {step}");
@@ -277,7 +277,7 @@ mod tests {
                 None => last_logged.push(points.to_vec()),
             }
         }
-        let joined: Vec<Vec2> = last_logged
+        let joined: Vec<DVec2> = last_logged
             .iter()
             .enumerate()
             .flat_map(|(k, piece)| piece[usize::from(k > 0)..].iter().copied())

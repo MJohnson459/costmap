@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::Vec2;
+use glam::DVec2;
 
 use costmap::DenseGrid;
 use costmap::iterators::polygon::PolygonIterator;
@@ -17,10 +17,10 @@ fn bench_polygon_iter(c: &mut Criterion) {
     let grid = DenseGrid::<u8>::new(info);
 
     let points = vec![
-        Vec2::new(10.0, 10.0),
-        Vec2::new(110.0, 10.0),
-        Vec2::new(110.0, 110.0),
-        Vec2::new(10.0, 110.0),
+        DVec2::new(10.0, 10.0),
+        DVec2::new(110.0, 10.0),
+        DVec2::new(110.0, 110.0),
+        DVec2::new(10.0, 110.0),
     ];
 
     c.bench_function("polygon_iter_rectangle_100x100", |b| {

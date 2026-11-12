@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::Vec2;
+use glam::DVec2;
 
 use costmap::DenseGrid;
 use costmap::types::MapInfo;
@@ -18,7 +18,7 @@ fn bench_update_origin(c: &mut Criterion) {
         b.iter_batched(
             || grid.clone(),
             |mut grid| {
-                grid.update_origin(Vec2::new(0.5, 0.0));
+                grid.update_origin(DVec2::new(0.5, 0.0));
                 black_box(grid);
             },
             BatchSize::SmallInput,

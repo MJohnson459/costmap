@@ -445,7 +445,7 @@ pub fn run_in_blocks(job: &Job, block_cells: u32) -> Result<Summary, GeoError> {
         ortho,
         zones,
     };
-    let mut grid = TiledGrid::new(resolution as f32, CHUNK_CELLS, COST_UNKNOWN)?;
+    let mut grid = TiledGrid::new(resolution, CHUNK_CELLS, COST_UNKNOWN)?;
     let mut counts = ClassCounts::default();
     for block in blocks(spec.size, block_cells) {
         let costs = processor.block(block)?;

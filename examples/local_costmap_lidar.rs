@@ -27,14 +27,14 @@ use costmap::rerun_viz::{log_costmap, log_occupancy_grid_static, log_point3d};
 use costmap::types::{COST_FREE, Pose2};
 use costmap::{InflationConfig, LayeredCostmap, ObstacleConfig, ObstacleLayer};
 use costmap::{MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
-use glam::{Vec2, Vec3};
+use glam::{DVec2, Vec2};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
 // Simulation parameters
 const DELAY_MS: u64 = 100;
 const WAYPOINT_SPEED_MPS: f32 = 1.1;
-const WAYPOINTS: &[(f32, f32)] = &[(258.0, 98.0), (229.0, 98.0), (229.0, 62.0), (258.0, 62.0)];
+const WAYPOINTS: &[(f64, f64)] = &[(258.0, 98.0), (229.0, 98.0), (229.0, 62.0), (258.0, 62.0)];
 
 // Lidar configuration
 const N_BEAMS: usize = 60; // 360° / 60 = 6° angular resolution
@@ -63,7 +63,7 @@ fn simulate_scan(global_grid: &OccupancyGrid, pose: Pose2) -> Vec<f32> {
             global_grid
                 .raycast_dda(pose.position, dir, MAX_RANGE_M)
                 .map_or(f32::INFINITY, |hit| {
-                    global_grid.map_to_world(hit.cell).distance(pose.position)
+                    global_grid.map_to_world(hit.cell).distance(pose.position) as f32
                 })
         })
         .collect()
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log_occupancy_grid_static(&rec, "world/global_map", &global_grid, Z_GLOBAL)?;
 
     let dt = DELAY_MS as f32 / 1000.0;
-    let waypoints: Vec<Vec2> = WAYPOINTS.iter().map(|(x, y)| Vec2::new(*x, *y)).collect();
+    let waypoints: Vec<DVec2> = WAYPOINTS.iter().map(|(x, y)| DVec2::new(*x, *y)).collect();
 
     // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
     let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         log_point3d(
             &rec,
             "world/robot",
-            Vec3::new(robot_pos.x, robot_pos.y, Z_ROBOT),
+            robot_pos.as_vec2().extend(Z_ROBOT),
             Some(rerun::Color::from_rgb(0, 200, 255)),
             Some(5.0),
         )?;
@@ -143,7 +143,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 // Helper functions for path following - not core library APIs
 
-fn build_segments(waypoints: &[Vec2]) -> (Vec<f32>, f32) {
+fn build_segments(waypoints: &[DVec2]) -> (Vec<f32>, f32) {
     let mut lengths = Vec::with_capacity(waypoints.len());
     let mut total = 0.0;
 
@@ -154,7 +154,7 @@ fn build_segments(waypoints: &[Vec2]) -> (Vec<f32>, f32) {
     for idx in 0..waypoints.len() {
         let a = waypoints[idx];
         let b = waypoints[(idx + 1) % waypoints.len()];
-        let len = (b - a).length();
+        let len = (b - a).length() as f32;
         lengths.push(len);
         total += len;
     }
@@ -163,13 +163,13 @@ fn build_segments(waypoints: &[Vec2]) -> (Vec<f32>, f32) {
 }
 
 fn sample_path(
-    waypoints: &[Vec2],
+    waypoints: &[DVec2],
     segment_lengths: &[f32],
     total_length: f32,
     distance: f32,
-) -> (Vec2, Vec2) {
+) -> (DVec2, Vec2) {
     if waypoints.is_empty() {
-        return (Vec2::ZERO, Vec2::X);
+        return (DVec2::ZERO, Vec2::X);
     }
 
     if waypoints.len() == 1 || total_length <= 0.0 {
@@ -186,11 +186,11 @@ fn sample_path(
             let a = waypoints[idx];
             let b = waypoints[(idx + 1) % waypoints.len()];
             let dir = (b - a).normalize_or_zero();
-            let pos = a + dir * remaining;
+            let pos = a + dir * f64::from(remaining);
             let heading = if dir.length_squared() == 0.0 {
                 Vec2::X
             } else {
-                dir
+                dir.as_vec2()
             };
             return (pos, heading);
         }
