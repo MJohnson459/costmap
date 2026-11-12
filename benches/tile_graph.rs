@@ -5,19 +5,14 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use glam::UVec2;
 
 use costmap::planning::{DenseTiles, Regions, TileCache, TileGraph, TileGraphOptions};
-use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN, FREE, UNKNOWN};
-use costmap::{Costmap, PlanOptions, RosMapLoader, plan};
+use costmap::{Costmap, PlanOptions, RosMapLoader, costmap_from_occupancy, plan};
 
 /// The warehouse map, inflated for a robot of 0.3 m radius.
 fn warehouse_costmap() -> Costmap {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let grid = RosMapLoader::load_from_yaml(manifest_dir.join("tests/fixtures/warehouse.yaml"))
         .expect("warehouse map should load");
-    let mut costs = Costmap::from_fn(*grid.info(), |x, y| match grid.get(UVec2::new(x, y)) {
-        Some(&FREE) => COST_FREE,
-        Some(&UNKNOWN) | None => COST_UNKNOWN,
-        Some(_) => COST_LETHAL,
-    });
+    let mut costs = costmap_from_occupancy(&grid).expect("the map converts to costs");
     costs.inflate(1.0, 0.3, 2.0);
     costs
 }
