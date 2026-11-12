@@ -1,9 +1,10 @@
 """Drive a robot across a cost GeoTIFF with Nav2 and record what Nav2 saw.
 
 Sends each waypoint to Nav2 as a NavigateToPose goal and waits for Nav2 to
-report success with the robot within 0.5 m of it. Meanwhile it records the robot pose, Nav2's plan, Nav2's global and
-local costmaps and the extent of every window costmap_window_server publishes,
-and writes them to <out>/recording.npz for render.py.
+report success with the robot within 0.5 m of it. Meanwhile it records the
+robot pose, every plan, Nav2's local costmap (and its global costmap, if it
+has one) and the extent of every window costmap_window_server publishes, and
+writes them to <out>/recording.npz for render.py.
 
 Afterwards it checks the driven track against the raster read straight from
 its file: no cell under the robot's disc may be lethal.

@@ -1,8 +1,9 @@
-# Nav2 for the drive demo: planner, controller and behaviour tree navigator.
-# Both costmaps hold only what costmap_window_server publishes on /map, plus
-# inflation. There is no sensor layer.
+# Nav2 for the drive demo: controller and behaviour tree navigator. There is no
+# planner_server and no global costmap; costmap_planner_server serves
+# compute_path_to_pose. The local costmap holds only what costmap_window_server
+# publishes on /map, plus inflation. There is no sensor layer.
 #
-# demo/run.sh overrides `resolution` in both costmaps from the map, and the
+# demo/run.sh overrides `resolution` in the local costmap from the map, and the
 # behaviour tree path.
 
 bt_navigator:
@@ -16,18 +17,6 @@ bt_navigator:
     error_code_name_prefixes:
       - compute_path
       - follow_path
-
-planner_server:
-  ros__parameters:
-    expected_planner_frequency: 1.0
-    costmap_update_timeout: 5.0
-    planner_plugins: ["GridBased"]
-    GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
-      use_astar: true
-      # Cells outside the survey are unknown and must not be driven on.
-      allow_unknown: false
 
 controller_server:
   ros__parameters:
@@ -70,34 +59,6 @@ controller_server:
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.25
 
-global_costmap:
-  global_costmap:
-    ros__parameters:
-      global_frame: map
-      robot_base_frame: base_link
-      # Smaller than the 60 m window the server publishes.
-      rolling_window: true
-      width: 50
-      height: 50
-      resolution: 0.05
-      robot_radius: 0.3
-      update_frequency: 1.0
-      publish_frequency: 0.5
-      always_send_full_costmap: true
-      # The occupancy -> cost rule costmap_ros::convert inverts; see test/costmap_params.yaml.
-      track_unknown_space: true
-      trinary_costmap: false
-      lethal_cost_threshold: 100
-      plugins: ["static_layer", "inflation_layer"]
-      static_layer:
-        plugin: nav2_costmap_2d::StaticLayer
-        map_topic: /map
-        map_subscribe_transient_local: true
-      inflation_layer:
-        plugin: nav2_costmap_2d::InflationLayer
-        inflation_radius: 0.8
-        cost_scaling_factor: 3.0
-
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -127,4 +88,4 @@ local_costmap:
 lifecycle_manager:
   ros__parameters:
     autostart: true
-    node_names: ["planner_server", "controller_server", "bt_navigator"]
+    node_names: ["controller_server", "bt_navigator"]

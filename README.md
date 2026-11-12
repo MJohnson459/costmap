@@ -48,7 +48,7 @@ This library is designed for:
 | --- | --- |
 | `costmap` (repository root) | The library. No ROS dependency. |
 | [`crates/costmap-geo`](crates/costmap-geo) | `costmap-from-ortho` builds a cost GeoTIFF from an OpenDroneMap DSM, DTM and orthophoto. |
-| [`crates/costmap_ros`](crates/costmap_ros) | `costmap_window_server` publishes a rolling window of a map to Nav2's `StaticLayer` over [Hiroz](https://github.com/ZettaScaleLabs/hiroz) (Zenoh). It builds with plain `cargo` and no ROS install. |
+| [`crates/costmap_ros`](crates/costmap_ros) | `costmap_window_server` publishes a rolling window of a map to Nav2's `StaticLayer`, and `costmap_planner_server` plans Nav2's global paths across the whole map, over [Hiroz](https://github.com/ZettaScaleLabs/hiroz) (Zenoh). It builds with plain `cargo` and no ROS install. |
 
 ## Installation
 
@@ -131,7 +131,7 @@ A map of a field is larger than a robot's costmap and is georeferenced. The piec
 1. **Survey.** Process a drone survey with OpenDroneMap with `--dsm --dtm`. It writes an orthophoto, a surface model and a terrain model.
 2. **Cost map.** `costmap-from-ortho` turns those three rasters into a single-band `u8` cost GeoTIFF: obstacles from height above ground, graded cost from slope. See [`crates/costmap-geo`](crates/costmap-geo) for the rules and the keep-out polygon overrides.
 3. **Inspect and edit.** Open the cost GeoTIFF in QGIS. Value 0 is free, 254 lethal, 255 unknown.
-4. **Navigate.** Load it with `CostGeoTiff` into a `TiledGrid`, as the farm demo below does, or serve it to Nav2 with `costmap_window_server --map cost.tif`. See [`crates/costmap_ros`](crates/costmap_ros).
+4. **Navigate.** Load it with `CostGeoTiff` into a `TiledGrid`, as the farm demo below does, or serve it to Nav2 with `costmap_window_server` and `costmap_planner_server`. See [`crates/costmap_ros`](crates/costmap_ros).
 
 ```bash
 cargo run --release -p costmap-geo --bin costmap-from-ortho -- \
@@ -200,35 +200,36 @@ cargo run --release --example farm_demo --features rerun,geotiff -- \
 
 ### Nav2
 
-Nav2's `map_server` publishes a whole map as one message. A survey-scale map does not fit: the vineyard above is 36 M cells. `costmap_window_server` takes `map_server`'s place and publishes only the part of the map around the robot, as `nav_msgs/OccupancyGrid` on `/map`. Nav2's stock `StaticLayer` consumes it; Nav2 needs no plugin.
+Nav2's `map_server` publishes a whole map as one message, and its planner searches a global costmap that holds all of it. A survey-scale map does not fit: the vineyard above is 36 M cells. Two binaries take their place:
+
+- `costmap_window_server` replaces `map_server`. It publishes only the part of the map around the robot, as `nav_msgs/OccupancyGrid` on `/map`, for the `StaticLayer` of Nav2's local costmap.
+- `costmap_planner_server` replaces `planner_server` and the global costmap. It answers Nav2's `compute_path_to_pose` action with a path across the whole map.
+
+Nav2 needs no plugin and keeps its behaviour tree, controller, local costmap and recoveries. A goal anywhere on the map works.
 
 On a robot that already runs Nav2:
 
-1. Build the server on a development machine and copy the binary to the robot. It links only glibc. There is no colcon or ament package and no build-farm release.
+1. Build the binaries on a development machine and copy them to the robot. They link only glibc. There is no colcon or ament package and no build-farm release.
 
    ```bash
-   cargo build --release -p costmap_ros --bin costmap_window_server
+   cargo build --release -p costmap_ros --bins
    ```
 
-2. Start it where `map_server` was launched. It connects to the Zenoh router the robot already runs for `rmw_zenoh_cpp`.
+2. Start them where `map_server` and `planner_server` were launched, and take `planner_server` out of the lifecycle manager's `node_names`. Both connect to the Zenoh router the robot already runs for `rmw_zenoh_cpp`.
 
    ```bash
-   costmap_window_server --map cost.tif --window-m 60
+   costmap_window_server --map cost.tif --window-m 20
+   costmap_planner_server --map cost.tif
    ```
 
-3. In both Nav2 costmaps set `rolling_window: true` and the map's `resolution`; at another resolution `StaticLayer` drops small obstacles. The global costmap must be smaller than `--window-m` by a margin that depends on the robot's speed: see [Choosing the window sizes](crates/costmap_ros#choosing-the-window-sizes).
-4. Provide `map -> base_link` on `/tf`. The `map` frame of a GeoTIFF is its lower-left corner, x east and y north; the server logs that corner's projected coordinates at start.
-5. Send goals inside the global costmap. For a goal farther away, send waypoints:
-
-   ```bash
-   cargo run --release -p costmap_ros --example route_waypoints -- \
-       --map cost.tif --start 53.5,30 --goal 100.1,80
-   ```
+3. In the local costmap set `rolling_window: true` and the map's `resolution`; at another resolution `StaticLayer` drops small obstacles. It must be smaller than `--window-m` by a margin that depends on the robot's speed: see [Choosing the window size](crates/costmap_ros#choosing-the-window-size).
+4. Provide `map -> base_link` on `/tf`. The `map` frame of a GeoTIFF is its lower-left corner, x east and y north; the window server logs that corner's projected coordinates at start.
 
 Requirements and limits:
 
-- Every node that talks to the server runs `rmw_zenoh_cpp` (`RMW_IMPLEMENTATION=rmw_zenoh_cpp`). There is no DDS support.
-- The server is a plain binary. It needs no ROS install to build, and cannot be built by colcon or started with `ros2 run`.
+- Every node that talks to the servers runs `rmw_zenoh_cpp` (`RMW_IMPLEMENTATION=rmw_zenoh_cpp`). There is no DDS support.
+- The servers are plain binaries. They need no ROS install to build, and cannot be built by colcon or started with `ros2 run`.
+- The planner works on a 0.25 m overview of the static map. It closes gaps narrower than that and does not see sensed obstacles.
 - It has run against Nav2 1.5.2 on ROS Lyrical with a simulated robot, not on a physical one.
 
 Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:
@@ -237,11 +238,11 @@ Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environmen
 cd crates/costmap_ros/nav2
 # Integration test: compare every cell a Nav2 costmap holds with the source map.
 bash test/run.sh
-# Demo: Nav2 plans and drives a simulated robot across a cost GeoTIFF.
+# Demo: Nav2 drives a simulated robot to one goal across a cost GeoTIFF.
 DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo/run.sh
 ```
 
-In the demo Nav2 drove 96.6 m through 7 waypoints across the vineyard while holding a 50 m window of it. [`crates/costmap_ros`](crates/costmap_ros) has the server's options, the Nav2 parameters and the results.
+In the demo Nav2 drove 97.0 m to a goal 50 m outside the 20 m window it held, on paths planned in 6 to 10 ms. [`crates/costmap_ros`](crates/costmap_ros) has the servers' options, the Nav2 parameters and the results.
 
 ## Roadmap
 
