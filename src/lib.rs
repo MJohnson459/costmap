@@ -13,8 +13,10 @@ pub mod rerun_viz;
 
 pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_into};
 pub use grid::Grid2d;
-pub use layers::obstacle::{Beam, ObstacleConfig, ObstacleLayer};
-pub use layers::{InflationConfig, ProjectionLayer, WavefrontInflationLayer};
+pub use layers::{
+    Beam, InflationConfig, ObstacleConfig, ObstacleLayer, ProjectionLayer, TiledMapLayer,
+    WavefrontInflationLayer,
+};
 #[cfg(feature = "geotiff")]
 pub use loaders::geotiff::{CostGeoTiff, write_cost_geotiff, write_cost_geotiff_region};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
