@@ -173,7 +173,13 @@ at a time, and inflates it for the robot. It then serves
 each path on `/plan`, as `planner_server` does.
 
 - The path starts at the goal's `start` pose when `use_start` is set, and at
-  the latest `map -> base_link` transform otherwise.
+  the latest `map -> base_link` transform otherwise. It passes through the
+  goal's `viapoints` in order.
+- Poses must be in the map frame. A pose in another frame aborts the goal with
+  `TF_ERROR`; the server does not transform goals.
+- There is one planner, so `planner_id` is not read, as in `planner_server`
+  with a single plugin loaded.
+- A goal cancelled while its path is being planned ends as cancelled.
 - It is planned with `costmap`'s A* on the overview, shortcut into straight
   segments, and returned as poses at most 0.1 m apart that face along it.
 - A start or goal on an impassable overview cell moves to the nearest passable
@@ -197,15 +203,18 @@ read in 0.1 s, and a 99.9 m path takes 6 to 10 ms.
 
 What it does not do:
 
-- **Fine gaps.** The overview keeps the worst cost in each block, so a gap
-  narrower than an overview cell plus the robot's diameter is closed. Lower
-  `--overview-m` for such maps, at four times the cells per halving.
+- **Narrow gaps.** The overview keeps the worst cost in each block, so it
+  never opens a gap that is not there, but it can close one that is: an
+  obstacle that touches a block fills it. A gap must be up to two overview
+  cells wider than the robot to stay open. With the defaults (0.3 m radius,
+  0.24 m cells) that is 1.08 m, so a 0.9 m doorway can read as closed and the
+  goal aborts with `NO_VALID_PATH`. Lower `--overview-m` for such maps, at
+  four times the cells per halving. This is the reason the overview is a
+  stopgap: planning must find crossings at the map's own resolution.
 - **Sensed obstacles.** It plans on the file. The controller stops for an
   obstacle in the local costmap; the planner does not route around it.
 - **ROS maps.** It reads GeoTIFFs only. Convert a ROS map with
   [`costmap-from-ros-map`](../costmap-geo#ros-maps).
-- `viapoints` and `planner_id` in the goal are ignored, and a goal is not
-  cancelled once planning starts; planning takes milliseconds.
 
 ## Choosing the window size
 

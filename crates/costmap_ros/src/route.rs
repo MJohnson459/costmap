@@ -120,33 +120,68 @@ impl RoutePlanner {
     /// points; between them it runs through overview cell centres, shortcut
     /// into straight segments where the overview allows.
     pub fn plan(&self, start: DVec2, goal: DVec2) -> Result<Route, RouteError> {
-        let plan_options = PlanOptions::default();
-        let start_cell = self.snap(start, "start", &plan_options)?;
-        let goal_cell = self.snap(goal, "goal", &plan_options)?;
-        let path = plan(&self.overview, start_cell, goal_cell, &plan_options)
-            .ok_or(RouteError::NoRoute { start, goal })?;
+        self.plan_through(start, &[], goal)
+    }
 
-        let mut corners = vec![start];
+    /// The route from `start` to `goal` that passes through each of `via` in
+    /// order. Each leg is planned as [`plan`](Self::plan) plans a route.
+    pub fn plan_through(
+        &self,
+        start: DVec2,
+        via: &[DVec2],
+        goal: DVec2,
+    ) -> Result<Route, RouteError> {
+        let mut stops = vec![(start, "start")];
+        stops.extend(via.iter().map(|&point| (point, "viapoint")));
+        stops.push((goal, "goal"));
+
+        let mut route = Route {
+            points: vec![start],
+            length_m: 0.0,
+        };
+        for pair in stops.windows(2) {
+            self.extend(&mut route, pair[0], pair[1])?;
+        }
+        Ok(route)
+    }
+
+    /// Appends the leg between two named stops to `route`, which ends at `from`.
+    fn extend(
+        &self,
+        route: &mut Route,
+        (from, from_name): (DVec2, &'static str),
+        (to, to_name): (DVec2, &'static str),
+    ) -> Result<(), RouteError> {
+        let plan_options = PlanOptions::default();
+        let from_cell = self.snap(from, from_name, &plan_options)?;
+        let to_cell = self.snap(to, to_name, &plan_options)?;
+        let path =
+            plan(&self.overview, from_cell, to_cell, &plan_options).ok_or(RouteError::NoRoute {
+                start: from,
+                goal: to,
+            })?;
+
+        let mut corners = vec![from];
         corners.extend(
             path.shortcut(&self.overview, &plan_options)
                 .into_iter()
                 .map(|cell| self.overview.map_to_world(cell)),
         );
-        corners.push(goal);
+        corners.push(to);
 
-        let mut points = vec![start];
-        let mut length_m = 0.0;
         for pair in corners.windows(2) {
-            let (from, to) = (pair[0], pair[1]);
-            let distance = from.distance(to);
+            let (a, b) = (pair[0], pair[1]);
+            let distance = a.distance(b);
             if distance == 0.0 {
                 continue;
             }
-            length_m += distance;
+            route.length_m += distance;
             let steps = (distance / self.options.point_spacing_m).ceil().max(1.0) as u32;
-            points.extend((1..=steps).map(|i| from.lerp(to, f64::from(i) / f64::from(steps))));
+            route
+                .points
+                .extend((1..=steps).map(|i| a.lerp(b, f64::from(i) / f64::from(steps))));
         }
-        Ok(Route { points, length_m })
+        Ok(())
     }
 
     /// The passable overview cell nearest `point`, searched in square rings.
@@ -275,6 +310,29 @@ mod tests {
         assert!(matches!(
             outside,
             Err(RouteError::Blocked { name: "start", .. })
+        ));
+    }
+
+    #[test]
+    fn a_route_passes_through_its_viapoints_in_order() {
+        let planner = walled_planner();
+        let (start, goal) = (DVec2::new(2.0, 2.0), DVec2::new(4.0, 2.0));
+        let via = [DVec2::new(2.0, 18.0), DVec2::new(8.0, 10.0)];
+        let direct = planner.plan(start, goal).unwrap();
+        let route = planner.plan_through(start, &via, goal).unwrap();
+        let first = route.points.iter().position(|p| *p == via[0]);
+        let second = route.points.iter().position(|p| *p == via[1]);
+        assert!(first.is_some() && first < second, "{first:?} {second:?}");
+        assert_eq!(route.points.last(), Some(&goal));
+        assert!(route.length_m > direct.length_m + 20.0);
+
+        let blocked = planner.plan_through(start, &[DVec2::new(-3.0, 5.0)], goal);
+        assert!(matches!(
+            blocked,
+            Err(RouteError::Blocked {
+                name: "viapoint",
+                ..
+            })
         ));
     }
 

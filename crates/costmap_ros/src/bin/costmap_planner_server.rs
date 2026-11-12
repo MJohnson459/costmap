@@ -6,7 +6,9 @@
 //! whole map, planned on an overview held in memory.
 //!
 //! The path starts at the goal's `start` pose when `use_start` is set, and at
-//! the latest `map_frame -> base_frame` transform otherwise.
+//! the latest `map_frame -> base_frame` transform otherwise. It passes through
+//! the goal's `viapoints` in order. There is one planner, so `planner_id` is
+//! not read, as in `planner_server` with a single plugin loaded.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -80,9 +82,20 @@ struct Planner {
 impl Planner {
     /// Answers one goal: `Ok` holds a path, `Err` an error code and message.
     fn answer(&self, goal: &ComputePathToPoseGoal) -> Result<Route, (u16, String)> {
-        let position = |pose: &PoseStamped| DVec2::new(pose.pose.position.x, pose.pose.position.y);
+        // Poses are taken as map coordinates, so any other frame is refused.
+        let position = |pose: &PoseStamped| {
+            let frame = pose.header.frame_id.trim_start_matches('/');
+            if frame.is_empty() || frame == self.map_frame {
+                Ok(DVec2::new(pose.pose.position.x, pose.pose.position.y))
+            } else {
+                Err((
+                    ERROR_TF,
+                    format!("pose is in frame \"{frame}\", not \"{}\"", self.map_frame),
+                ))
+            }
+        };
         let start = if goal.use_start {
-            position(&goal.start)
+            position(&goal.start)?
         } else {
             self.tf
                 .lookup(&self.map_frame, &self.base_frame)
@@ -90,13 +103,18 @@ impl Planner {
                 .planar_pose()
                 .position
         };
+        let via = goal
+            .viapoints
+            .iter()
+            .map(position)
+            .collect::<Result<Vec<_>, _>>()?;
         self.routes
-            .plan(start, position(&goal.goal))
+            .plan_through(start, &via, position(&goal.goal)?)
             .map_err(|err| {
                 let code = match err {
                     RouteError::Blocked { name: "start", .. } => ERROR_START_OCCUPIED,
-                    RouteError::Blocked { .. } => ERROR_GOAL_OCCUPIED,
-                    RouteError::NoRoute { .. } => ERROR_NO_VALID_PATH,
+                    RouteError::Blocked { name: "goal", .. } => ERROR_GOAL_OCCUPIED,
+                    RouteError::Blocked { .. } | RouteError::NoRoute { .. } => ERROR_NO_VALID_PATH,
                 };
                 (code, err.to_string())
             })
@@ -152,6 +170,15 @@ impl Planner {
             nanosec: elapsed.subsec_nanos(),
         };
         let sent = match answer {
+            _ if executing.is_cancel_requested() => {
+                info!("goal cancelled");
+                executing.canceled(ComputePathToPoseResult {
+                    path: Path::default(),
+                    planning_time,
+                    error_code: ERROR_NONE,
+                    error_msg: String::new(),
+                })
+            }
             Ok(route) => {
                 let path = self.path(&route, &goal.goal);
                 info!(
