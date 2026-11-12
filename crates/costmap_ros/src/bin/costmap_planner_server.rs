@@ -4,7 +4,7 @@
 //! outside the window it holds. This node serves an action of the same type,
 //! `nav2_msgs/action/ComputePathToPose`, under the name
 //! `compute_route_to_pose`, and answers with a path across the whole map,
-//! planned on an overview held in memory. A behaviour tree asks it for the
+//! planned on a graph of the map's tiles. A behaviour tree asks it for the
 //! route and Nav2's planner for the stretch ahead; see
 //! `behavior_trees/navigate_to_pose_on_route.xml`.
 //!
@@ -41,6 +41,7 @@ use tracing_subscriber::EnvFilter;
 
 /// Error codes of `nav2_msgs/action/ComputePathToPose`.
 const ERROR_NONE: u16 = 0;
+const ERROR_UNKNOWN: u16 = 200;
 const ERROR_TF: u16 = 202;
 const ERROR_START_OCCUPIED: u16 = 205;
 const ERROR_GOAL_OCCUPIED: u16 = 206;
@@ -66,9 +67,6 @@ struct Args {
     /// Robot frame a path starts at when the goal gives no start.
     #[arg(long, default_value = "base_link")]
     base_frame: String,
-    /// Largest cell of the overview the paths are planned on, in metres.
-    #[arg(long, default_value_t = RouteOptions::default().overview_m)]
-    overview_m: f64,
     /// Robot radius in metres.
     #[arg(long, default_value_t = RouteOptions::default().robot_radius_m)]
     robot_radius_m: f32,
@@ -121,6 +119,7 @@ impl Planner {
                     RouteError::Blocked { name: "start", .. } => ERROR_START_OCCUPIED,
                     RouteError::Blocked { name: "goal", .. } => ERROR_GOAL_OCCUPIED,
                     RouteError::Blocked { .. } | RouteError::NoRoute { .. } => ERROR_NO_VALID_PATH,
+                    RouteError::Map(_) => ERROR_UNKNOWN,
                 };
                 (code, err.to_string())
             })
@@ -232,7 +231,6 @@ fn now_stamp() -> Time {
 
 async fn run(args: Args) -> anyhow::Result<()> {
     let options = RouteOptions {
-        overview_m: args.overview_m,
         robot_radius_m: args.robot_radius_m,
         inflation_m: args.inflation_m,
         ..RouteOptions::default()
@@ -240,12 +238,15 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let loaded = Instant::now();
     let routes = RoutePlanner::open(&args.map, options)
         .with_context(|| format!("opening GeoTIFF {}", args.map.display()))?;
+    let graph = routes.graph();
     info!(
-        "overview of {} is {}x{} cells at {:.3} m, read in {:.1} s",
+        "{} is {}x{} cells at {:.3} m; its tile graph has {} crossings in {:.1} MB, ready in {:.1} s",
         args.map.display(),
-        routes.size().x,
-        routes.size().y,
-        routes.resolution(),
+        graph.layout().size().x,
+        graph.layout().size().y,
+        graph.resolution(),
+        graph.node_count() / 2,
+        graph.memory_bytes() as f64 / 1e6,
         loaded.elapsed().as_secs_f64()
     );
 
