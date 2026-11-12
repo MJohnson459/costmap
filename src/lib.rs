@@ -25,6 +25,9 @@ pub use layers::{
 #[cfg(feature = "geotiff")]
 pub use loaders::geotiff::{CostGeoTiff, write_cost_geotiff, write_cost_geotiff_region};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
-pub use planning::{Path, PlanOptions, line_passable, plan};
+pub use planning::{
+    DenseTiles, Path, PlanOptions, TileCache, TileGraph, TileGraphOptions, TileLayout, TileSource,
+    line_passable, plan,
+};
 pub use tiled::{GeoReference, TiledGrid};
 pub use types::{MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
