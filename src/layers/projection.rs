@@ -116,7 +116,7 @@ mod tests {
         // Create a layered costmap with a projection layer that projects f32 to u8.
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -159,7 +159,7 @@ mod tests {
     fn test_projection_layer_wrong_type_returns_none() {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -183,7 +183,7 @@ mod tests {
         // Test that projection layer can be stacked with inflation.
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
         let proj_id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -236,7 +236,7 @@ mod tests {
     fn test_projection_layer_reset() {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_projection_layer_is_clearable() {
         let layer = ProjectionLayer::from_grid(
-            DenseGrid::<f32>::new_with_value(default_info(), 0.0),
+            DenseGrid::<f32>::filled(default_info(), 0.0),
             MergePolicy::Overwrite,
             false,
             |_| Some(100),
@@ -283,7 +283,7 @@ mod tests {
     fn update_bounds_rolling_recenters_and_covers_source_extent() {
         // 5x5 @ 1.0 m → a 5 m square, half-extent 2.5 m.
         let mut layer = ProjectionLayer::from_grid(
-            DenseGrid::<f32>::new_with_value(default_info(), 0.0),
+            DenseGrid::<f32>::filled(default_info(), 0.0),
             MergePolicy::Overwrite,
             true,
             |_| Some(0),
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn update_bounds_non_rolling_uses_fixed_extent() {
         let mut layer = ProjectionLayer::from_grid(
-            DenseGrid::<f32>::new_with_value(default_info(), 0.0),
+            DenseGrid::<f32>::filled(default_info(), 0.0),
             MergePolicy::Overwrite,
             false,
             |_| Some(0),
@@ -339,7 +339,7 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, true);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
-                DenseGrid::<f32>::new_with_value(default_info(), 0.0),
+                DenseGrid::<f32>::filled(default_info(), 0.0),
                 MergePolicy::Max,
                 true,
                 |t| (*t > 0.5).then_some(COST_LETHAL),

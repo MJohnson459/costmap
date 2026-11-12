@@ -45,7 +45,7 @@ pub fn vegetation_mask(
         colours,
         |colour| matches!(colour, Colour::Rgb(rgb) if is_green(rgb, rules.exg_threshold)),
     );
-    DenseGrid::new_with(cells(colours.size()), |x, y| {
+    DenseGrid::from_fn(cells(colours.size()), |x, y| {
         let known = known.box_sum(x, y, radius);
         known > 0
             && f64::from(green.box_sum(x, y, radius)) / f64::from(known)
@@ -107,7 +107,7 @@ mod tests {
     }
 
     fn scene(size: u32, colour: impl Fn(u32, u32) -> Colour) -> DenseGrid<Colour> {
-        DenseGrid::new_with(cells(UVec2::splat(size)), colour)
+        DenseGrid::from_fn(cells(UVec2::splat(size)), colour)
     }
 
     fn centre_is_vegetation(patch: [[Colour; 3]; 3], min_fraction: f64) -> bool {

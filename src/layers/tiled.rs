@@ -66,7 +66,7 @@ impl TiledMapLayer {
             resolution: info.resolution,
             origin: info.origin + region.min.as_vec2() * info.resolution,
         };
-        let mut window = DenseGrid::new_with_value(window_info, COST_UNKNOWN);
+        let mut window = DenseGrid::filled(window_info, COST_UNKNOWN);
         self.grid.read_into(&mut window).ok()?;
         Some(window)
     }
@@ -217,7 +217,13 @@ mod tests {
         layered.add_layer(layer_with(grid)).unwrap();
         layered.update_map(Pose2::default());
 
-        assert!(layered.master().iter().all(|&cost| cost == COST_FREE));
+        assert!(
+            layered
+                .master()
+                .as_slice()
+                .iter()
+                .all(|&cost| cost == COST_FREE)
+        );
     }
 
     #[test]
@@ -289,7 +295,7 @@ mod tests {
         let mut grid = tiles();
         fill_chunk(&mut grid, IVec2::new(0, 0), 60);
         let mut layer = TiledMapLayer::new(Arc::new(grid), MergePolicy::Overwrite);
-        let mut master = Costmap::new_with_value(MapInfo::square(16, 1.0), COST_FREE);
+        let mut master = Costmap::filled(MapInfo::square(16, 1.0), COST_FREE);
 
         layer.update_costs(
             &mut master,

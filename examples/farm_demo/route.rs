@@ -123,7 +123,7 @@ impl Overview {
             origin: offset,
             ..*window.info()
         };
-        let costs = Costmap::init_with_value(info, window.as_slice().to_vec(), COST_UNKNOWN)?;
+        let costs = Costmap::from_vec(info, window.as_slice().to_vec())?.with_fill(COST_UNKNOWN);
         Ok(Self {
             inflated: inflate(&costs),
             costs,
@@ -133,7 +133,7 @@ impl Overview {
 
     /// Size in cells.
     pub fn size(&self) -> UVec2 {
-        UVec2::new(self.costs.width(), self.costs.height())
+        UVec2::new(self.costs.size().x, self.costs.size().y)
     }
 
     /// Mark the cells under `points` lethal in the raw costs, re-inflate if any changed,
@@ -195,7 +195,7 @@ impl Overview {
         let region = regions.largest().ok_or(none)?;
         let margin = (ENDPOINT_KNOWN_MARGIN_M / self.costs.info().resolution).ceil() as usize;
         let near_unknown = near_unknown(&self.costs, margin);
-        let width = self.costs.width() as usize;
+        let width = self.costs.size().x as usize;
         let candidates = || {
             regions.cells(region).filter(|&cell| {
                 self.inflated[cell] == COST_FREE
@@ -362,8 +362,8 @@ fn overview_factor(resolution: f32, target_m: f32) -> u32 {
 /// cells along both axes (a square neighbourhood). Two sliding-window passes, so linear
 /// in the number of cells whatever the margin.
 fn near_unknown(grid: &Costmap, margin: usize) -> Vec<bool> {
-    let (width, height) = (grid.width() as usize, grid.height() as usize);
-    let unknown: Vec<bool> = grid.iter().map(|&c| c == COST_UNKNOWN).collect();
+    let (width, height) = (grid.size().x as usize, grid.size().y as usize);
+    let unknown: Vec<bool> = grid.as_slice().iter().map(|&c| c == COST_UNKNOWN).collect();
     let rows = dilate(&unknown, width, height, margin, 1, width);
     dilate(&rows, height, width, margin, width, 1)
 }
@@ -515,7 +515,7 @@ mod tests {
         // Two free 3 x 3 blocks that touch only at a corner: an 8-connected flood joins
         // them, the planner's no-corner-cutting rule does not.
         let info = MapInfo::square(6, 1.0);
-        let costs = Costmap::new_with(info, |x, y| {
+        let costs = Costmap::from_fn(info, |x, y| {
             if (x < 3 && y < 3) || (x >= 3 && y >= 3) {
                 COST_FREE
             } else {
@@ -545,7 +545,7 @@ mod tests {
             resolution: 0.4,
             origin: Vec2::ZERO,
         };
-        let costs = Costmap::new_with(info, |x, y| {
+        let costs = Costmap::from_fn(info, |x, y| {
             let inside = (2..38).contains(&x) && (2..18).contains(&y);
             if inside { COST_FREE } else { COST_UNKNOWN }
         });
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn default_endpoints_take_linear_time_on_a_large_overview() {
         let side = 5000;
-        let costs = Costmap::new_with_value(MapInfo::square(side, 0.5), COST_FREE);
+        let costs = Costmap::filled(MapInfo::square(side, 0.5), COST_FREE);
         let overview = uninflated(costs);
         let started = std::time::Instant::now();
         let (a, b) = overview.default_endpoints().unwrap();
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn chunks_under_known_cells_skip_unknown_chunks() {
         // A 4 x 4 overview at 1 m of a 16 x 16 map at 0.25 m, in four 8-cell chunks.
-        let costs = Costmap::new_with(MapInfo::square(4, 1.0), |x, y| {
+        let costs = Costmap::from_fn(MapInfo::square(4, 1.0), |x, y| {
             if (x, y) == (0, 0) || (x, y) == (3, 1) {
                 COST_FREE
             } else {

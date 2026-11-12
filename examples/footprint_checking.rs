@@ -117,7 +117,7 @@ fn create_funnel_costmap() -> DenseGrid<u8> {
     let left_at_top = 22u32;
     let right_at_top = 28u32;
 
-    DenseGrid::new_with(info, |x, y| {
+    DenseGrid::from_fn(info, |x, y| {
         let t = y as f32 / (HEIGHT - 1).max(1) as f32;
         let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as u32;
         let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as u32;

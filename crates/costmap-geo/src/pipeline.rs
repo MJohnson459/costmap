@@ -235,7 +235,7 @@ fn sample_heights(
     min: IVec2,
     size: UVec2,
 ) -> Result<DenseGrid<f32>, GeoError> {
-    let mut grid = DenseGrid::new_with_value(cells(size), f32::NAN);
+    let mut grid = DenseGrid::filled(cells(size), f32::NAN);
     for y in 0..size.y {
         for x in 0..size.x {
             let centre = frame.centre(
@@ -257,9 +257,9 @@ fn sample_colours(
     size: UVec2,
 ) -> Result<DenseGrid<Colour>, GeoError> {
     let Some(raster) = raster else {
-        return Ok(DenseGrid::new_with_value(cells(size), Colour::Absent));
+        return Ok(DenseGrid::filled(cells(size), Colour::Absent));
     };
-    let mut grid = DenseGrid::new_with_value(cells(size), Colour::NoData);
+    let mut grid = DenseGrid::filled(cells(size), Colour::NoData);
     for y in 0..size.y {
         for x in 0..size.x {
             let centre = frame.centre(
@@ -315,7 +315,7 @@ fn block_costs(
     let slopes = slope_degrees(dtm, resolution, rules.slope_window_m);
     let vegetation =
         (rules.vegetation_cost > 0).then(|| vegetation_mask(colours, rules, halos.vegetation));
-    DenseGrid::new_with(cells(dsm.size()), |x, y| {
+    DenseGrid::from_fn(cells(dsm.size()), |x, y| {
         let (sx, sy) = (x + halos.slope, y + halos.slope);
         let (cx, cy) = (x + halos.vegetation, y + halos.vegetation);
         rules.cell_cost(&CellInput {
@@ -575,11 +575,11 @@ mod tests {
             slope: 1,
             vegetation: 0,
         };
-        let dtm = DenseGrid::new_with_value(cells(UVec2::new(5, 5)), 100.0_f32);
-        let mut dsm = DenseGrid::new_with_value(cells(UVec2::new(3, 3)), 100.0_f32);
+        let dtm = DenseGrid::filled(cells(UVec2::new(5, 5)), 100.0_f32);
+        let mut dsm = DenseGrid::filled(cells(UVec2::new(3, 3)), 100.0_f32);
         dsm[UVec2::new(1, 1)] = 105.0;
         dsm[UVec2::new(0, 0)] = f32::NAN;
-        let colours = DenseGrid::new_with_value(cells(UVec2::new(3, 3)), Colour::Absent);
+        let colours = DenseGrid::filled(cells(UVec2::new(3, 3)), Colour::Absent);
         let costs = block_costs(&rules, 0.5, halos, &dtm, &dsm, &colours);
         assert_eq!(costs[UVec2::new(1, 1)], COST_LETHAL);
         assert_eq!(costs[UVec2::new(0, 0)], COST_UNKNOWN);
@@ -615,22 +615,21 @@ mod tests {
             slope: 0,
             vegetation: 1,
         };
-        let dtm = DenseGrid::new_with_value(cells(UVec2::new(2, 1)), 100.0_f32);
+        let dtm = DenseGrid::filled(cells(UVec2::new(2, 1)), 100.0_f32);
         let dsm = dtm.clone();
         let green = Colour::Rgb([40, 160, 40]);
         let bare = Colour::Rgb([150, 140, 120]);
         let colours =
-            DenseGrid::new_with(
+            DenseGrid::from_fn(
                 cells(UVec2::new(4, 3)),
                 |x, _| if x == 0 { green } else { bare },
             );
         let costs = block_costs(&rules, 0.05, halos, &dtm, &dsm, &colours);
         assert_eq!((costs[UVec2::new(0, 0)], costs[UVec2::new(1, 0)]), (0, 0));
-        let colours =
-            DenseGrid::new_with(
-                cells(UVec2::new(4, 3)),
-                |x, _| if x < 2 { green } else { bare },
-            );
+        let colours = DenseGrid::from_fn(
+            cells(UVec2::new(4, 3)),
+            |x, _| if x < 2 { green } else { bare },
+        );
         let costs = block_costs(&rules, 0.05, halos, &dtm, &dsm, &colours);
         assert_eq!(
             (costs[UVec2::new(0, 0)], costs[UVec2::new(1, 0)]),

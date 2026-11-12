@@ -67,7 +67,7 @@ pub fn slope_degrees(heights: &DenseGrid<f32>, resolution: f64, window_m: f64) -
     let radius = i64::from(box_radius(resolution, window_m));
     let means = BoxMeans::new(heights, radius);
     let baseline = baseline_metres(resolution, radius as u32);
-    DenseGrid::new_with(cells(heights.size()), |x, y| {
+    DenseGrid::from_fn(cells(heights.size()), |x, y| {
         let (x, y) = (i64::from(x), i64::from(y));
         let gradient = |a: Option<f64>, b: Option<f64>| match (a, b) {
             (Some(a), Some(b)) => (b - a) / baseline,
@@ -153,7 +153,7 @@ mod tests {
 
     fn plane(angle_deg: f64) -> DenseGrid<f32> {
         let gradient = angle_deg.to_radians().tan();
-        DenseGrid::new_with(cells(SIZE), |x, _| {
+        DenseGrid::from_fn(cells(SIZE), |x, _| {
             (100.0 + f64::from(x) * RES * gradient) as f32
         })
     }
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn slope_is_the_gradient_magnitude_for_a_diagonal_plane() {
         let gradient = 10.0_f64.to_radians().tan();
-        let heights = DenseGrid::new_with(cells(SIZE), |x, y| {
+        let heights = DenseGrid::from_fn(cells(SIZE), |x, y| {
             (100.0 + (f64::from(x) + f64::from(y)) * RES * gradient) as f32
         });
         let expected = (gradient * 2.0_f64.sqrt()).atan().to_degrees();
@@ -234,7 +234,7 @@ mod tests {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             (f64::from(state >> 8) / f64::from(1_u32 << 24) - 0.5) * 0.1
         };
-        let heights = DenseGrid::new_with(cells(SIZE), |_, _| (100.0 + noise()) as f32);
+        let heights = DenseGrid::from_fn(cells(SIZE), |_, _| (100.0 + noise()) as f32);
         let slopes = slope_degrees(&heights, RES, 1.0);
         let worst = (40..80)
             .flat_map(|y| (40..80).map(move |x| (x, y)))

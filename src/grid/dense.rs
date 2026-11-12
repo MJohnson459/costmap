@@ -25,67 +25,34 @@ pub struct DenseGrid<T> {
 }
 
 impl<T> DenseGrid<T> {
-    /// Create a grid from existing data, using [`Default::default`] as the fill value.
-    pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
-    where
-        T: Default,
-    {
-        Self::init_with_value(info, data, T::default())
-    }
-
-    /// Create a grid from existing data with an explicit fill value.
-    ///
-    /// The fill value is used by [`Self::clear`], [`Self::update_origin`],
-    /// [`Self::resize_map`], and [`Self::reset_map`] when new or reset cells
-    /// need a value.
-    pub fn init_with_value(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
-        let expected_len = (info.width as usize) * (info.height as usize);
-        if data.len() != expected_len {
-            return Err(VoxelError::InvalidMetadata(format!(
-                "data length {} does not match map size {}",
-                data.len(),
-                expected_len
-            )));
-        }
-
-        Ok(Self {
-            info,
-            data,
-            fill_value,
-        })
-    }
-
-    /// Create an empty grid filled with [`Default::default`].
+    /// Create a grid with every cell set to [`Default::default`].
     pub fn new(info: MapInfo) -> Self
     where
         T: Default + Clone,
     {
-        Self::new_with_value(info, T::default())
+        Self::filled(info, T::default())
     }
 
-    /// Create a grid where every cell is initialised to `fill_value`.
-    ///
-    /// The same value is used by [`Self::clear`], [`Self::update_origin`],
-    /// [`Self::resize_map`], and [`Self::reset_map`] when new or reset cells
-    /// need a value.
-    pub fn new_with_value(info: MapInfo, fill_value: T) -> Self
+    /// Create a grid with every cell set to `value`, which also becomes the fill
+    /// value (see [`Self::with_fill`]).
+    pub fn filled(info: MapInfo, value: T) -> Self
     where
         T: Clone,
     {
-        let expected_len = (info.width as usize) * (info.height as usize);
+        let len = (info.width as usize) * (info.height as usize);
         Self {
-            data: vec![fill_value.clone(); expected_len],
+            data: vec![value.clone(); len],
             info,
-            fill_value,
+            fill_value: value,
         }
     }
 
     /// Create a grid by calling `f(x, y)` for each cell in row-major order.
-    pub fn new_with(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
+    pub fn from_fn(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
     where
         T: Default,
     {
-        let mut data = Vec::with_capacity((info.width * info.height) as usize);
+        let mut data = Vec::with_capacity((info.width as usize) * (info.height as usize));
         for y in 0..info.height {
             for x in 0..info.width {
                 data.push(f(x, y));
@@ -98,15 +65,82 @@ impl<T> DenseGrid<T> {
         }
     }
 
+    /// Create a grid from cells in row-major order. Fails if `data` does not hold
+    /// `width * height` cells.
+    pub fn from_vec(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
+    where
+        T: Default,
+    {
+        Self::from_parts(info, data, T::default())
+    }
+
+    /// Set the fill value: the value [`Self::clear`], [`Self::update_origin`],
+    /// [`Self::resize_map`] and [`Self::reset_map`] give to new or reset cells.
+    /// Constructors other than [`Self::filled`] start with [`Default::default`].
+    pub fn with_fill(mut self, fill_value: T) -> Self {
+        self.fill_value = fill_value;
+        self
+    }
+
+    fn from_parts(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
+        let expected_len = (info.width as usize) * (info.height as usize);
+        if data.len() != expected_len {
+            return Err(VoxelError::InvalidMetadata(format!(
+                "data length {} does not match map size {}",
+                data.len(),
+                expected_len
+            )));
+        }
+        Ok(Self {
+            info,
+            data,
+            fill_value,
+        })
+    }
+
+    #[deprecated(since = "0.3.0", note = "renamed to `from_vec`")]
+    pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
+    where
+        T: Default,
+    {
+        Self::from_vec(info, data)
+    }
+
+    #[deprecated(
+        since = "0.3.0",
+        note = "use `from_vec(info, data)?.with_fill(fill_value)`"
+    )]
+    pub fn init_with_value(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
+        Self::from_parts(info, data, fill_value)
+    }
+
+    #[deprecated(since = "0.3.0", note = "renamed to `filled`")]
+    pub fn new_with_value(info: MapInfo, fill_value: T) -> Self
+    where
+        T: Clone,
+    {
+        Self::filled(info, fill_value)
+    }
+
+    #[deprecated(since = "0.3.0", note = "renamed to `from_fn`")]
+    pub fn new_with(info: MapInfo, f: impl FnMut(u32, u32) -> T) -> Self
+    where
+        T: Default,
+    {
+        Self::from_fn(info, f)
+    }
+
     pub fn info(&self) -> &MapInfo {
         &self.info
     }
 
+    #[deprecated(since = "0.3.0", note = "use `size().x`")]
     #[inline]
     pub fn width(&self) -> u32 {
         self.info.width
     }
 
+    #[deprecated(since = "0.3.0", note = "use `size().y`")]
     #[inline]
     pub fn height(&self) -> u32 {
         self.info.height
@@ -129,7 +163,7 @@ impl<T> DenseGrid<T> {
     ///
     /// # Safety
     ///
-    /// Caller must ensure `pos.x < self.width()` and `pos.y < self.height()`.
+    /// Caller must ensure `pos` is inside the grid: `pos.x < size().x` and `pos.y < size().y`.
     #[inline]
     pub unsafe fn get_unchecked(&self, pos: UVec2) -> &T {
         &self.data[self.index(pos)]
@@ -139,7 +173,7 @@ impl<T> DenseGrid<T> {
     ///
     /// # Safety
     ///
-    /// Caller must ensure `pos.x < self.width()` and `pos.y < self.height()`.
+    /// Caller must ensure `pos` is inside the grid: `pos.x < size().x` and `pos.y < size().y`.
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, pos: UVec2) -> &mut T {
         let idx = self.index(pos);
@@ -222,11 +256,13 @@ impl<T> DenseGrid<T> {
     }
 
     /// Iterate over all cells in row-major order.
+    #[deprecated(since = "0.3.0", note = "use `as_slice().iter()`")]
     pub fn iter(&self) -> Iter<'_, T> {
         self.data.iter()
     }
 
     /// Iterate over all cells in row-major order, yielding mutably.
+    #[deprecated(since = "0.3.0", note = "use `as_mut_slice().iter_mut()`")]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.data.iter_mut()
     }
@@ -236,7 +272,7 @@ impl<T> DenseGrid<T> {
     /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
     pub fn indexed_iter(&self) -> impl Iterator<Item = (UVec2, &T)> {
         let width = self.info.width as usize;
-        self.iter().enumerate().map(move |(idx, v)| {
+        self.as_slice().iter().enumerate().map(move |(idx, v)| {
             let x = (idx % width) as u32;
             let y = (idx / width) as u32;
             (UVec2::new(x, y), v)
@@ -248,11 +284,14 @@ impl<T> DenseGrid<T> {
     /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
     pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item = (UVec2, &mut T)> {
         let width = self.info.width as usize;
-        self.iter_mut().enumerate().map(move |(idx, v)| {
-            let x = (idx % width) as u32;
-            let y = (idx / width) as u32;
-            (UVec2::new(x, y), v)
-        })
+        self.as_mut_slice()
+            .iter_mut()
+            .enumerate()
+            .map(move |(idx, v)| {
+                let x = (idx % width) as u32;
+                let y = (idx / width) as u32;
+                (UVec2::new(x, y), v)
+            })
     }
 
     /// Reset all cells to the grid's fill value.
@@ -399,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_world_to_map_to_world() {
-        let grid = DenseGrid::<i8>::init(
+        let grid = DenseGrid::<i8>::from_vec(
             MapInfo {
                 width: 10,
                 height: 10,
@@ -446,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_update_origin_shifts_data() {
-        let mut grid = DenseGrid::<i8>::init(
+        let mut grid = DenseGrid::<i8>::from_vec(
             MapInfo {
                 width: 4,
                 height: 4,
@@ -466,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_resize_map_clears_data() {
-        let mut grid = DenseGrid::<i8>::init(
+        let mut grid = DenseGrid::<i8>::from_vec(
             MapInfo {
                 width: 4,
                 height: 4,
@@ -485,7 +524,7 @@ mod tests {
 
     #[test]
     fn iter_cells_row_major_order() {
-        let grid = DenseGrid::<u8>::init(
+        let grid = DenseGrid::<u8>::from_vec(
             MapInfo {
                 width: 3,
                 height: 2,
@@ -512,7 +551,7 @@ mod tests {
 
     #[test]
     fn iter_cells_mut_writes_values() {
-        let mut grid = DenseGrid::<u8>::init(
+        let mut grid = DenseGrid::<u8>::from_vec(
             MapInfo {
                 width: 2,
                 height: 2,
@@ -534,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_layout_matches_equal() {
-        let grid_u8 = DenseGrid::<u8>::init(
+        let grid_u8 = DenseGrid::<u8>::from_vec(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -545,7 +584,7 @@ mod tests {
         )
         .unwrap();
 
-        let grid_f32 = DenseGrid::<f32>::init(
+        let grid_f32 = DenseGrid::<f32>::from_vec(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -562,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_layout_matches_different_width() {
-        let grid_u8 = DenseGrid::<u8>::init(
+        let grid_u8 = DenseGrid::<u8>::from_vec(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -573,7 +612,7 @@ mod tests {
         )
         .unwrap();
 
-        let grid_f32 = DenseGrid::<f32>::init(
+        let grid_f32 = DenseGrid::<f32>::from_vec(
             MapInfo {
                 width: 15,
                 height: 20,
@@ -589,7 +628,7 @@ mod tests {
 
     #[test]
     fn test_layout_matches_different_resolution() {
-        let grid_u8 = DenseGrid::<u8>::init(
+        let grid_u8 = DenseGrid::<u8>::from_vec(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -600,7 +639,7 @@ mod tests {
         )
         .unwrap();
 
-        let grid_f32 = DenseGrid::<f32>::init(
+        let grid_f32 = DenseGrid::<f32>::from_vec(
             MapInfo {
                 width: 10,
                 height: 20,

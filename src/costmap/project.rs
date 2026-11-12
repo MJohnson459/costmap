@@ -103,8 +103,8 @@ mod tests {
 
     #[test]
     fn test_project_into_none_leaves_master_untouched() {
-        let mut master = Costmap::new_with_value(default_info(), COST_FREE);
-        let source = DenseGrid::<u8>::new_with_value(default_info(), 200);
+        let mut master = Costmap::filled(default_info(), COST_FREE);
+        let source = DenseGrid::<u8>::filled(default_info(), 200);
 
         // Set a specific value to verify it's not changed
         master.set(UVec2::new(5, 5), 100).unwrap();
@@ -124,8 +124,8 @@ mod tests {
 
     #[test]
     fn test_project_into_overwrite() {
-        let mut master = Costmap::new_with_value(default_info(), COST_FREE);
-        let source = DenseGrid::<u8>::new_with_value(default_info(), 100);
+        let mut master = Costmap::filled(default_info(), COST_FREE);
+        let source = DenseGrid::<u8>::filled(default_info(), 100);
 
         let region = CellRegion {
             min: UVec2::new(2, 2),
@@ -146,11 +146,11 @@ mod tests {
 
     #[test]
     fn test_project_into_max() {
-        let mut master = Costmap::new_with_value(default_info(), COST_FREE);
+        let mut master = Costmap::filled(default_info(), COST_FREE);
         master.set(UVec2::new(3, 3), 50).unwrap();
         master.set(UVec2::new(4, 4), 150).unwrap();
 
-        let source = DenseGrid::<u8>::new_with_value(default_info(), 100);
+        let source = DenseGrid::<u8>::filled(default_info(), 100);
 
         let region = CellRegion {
             min: UVec2::new(2, 2),
@@ -169,11 +169,11 @@ mod tests {
 
     #[test]
     fn test_project_into_max_keep_unknown() {
-        let mut master = Costmap::new_with_value(default_info(), COST_UNKNOWN);
+        let mut master = Costmap::filled(default_info(), COST_UNKNOWN);
         master.set(UVec2::new(3, 3), 50).unwrap();
         master.set(UVec2::new(4, 4), 150).unwrap();
 
-        let source = DenseGrid::<u8>::new_with_value(default_info(), 100);
+        let source = DenseGrid::<u8>::filled(default_info(), 100);
 
         let region = CellRegion {
             min: UVec2::new(2, 2),
@@ -198,8 +198,8 @@ mod tests {
 
     #[test]
     fn test_project_into_generic_type() {
-        let mut master = Costmap::new_with_value(default_info(), COST_FREE);
-        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.5);
+        let mut master = Costmap::filled(default_info(), COST_FREE);
+        let source = DenseGrid::<f32>::filled(default_info(), 0.5);
 
         let region = default_region();
 
@@ -213,8 +213,8 @@ mod tests {
 
     #[test]
     fn test_project_into_respects_unknown_in_source() {
-        let mut master = Costmap::new_with_value(default_info(), COST_FREE);
-        let mut source = DenseGrid::<u8>::new_with_value(default_info(), 100);
+        let mut master = Costmap::filled(default_info(), COST_FREE);
+        let mut source = DenseGrid::<u8>::filled(default_info(), 100);
         source.set(UVec2::new(5, 5), COST_UNKNOWN).unwrap();
 
         let region = default_region();

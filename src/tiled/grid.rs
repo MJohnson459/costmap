@@ -257,7 +257,7 @@ impl<T: Clone> TiledGrid<T> {
             resolution: self.resolution,
             origin: self.cell_origin(min_cell),
         };
-        let mut grid = DenseGrid::new_with_value(info, self.fill.clone());
+        let mut grid = DenseGrid::filled(info, self.fill.clone());
         self.copy_out(min_cell, size, grid.as_mut_slice());
         grid
     }
@@ -506,7 +506,7 @@ mod tests {
             resolution: 0.5,
             origin: g.cell_origin(IVec2::new(-9, -4)),
         };
-        let source = DenseGrid::new_with(info, |x, y| pattern(IVec2::new(x as i32, y as i32)));
+        let source = DenseGrid::from_fn(info, |x, y| pattern(IVec2::new(x as i32, y as i32)));
         g.write_window(&source).unwrap();
 
         let back = g.window(IVec2::new(-9, -4), UVec2::new(20, 13));
@@ -517,7 +517,7 @@ mod tests {
     #[test]
     fn read_into_rejects_resolution_mismatch() {
         let g = grid(8);
-        let mut target = DenseGrid::<u8>::new_with_value(MapInfo::square(4, 0.25), 0);
+        let mut target = DenseGrid::<u8>::filled(MapInfo::square(4, 0.25), 0);
         assert!(matches!(
             g.read_into(&mut target),
             Err(VoxelError::InvalidArgument(_))
@@ -536,7 +536,7 @@ mod tests {
             resolution: 0.5,
             origin: Vec2::new(0.52, 0.98),
         };
-        let mut target = DenseGrid::new_with_value(info, 99u8);
+        let mut target = DenseGrid::filled(info, 99u8);
         g.read_into(&mut target).unwrap();
         // The origin snaps to cell (1, 2), so cell (2, 3) lands at (1, 1).
         assert_eq!(target[UVec2::new(1, 1)], 11);

@@ -59,7 +59,7 @@ pub fn write_map(
         resolution,
         origin: Vec2::ZERO,
     };
-    let raster = DenseGrid::new_with(info, |x, y| {
+    let raster = DenseGrid::from_fn(info, |x, y| {
         cost(info.origin + (UVec2::new(x, y).as_vec2() + 0.5) * resolution)
     });
     let mut tiles = TiledGrid::new(resolution, WRITE_CHUNK_CELLS, COST_UNKNOWN).unwrap();

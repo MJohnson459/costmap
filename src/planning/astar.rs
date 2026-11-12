@@ -142,7 +142,7 @@ pub fn moves<'a>(
 /// `cell` moved by `offset`, or `None` if that leaves the grid.
 fn offset_cell(grid: &Costmap, cell: UVec2, offset: IVec2) -> Option<UVec2> {
     let moved = UVec2::try_from(cell.as_ivec2() + offset).ok()?;
-    (moved.x < grid.width() && moved.y < grid.height()).then_some(moved)
+    (moved.x < grid.size().x && moved.y < grid.size().y).then_some(moved)
 }
 
 /// Cost of entering `cell`, or `None` if it is outside the grid or impassable.
@@ -225,11 +225,11 @@ impl<'a> Search<'a> {
     }
 
     fn index(&self, cell: UVec2) -> usize {
-        cell.y as usize * self.grid.width() as usize + cell.x as usize
+        cell.y as usize * self.grid.size().x as usize + cell.x as usize
     }
 
     fn cell(&self, index: usize) -> UVec2 {
-        let width = self.grid.width() as usize;
+        let width = self.grid.size().x as usize;
         UVec2::new((index % width) as u32, (index / width) as u32)
     }
 
@@ -251,7 +251,7 @@ impl<'a> Search<'a> {
     }
 
     fn run(&self, start: UVec2, goal: UVec2) -> Option<Solution> {
-        let cells = self.grid.width() as usize * self.grid.height() as usize;
+        let cells = self.grid.size().x as usize * self.grid.size().y as usize;
         let mut best_g = vec![f32::INFINITY; cells];
         let mut parent = vec![NO_PARENT; cells];
         let mut open = BinaryHeap::new();
@@ -269,7 +269,7 @@ impl<'a> Search<'a> {
             if node.index == goal_index {
                 return Some(Solution {
                     parent,
-                    width: self.grid.width() as usize,
+                    width: self.grid.size().x as usize,
                     cost: node.g,
                 });
             }
@@ -324,7 +324,7 @@ mod tests {
             resolution: 0.5,
             ..Default::default()
         };
-        Costmap::new_with_value(info, value)
+        Costmap::filled(info, value)
     }
 
     fn set(grid: &mut Costmap, x: u32, y: u32, value: u8) {

@@ -251,7 +251,7 @@ mod tests {
             origin,
         };
 
-        DenseGrid::init(info, data).expect("grid should build")
+        DenseGrid::from_vec(info, data).expect("grid should build")
     }
 
     #[test]

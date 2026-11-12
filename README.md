@@ -61,6 +61,8 @@ costmap = "0.2.0"
 costmap = { version = "0.2.0", features = ["rerun", "geotiff"] }
 ```
 
+Upgrading from 0.2? See the [migration guide](MIGRATION.md).
+
 ## Quick start
 
 Load a map and perform raycasting for obstacle detection:

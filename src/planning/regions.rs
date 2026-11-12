@@ -30,7 +30,7 @@ impl Regions {
     /// Label every passable cell of `grid` under `options`. Takes time linear in the
     /// number of cells.
     pub fn new(grid: &Costmap, options: &PlanOptions) -> Self {
-        let width = grid.width();
+        let width = grid.size().x;
         let cell = |index: usize| {
             UVec2::new(
                 (index % width as usize) as u32,
@@ -118,7 +118,7 @@ mod tests {
     fn cells_touching_only_at_a_blocked_corner_are_separate_regions() {
         // Two free 3 x 3 blocks that touch only at a corner: the planner's diagonal move
         // between them needs both blocked cells beside it to be passable.
-        let grid = Costmap::new_with(MapInfo::square(6, 1.0), |x, y| {
+        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |x, y| {
             if (x < 3 && y < 3) || (x >= 3 && y >= 3) {
                 COST_FREE
             } else {
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn largest_region_ignores_smaller_islands() {
         // Column 2 is a wall: a 2-wide island on the left, a 3-wide region on the right.
-        let grid = Costmap::new_with(MapInfo::square(6, 1.0), |x, _| {
+        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |x, _| {
             if x == 2 { COST_LETHAL } else { COST_FREE }
         });
         let regions = Regions::new(&grid, &PlanOptions::default());

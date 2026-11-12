@@ -142,7 +142,7 @@ impl Hedge {
 /// Rasterise the farm.
 fn generate() -> DenseGrid<u8> {
     let size = (FARM_SIZE_M / RESOLUTION_M).round().as_uvec2();
-    let mut raster = DenseGrid::new_with_value(
+    let mut raster = DenseGrid::filled(
         MapInfo {
             width: size.x,
             height: size.y,
@@ -288,7 +288,7 @@ fn place_in_field(rng: &mut Rng, xs: [f32; 4], ys: [f32; 3], size: Vec2) -> Vec2
 
 /// Cells whose centres lie in the world rectangle `[min, max)`, clipped to the raster.
 fn cells_in(raster: &DenseGrid<u8>, min: Vec2, max: Vec2) -> impl Iterator<Item = UVec2> + use<> {
-    let size = UVec2::new(raster.width(), raster.height()).as_vec2();
+    let size = UVec2::new(raster.size().x, raster.size().y).as_vec2();
     let resolution = raster.info().resolution;
     let lo = (min / resolution - 0.5)
         .ceil()

@@ -213,7 +213,7 @@ mod tests {
     /// A 20 x 20 grid of 1 m cells with its lower-left corner at (100, 200).
     fn setup() -> (DenseGrid<u8>, CellFrame) {
         (
-            DenseGrid::new_with_value(cells(UVec2::new(20, 20)), 7),
+            DenseGrid::filled(cells(UVec2::new(20, 20)), 7),
             CellFrame {
                 origin: DVec2::new(100.0, 200.0),
                 resolution: 1.0,

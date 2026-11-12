@@ -99,10 +99,8 @@ impl ObstacleLayer {
     /// Create a layer whose grid has the layout `info`, with every cell unknown.
     pub fn new(info: MapInfo, config: ObstacleConfig) -> Self {
         Self {
-            grid: DenseGrid::new_with_value(info, COST_UNKNOWN),
-            stamps: config
-                .decay_s
-                .map(|_| DenseGrid::new_with_value(info, None)),
+            grid: DenseGrid::filled(info, COST_UNKNOWN),
+            stamps: config.decay_s.map(|_| DenseGrid::filled(info, None)),
             config,
             touched: Bounds::empty(),
             pending_hits: Vec::new(),
@@ -434,7 +432,12 @@ mod tests {
     }
 
     fn observed_cells(layer: &ObstacleLayer) -> usize {
-        layer.grid().iter().filter(|&&c| c != COST_UNKNOWN).count()
+        layer
+            .grid()
+            .as_slice()
+            .iter()
+            .filter(|&&c| c != COST_UNKNOWN)
+            .count()
     }
 
     #[test]
@@ -556,7 +559,7 @@ mod tests {
         let mut layer = ObstacleLayer::new(info(), config());
         layer.insert_beams(Vec2::new(0.5, 5.5), [hit(3.5, 5.5)], 0.0);
 
-        let mut master = Costmap::new_with_value(info(), 77);
+        let mut master = Costmap::filled(info(), 77);
         layer.update_costs(&mut master, full_region());
 
         assert_eq!(master.get(UVec2::new(10, 10)), Some(&77));
@@ -569,7 +572,7 @@ mod tests {
         let mut layer = ObstacleLayer::new(info(), config());
         layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let mut master = Costmap::new_with_value(info(), COST_FREE);
+        let mut master = Costmap::filled(info(), COST_FREE);
         master.set(UVec2::new(2, 5), COST_LETHAL).unwrap();
         layer.update_costs(&mut master, full_region());
 
@@ -588,7 +591,7 @@ mod tests {
         );
         layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let mut master = Costmap::new_with_value(info(), COST_FREE);
+        let mut master = Costmap::filled(info(), COST_FREE);
         master.set(UVec2::new(2, 5), COST_LETHAL).unwrap();
         layer.update_costs(&mut master, full_region());
 
@@ -631,7 +634,7 @@ mod tests {
 
         assert_eq!(cost(&layer, 8, 10), COST_FREE);
         assert_eq!(cost(&layer, 9, 10), COST_UNKNOWN);
-        assert!(layer.grid().iter().all(|&c| c != COST_LETHAL));
+        assert!(layer.grid().as_slice().iter().all(|&c| c != COST_LETHAL));
     }
 
     #[test]
@@ -850,7 +853,7 @@ mod tests {
         assert_eq!(layer.grid().info().origin, Vec2::new(3.0, 0.0));
 
         layer.expire(3.0);
-        assert!(layer.grid().iter().all(|&c| c != COST_LETHAL));
+        assert!(layer.grid().as_slice().iter().all(|&c| c != COST_LETHAL));
     }
 
     #[test]
@@ -870,7 +873,7 @@ mod tests {
         assert!(bounds.max.x <= 17.0 && bounds.max.y <= 13.0, "{bounds:?}");
         assert!(bounds.min.x <= 10.5 && bounds.max.x >= 14.5);
 
-        let mut master = Costmap::new_with_value(big, COST_FREE);
+        let mut master = Costmap::filled(big, COST_FREE);
         layer.update_costs(&mut master, CellRegion::new(UVec2::ZERO, UVec2::splat(100)));
         let mut bounds = Bounds::empty();
         layer.update_bounds(robot, &mut bounds);
@@ -888,7 +891,7 @@ mod tests {
             },
         );
         layer.insert_beams(Vec2::new(40.5, 40.5), [hit(44.5, 40.5)], 0.0);
-        let mut master = Costmap::new_with_value(big, COST_FREE);
+        let mut master = Costmap::filled(big, COST_FREE);
         layer.update_costs(&mut master, CellRegion::new(UVec2::ZERO, UVec2::splat(100)));
 
         layer.expire(5.0);
@@ -925,7 +928,7 @@ mod tests {
 
         assert_eq!(*layer.grid().info(), bigger);
         assert_eq!(observed_cells(&layer), 0);
-        assert!(Costmap::new_with_value(bigger, 0).layout_matches(layer.grid()));
+        assert!(Costmap::filled(bigger, 0).layout_matches(layer.grid()));
     }
 
     #[test]
@@ -934,12 +937,12 @@ mod tests {
         layer.insert_beams(Vec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let other = MapInfo::square(SIZE, 0.5);
-        let mut master = Costmap::new_with_value(other, 9);
+        let mut master = Costmap::filled(other, 9);
         layer.update_costs(
             &mut master,
             CellRegion::new(UVec2::ZERO, UVec2::splat(SIZE)),
         );
-        assert!(master.iter().all(|&c| c == 9));
+        assert!(master.as_slice().iter().all(|&c| c == 9));
     }
 
     #[test]
