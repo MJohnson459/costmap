@@ -23,6 +23,17 @@ pub enum MergePolicy {
     MaxKeepUnknown,
 }
 
+/// The cost a master cell takes when `src` is merged into `old`, or `None` to leave it unchanged.
+///
+/// `src` must be a known cost; callers skip unknown source cells first.
+pub(crate) fn merge_cost(policy: MergePolicy, old: u8, src: u8) -> Option<u8> {
+    match policy {
+        MergePolicy::Overwrite => Some(src),
+        MergePolicy::Max => (old == COST_UNKNOWN || old < src).then_some(src),
+        MergePolicy::MaxKeepUnknown => (old != COST_UNKNOWN && old < src).then_some(src),
+    }
+}
+
 /// Project a source grid into the master costmap within a region.
 ///
 /// For each cell in `region`, applies the projection function `f` to the source value.
@@ -59,24 +70,7 @@ pub fn project_into<T>(
             // Read current master cell (defaults to COST_UNKNOWN if not set).
             let old = master.get(cell).copied().unwrap_or(COST_UNKNOWN);
 
-            // Apply the policy.
-            let new_cost = match policy {
-                MergePolicy::Overwrite => Some(src_cost),
-                MergePolicy::Max => {
-                    if old == COST_UNKNOWN || old < src_cost {
-                        Some(src_cost)
-                    } else {
-                        None
-                    }
-                }
-                MergePolicy::MaxKeepUnknown => {
-                    if old != COST_UNKNOWN && old < src_cost {
-                        Some(src_cost)
-                    } else {
-                        None
-                    }
-                }
-            };
+            let new_cost = merge_cost(policy, old, src_cost);
 
             if let Some(cost) = new_cost {
                 let _ = master.set(cell, cost);
