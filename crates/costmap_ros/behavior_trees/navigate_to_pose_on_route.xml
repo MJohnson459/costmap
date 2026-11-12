@@ -1,0 +1,34 @@
+<!--
+  NavigateToPose for a map larger than Nav2's global costmap.
+
+  costmap_planner_server plans a route across the whole map. Nav2's own planner
+  then plans, inside its rolling global costmap, to the point `distance_forward`
+  metres along that route, and the controller follows that path. Nav2's
+  planner, footprint, costmap filters and sensor layers all apply to the path
+  the robot drives; the route only says which way to go.
+
+  `distance_forward` must be less than half the width of the global costmap, so
+  the point planned to lies inside it.
+
+  Written for Nav2 1.5 (BehaviorTree.CPP 4). It uses only nodes Nav2 ships.
+-->
+
+<root BTCPP_format="4" main_tree_to_execute="NavigateToPoseOnRoute">
+  <BehaviorTree ID="NavigateToPoseOnRoute">
+    <PipelineSequence name="NavigateOnRoute">
+      <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+      <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+      <RateController hz="0.2">
+        <ComputePathToPose goal="{goal}" path="{route}" planner_id="" server_name="compute_route_to_pose" error_code_id="{compute_path_error_code}" error_msg="{compute_path_error_msg}"/>
+      </RateController>
+      <RateController hz="1.0">
+        <Sequence name="PlanAlongRoute">
+          <TruncatePathLocal input_path="{route}" output_path="{route_ahead}" distance_forward="15.0" distance_backward="0.0"/>
+          <GetPoseFromPath path="{route_ahead}" index="-1" pose="{route_goal}"/>
+          <ComputePathToPose goal="{route_goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}" error_msg="{compute_path_error_msg}"/>
+        </Sequence>
+      </RateController>
+      <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}" error_msg="{follow_path_error_msg}" tracking_feedback="{tracking_feedback}"/>
+    </PipelineSequence>
+  </BehaviorTree>
+</root>

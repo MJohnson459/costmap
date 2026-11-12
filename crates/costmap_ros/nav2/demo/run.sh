@@ -3,15 +3,16 @@
 #
 # Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo/run.sh
 #
-# costmap_window_server publishes a SERVER_WINDOW_M (default 20) metre window
-# of the map around the robot. Nav2's local costmap is a 6 m rolling window
-# that holds only that window plus inflation. Nav2 has no global costmap and
-# no planner_server: costmap_planner_server answers its compute_path_to_pose
-# action with a path across the whole map. The mission sends one goal.
+# costmap_window_server publishes a SERVER_WINDOW_M (default 50) metre window
+# of the map around the robot. Nav2's global costmap is a 40 m rolling window
+# and its local costmap a 6 m one; both hold only that window plus inflation.
+# costmap_planner_server plans a route across the whole map. The behaviour
+# tree navigate_to_pose_on_route.xml has Nav2's planner plan to the point 15 m
+# along that route, once a second. The mission sends one goal.
 #
 # Starts a Zenoh router, a kinematic robot (sim_robot.py), the window server,
-# the planner server, Nav2's controller and behaviour tree navigator, and the
-# mission (mission.py), which reports PASS/FAIL and writes recording.npz to
+# the route planner, Nav2's planner, controller and behaviour tree navigator,
+# and the mission (mission.py), which reports PASS/FAIL and writes recording.npz to
 # DRIVE_OUT (default: the log directory). render.py turns that into a
 # video. Every process is started in its own process group and stopped by that
 # group id; nothing else on the machine is signalled.
@@ -25,7 +26,7 @@ REPO="$(cd "$NAV2_DIR/../../.." && pwd)"
     exit 2
 }
 [[ -f "$DRIVE_MAP" ]] || { echo "DRIVE_MAP $DRIVE_MAP not found" >&2; exit 2; }
-SERVER_WINDOW_M="${SERVER_WINDOW_M:-20}"
+SERVER_WINDOW_M="${SERVER_WINDOW_M:-50}"
 STAGE_TIMEOUT_S=60
 MISSION_TIMEOUT_S=900
 LOG_DIR="$(mktemp -d -t costmap_ros_drive.XXXXXX)"
@@ -54,21 +55,22 @@ RUST_LOG="warn,costmap_window_server=debug,costmap_ros=debug" start server "$SER
 wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
 require_alive server "$server_pid"
 
-start planner "$PLANNER" --map "$DRIVE_MAP"
-wait_for "costmap_planner_server" "$STAGE_TIMEOUT_S" log_has planner "serving"
-require_alive planner "$planner_pid"
+start route "$PLANNER" --map "$DRIVE_MAP"
+wait_for "costmap_planner_server" "$STAGE_TIMEOUT_S" log_has route "serving"
+require_alive route "$route_pid"
 
-# The local costmap runs at the map's resolution. StaticLayer point-samples a
-# map of another resolution and drops obstacles smaller than a costmap cell.
-BT_DIR="$CONDA_PREFIX/share/nav2_bt_navigator/behavior_trees"
+# Both costmaps run at the map's resolution. StaticLayer point-samples a map of
+# another resolution and drops obstacles smaller than a costmap cell.
+start planner ros2 run nav2_planner planner_server --ros-args \
+    --params-file "$HERE/nav2_params.yaml" -p "resolution:=$RESOLUTION"
 start controller ros2 run nav2_controller controller_server --ros-args \
     --params-file "$HERE/nav2_params.yaml" -p "resolution:=$RESOLUTION"
 start navigator ros2 run nav2_bt_navigator bt_navigator --ros-args \
     --params-file "$HERE/nav2_params.yaml" \
-    -p "default_nav_to_pose_bt_xml:=$BT_DIR/navigate_w_replanning_time.xml"
+    -p "default_nav_to_pose_bt_xml:=$NAV2_DIR/../behavior_trees/navigate_to_pose_on_route.xml"
 start lifecycle ros2 run nav2_lifecycle_manager lifecycle_manager --ros-args \
     --params-file "$HERE/nav2_params.yaml"
-wait_for "Nav2 (controller, navigator active)" "$STAGE_TIMEOUT_S" \
+wait_for "Nav2 (planner, controller, navigator active)" "$STAGE_TIMEOUT_S" \
     log_has lifecycle "Managed nodes are active"
 
 start mission python -u "$HERE/mission.py" --map "$DRIVE_MAP" \

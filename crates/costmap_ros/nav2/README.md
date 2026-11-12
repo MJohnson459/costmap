@@ -17,7 +17,7 @@ ROS Lyrical with Nav2 1.5.2 and `rmw_zenoh_cpp` from `pixi.toml` (4.3 GB).
 | `test/run.sh` | **Integration test.** Starts the server and one Nav2 costmap node, moves the robot, and compares every cell Nav2 holds with the source map. |
 | `test/check_costmap.py` | The comparison, and the robot's `/tf`. |
 | `test/costmap_params.yaml` | Parameters of the Nav2 costmap node under test. |
-| `demo/run.sh` | **Demo.** Starts both servers, a simulated robot and Nav2's controller and navigator, and drives to one goal across a cost GeoTIFF. |
+| `demo/run.sh` | **Demo.** Starts both servers, a simulated robot and Nav2's planner, controller and navigator, and drives to one goal across a cost GeoTIFF. |
 | `demo/nav2_params.yaml` | Nav2 parameters for the demo. |
 | `demo/sim_robot.py` | Kinematic robot: integrates `/cmd_vel`, publishes `/tf` and `/odom`. |
 | `demo/mission.py` | Sends the goal, records what Nav2 published, checks the track. |

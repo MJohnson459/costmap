@@ -1,9 +1,15 @@
-//! Serves Nav2's `compute_path_to_pose` action from a whole cost GeoTIFF.
+//! Plans routes across a whole cost GeoTIFF for Nav2.
 //!
 //! Nav2's own planner searches its global costmap, so it cannot reach a goal
-//! outside the window it holds. This node takes the place of `planner_server`:
-//! Nav2's behaviour tree calls the same action and gets a path across the
-//! whole map, planned on an overview held in memory.
+//! outside the window it holds. This node serves an action of the same type,
+//! `nav2_msgs/action/ComputePathToPose`, under the name
+//! `compute_route_to_pose`, and answers with a path across the whole map,
+//! planned on an overview held in memory. A behaviour tree asks it for the
+//! route and Nav2's planner for the stretch ahead; see
+//! `behavior_trees/navigate_to_pose_on_route.xml`.
+//!
+//! Started with `--action compute_path_to_pose` it takes the place of
+//! `planner_server` outright, for a robot that needs none of Nav2's planners.
 //!
 //! The path starts at the goal's `start` pose when `use_start` is set, and at
 //! the latest `map_frame -> base_frame` transform otherwise. It passes through
@@ -43,17 +49,17 @@ const ERROR_NO_VALID_PATH: u16 = 208;
 type PathPub = ZPub<Path, <Path as ZMessage>::Serdes>;
 
 #[derive(Debug, Parser)]
-#[command(about = "Plan Nav2's global paths across a whole cost GeoTIFF")]
+#[command(about = "Plan routes for Nav2 across a whole cost GeoTIFF")]
 struct Args {
     /// Single-band u8 cost GeoTIFF; the map frame is at its lower-left corner.
     #[arg(long)]
     map: PathBuf,
     /// Action to serve.
-    #[arg(long, default_value = "compute_path_to_pose")]
+    #[arg(long, default_value = "compute_route_to_pose")]
     action: String,
-    /// Topic each planned path is also published on.
-    #[arg(long, default_value = "plan")]
-    plan_topic: String,
+    /// Topic each route is also published on.
+    #[arg(long, default_value = "route")]
+    route_topic: String,
     /// Frame of the map and of the planned paths.
     #[arg(long, default_value = "map")]
     map_frame: String,
@@ -251,9 +257,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .build()
         .map_err(|e| anyhow!("creating node: {e}"))?;
     let plan_pub = node
-        .create_pub::<Path>(&args.plan_topic)
+        .create_pub::<Path>(&args.route_topic)
         .build()
-        .map_err(|e| anyhow!("creating publisher on {}: {e}", args.plan_topic))?;
+        .map_err(|e| anyhow!("creating publisher on {}: {e}", args.route_topic))?;
     let tf = TfListener::new(&node).map_err(|e| anyhow!("subscribing to tf: {e}"))?;
     let planner = Arc::new(Planner {
         routes,
