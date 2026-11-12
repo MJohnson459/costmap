@@ -1,0 +1,24 @@
+[package]
+name = "costmap_ros"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+license = "MIT OR Apache-2.0"
+description = "Publishes costmap windows to ROS 2 / Nav2 as nav_msgs/OccupancyGrid over Hiroz"
+publish = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+costmap = { path = "../..", features = ["geotiff"] }
+ctrlc = { version = "3", features = ["termination"] }
+glam = "0.33"
+hiroz = { version = "0.2.1", default-features = false, features = ["lyrical", "rmw-zenoh"] }
+hiroz-msgs = { version = "0.2.1", default-features = false, features = ["lyrical", "nav_msgs", "tf2_msgs"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+approx = { version = "0.5.1", default-features = false }
