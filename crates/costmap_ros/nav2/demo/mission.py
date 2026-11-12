@@ -1,9 +1,10 @@
 """Drive a robot across a cost GeoTIFF with Nav2 and record what Nav2 saw.
 
 Sends each waypoint to Nav2 as a NavigateToPose goal and waits for Nav2 to
-report success with the robot within 0.5 m of it. Meanwhile it records the robot pose, Nav2's plan, Nav2's global and
-local costmaps and the extent of every window costmap_window_server publishes,
-and writes them to <out>/recording.npz for render.py.
+report success with the robot within 0.5 m of it. Meanwhile it records the
+robot pose, every plan, Nav2's local costmap (and its global costmap, if it
+has one) and the extent of every window costmap_window_server publishes, and
+writes them to <out>/recording.npz for render.py.
 
 Afterwards it checks the driven track against the raster read straight from
 its file: no cell under the robot's disc may be lethal.
@@ -73,6 +74,7 @@ class Mission(Node):
         self.poses = []
         self.windows = []
         self.plans = []
+        self.routes = []
         self.global_frames = []
         self.local_frames = []
         self.goal_events = []
@@ -80,6 +82,7 @@ class Mission(Node):
 
         self.create_subscription(Odometry, "/odom", self.on_odom, 10)
         self.create_subscription(Path, "/plan", self.on_plan, 10)
+        self.create_subscription(Path, "/route", self.on_route, 10)
         self.create_subscription(OccupancyGrid, "/map", self.on_window, latched())
         self.create_subscription(
             OccupancyGrid, "/global_costmap/costmap", self.on_global, latched()
@@ -104,6 +107,11 @@ class Mission(Node):
         xy = np.array([(p.pose.position.x, p.pose.position.y) for p in msg.poses])
         if len(xy):
             self.plans.append((self.now(), xy))
+
+    def on_route(self, msg):
+        xy = np.array([(p.pose.position.x, p.pose.position.y) for p in msg.poses])
+        if len(xy):
+            self.routes.append((self.now(), xy))
 
     def on_window(self, msg):
         info = msg.info
@@ -176,6 +184,7 @@ class Mission(Node):
 
     def save(self, path, waypoints):
         plan_xy = [xy for _, xy in self.plans]
+        route_xy = [xy for _, xy in self.routes]
         np.savez_compressed(
             path,
             poses=np.array(self.poses),
@@ -185,6 +194,9 @@ class Mission(Node):
             plan_t=np.array([t for t, _ in self.plans]),
             plan_len=np.array([len(xy) for xy in plan_xy]),
             plan_xy=np.concatenate(plan_xy) if plan_xy else np.zeros((0, 2)),
+            route_t=np.array([t for t, _ in self.routes]),
+            route_len=np.array([len(xy) for xy in route_xy]),
+            route_xy=np.concatenate(route_xy) if route_xy else np.zeros((0, 2)),
             global_meta=np.array([m for m, _ in self.global_frames]),
             global_grid=np.array([g for _, g in self.global_frames]),
             local_meta=np.array([m for m, _ in self.local_frames]),
@@ -258,7 +270,7 @@ def main():
     violations, least = track_clearance(load_geotiff(args.map), poses, args.robot_radius)
     print(
         f"drove {steps.sum():.1f} m in {poses[-1, 0] - poses[0, 0]:.0f} s; "
-        f"{len(mission.windows)} windows published; {len(mission.plans)} plans"
+        f"{len(mission.windows)} windows published; {len(mission.routes)} routes; {len(mission.plans)} plans"
     )
     print(
         f"track: {violations} lethal cells under the {args.robot_radius} m robot disc, "

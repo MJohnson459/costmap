@@ -8,13 +8,19 @@
 //! - [`source`]: the [`MapSource`] trait that supplies windows of a map, for
 //!   dense maps in memory and tiled GeoTIFFs read on demand.
 //! - [`republish`]: when the window server publishes a new window.
+//! - [`route`]: routes across a whole cost GeoTIFF, planned on an overview.
 //! - [`tf`]: a latest-value transform tree and its `/tf` listener.
 
 pub mod convert;
+pub mod nav2_msgs;
 pub mod republish;
+pub mod route;
 pub mod source;
 pub mod tf;
 
 pub use convert::{costmap_from_occupancy_grid, occupancy_grid_from_costmap};
+#[doc(hidden)]
+pub use hiroz_msgs::size_estimation;
 pub use republish::RepublishPolicy;
+pub use route::{Route, RouteError, RouteOptions, RoutePlanner};
 pub use source::{GeoTiffSource, MapSource, SourceError, TileStats};

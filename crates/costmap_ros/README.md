@@ -15,43 +15,60 @@ message, and every costmap with a StaticLayer keeps its own copy. A warehouse
 fits. A drone survey does not: a 166 x 196 m vineyard at 0.03 m is 36 M cells,
 a 36 MB message, and a square kilometre at that resolution is 1.1 G cells.
 
-`costmap_window_server` replaces `map_server` for such maps. It publishes only
-a square window of the map around the robot, on the same topic and with the
-same message type. Nav2 runs its costmaps with `rolling_window: true` and the
-StaticLayer reads every new window. A stock Nav2 then navigates on a cost
-GeoTIFF of any size, such as one written by
+Two binaries add what Nav2 lacks for such maps:
+
+- `costmap_window_server` replaces `map_server`. It publishes only a square
+  window of the map around the robot, on the same topic and with the same
+  message type. Nav2 runs its costmaps with `rolling_window: true` and the
+  StaticLayer reads every new window.
+- `costmap_planner_server` plans a route across the whole map. Nav2's planner
+  searches its global costmap, so on a window it cannot reach a goal outside
+  it. A behaviour tree asks this server for the route and Nav2's own planner
+  for the stretch ahead.
+
+Nothing of Nav2 is given up. Its planner plugins, footprint checks, costmap
+filters, sensor layers, controller and recovery behaviours all still act on
+the path the robot drives. The route only says which way to go. A goal
+anywhere on a cost GeoTIFF of any size then works, such as one written by
 [`costmap-from-ortho`](../costmap-geo) from an OpenDroneMap survey.
 
 ## On an existing ROS 2 robot
 
-1. Install the server binary on the robot. See
+1. Install the two binaries on the robot. See
    [Building and installing](#building-and-installing).
 2. Stop launching `map_server`. Start `costmap_window_server --map cost.tif`
-   in its place. It publishes `/map`, as `map_server` did, and connects to the
-   Zenoh router the robot already runs for `rmw_zenoh_cpp`.
-3. In both Nav2 costmaps set `rolling_window: true`, the map's `resolution`,
-   and a `width` and `height` chosen as in
+   in its place. It publishes `/map`, as `map_server` did.
+3. Start `costmap_planner_server --map cost.tif` beside Nav2's own
+   `planner_server`, which stays.
+4. Point `bt_navigator` at
+   [`behavior_trees/navigate_to_pose_on_route.xml`](behavior_trees/navigate_to_pose_on_route.xml)
+   with its `default_nav_to_pose_bt_xml` parameter. See
+   [The behaviour tree](#the-behaviour-tree).
+5. In both costmaps set `rolling_window: true`, the map's `resolution`, and a
+   `width` and `height` chosen as in
    [Choosing the window sizes](#choosing-the-window-sizes). See
    [Nav2 configuration](#nav2-configuration).
-4. Provide `map -> base_link` on `/tf`, as Nav2 already requires. For a
+6. Provide `map -> base_link` on `/tf`, as Nav2 already requires. For a
    GeoTIFF the `map` frame is the raster's lower-left corner, x east and y
    north. A robot localised in projected coordinates (RTK GNSS in UTM, say)
-   needs a static transform from that frame to `map`; the server logs the
-   corner's coordinates at start.
-5. Send goals that lie inside the global costmap. For a goal farther away,
-   send waypoints; `route_waypoints` computes them from the whole map.
+   needs a static transform from that frame to `map`; the window server logs
+   the corner's coordinates at start.
+
+Both binaries connect to the Zenoh router the robot already runs for
+`rmw_zenoh_cpp`.
 
 What this asks of the robot:
 
 - **Zenoh.** Every node that talks to the server runs `rmw_zenoh_cpp` and
   reaches the same Zenoh router. A robot on a DDS middleware needs a bridge,
   which this crate does not provide and has not been tested with.
-- **No ROS package.** The server is a plain binary, not an ament package. It
-  cannot be built by colcon, started with `ros2 run`, or released through the
-  ROS build farm. Start it from a launch file with `ExecuteProcess`, or from
+- **No ROS package.** The servers are plain binaries, not an ament package.
+  They cannot be built by colcon, started with `ros2 run`, or released through the
+  ROS build farm. Start them from a launch file with `ExecuteProcess`, or from
   systemd.
-- **Static map only.** The server publishes the file. Obstacles seen by
-  sensors go in Nav2's own obstacle layer, as usual.
+- **Static map only.** Both servers read the file. Obstacles seen by sensors
+  go in Nav2's own obstacle layers, as usual. Nav2's planner routes around
+  them within its global costmap; the route across the map does not change.
 
 It has been run against Nav2 1.5.2 on ROS Lyrical with a simulated robot. It
 has not been run on a physical robot.
@@ -63,12 +80,16 @@ has not been run on a physical robot.
   - `source`: the `MapSource` trait. A dense in-memory `Costmap` and
     `GeoTiffSource`, which reads a cost GeoTIFF chunk by chunk, implement it.
   - `republish`: when the server sends a new window.
+  - `route`: `RoutePlanner`, which plans across a whole cost GeoTIFF on a
+    max-pooled overview of it.
+  - `nav2_msgs`: the `ComputePathToPose` action type, generated at build time
+    from `msgs/nav2_msgs`. `hiroz-msgs` does not bundle Nav2's interfaces.
   - `tf`: a transform tree fed from `/tf` and `/tf_static`, and a resolver for
     the robot pose. It is a stand-in: Hiroz has no tf2 port. It keeps the
     latest transform per frame and nothing else. See [Limitations](#limitations).
-- Binary: `costmap_window_server`.
-- Example: `route_waypoints` plans a route across a whole cost GeoTIFF with
-  `costmap`'s A* and prints waypoints along it.
+- Binaries: `costmap_window_server` and `costmap_planner_server`.
+- `behavior_trees/navigate_to_pose_on_route.xml`: the Nav2 behaviour tree that
+  uses the route. See [The behaviour tree](#the-behaviour-tree).
 - [`nav2/`](nav2): a test rig and a demo that run the server against a real
   Nav2. Nothing in it is installed on a robot, and CI does not run it.
   - `nav2/test/run.sh`: an integration test. It compares every cell a Nav2
@@ -76,20 +97,20 @@ has not been run on a physical robot.
   - `nav2/demo/run.sh`: a demo. Nav2 plans and drives a simulated robot across
     a cost GeoTIFF, and the script checks the track.
 
-The only part meant to run on a robot is the `costmap_window_server` binary.
+The only parts meant to run on a robot are the two binaries.
 
 ## Building and installing
 
 Build on a development machine or in CI, not on the robot:
 
 ```sh
-cargo build --release -p costmap_ros --bin costmap_window_server
-strip target/release/costmap_window_server
+cargo build --release -p costmap_ros --bins
+strip target/release/costmap_window_server target/release/costmap_planner_server
 ```
 
-The result is one executable that links only glibc (`libc`, `libm`,
-`libgcc_s`). Stripped it is 24 MB; unstripped it is 477 MB, because the
-workspace's release profile keeps debug information. Copy it to a robot of
+Each is one executable that links only glibc (`libc`, `libm`, `libgcc_s`).
+Stripped, each is about 24 MB; unstripped about 480 MB, because the
+workspace's release profile keeps debug information. Copy them to a robot of
 the same architecture whose glibc is at least as new as the build machine's.
 Building for another architecture, such as arm64, has not been tried.
 
@@ -146,18 +167,123 @@ The window origin is a whole number of cells from the map origin. A cell keeps
 its world position and value in every window, so Nav2 never sees a cell
 resampled.
 
+## Planner server
+
+```sh
+costmap_planner_server --map cost.tif
+```
+
+At start it reads a max-pooled overview of the whole raster, one strip or tile
+at a time, and inflates it for the robot. It then serves an action of type
+`nav2_msgs/action/ComputePathToPose` under the name `compute_route_to_pose`,
+and publishes each route on `/route`.
+
+- The route starts at the goal's `start` pose when `use_start` is set, and at
+  the latest `map -> base_link` transform otherwise. It passes through the
+  goal's `viapoints` in order.
+- It is planned with `costmap`'s A* on the overview, shortcut into straight
+  segments, and returned as poses at most 0.1 m apart that face along it.
+- A start or goal on an impassable overview cell moves to the nearest passable
+  one within 1 m.
+- Poses must be in the map frame. A pose in another frame aborts the goal with
+  `TF_ERROR`; the server does not transform goals.
+- Failures abort the goal with Nav2's error codes: `TF_ERROR`,
+  `START_OCCUPIED`, `GOAL_OCCUPIED`, `NO_VALID_PATH`.
+- A goal cancelled while its route is being planned ends as cancelled.
+- There is one planner, so `planner_id` is not read.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--map` | required | cost GeoTIFF |
+| `--action` | `compute_route_to_pose` | action served |
+| `--route-topic` | `route` | topic each route is also published on |
+| `--map-frame` | `map` | frame of the map and of the routes |
+| `--base-frame` | `base_link` | robot frame |
+| `--overview-m` | 0.25 | largest overview cell, metres |
+| `--robot-radius-m` | 0.3 | robot radius, metres |
+| `--inflation-m` | 1.5 | distance over which routes are pushed from obstacles, metres |
+
+On the 36 M-cell vineyard survey the overview is 694 x 816 cells at 0.24 m,
+read in 0.1 s, and a 99.9 m route takes up to 10 ms.
+
+What it does not do:
+
+- **Narrow gaps.** The overview keeps the worst cost in each block, so it
+  never opens a gap that is not there, but it can close one that is: an
+  obstacle that touches a block fills it. A gap must be up to two overview
+  cells wider than the robot to stay open. With the defaults (0.3 m radius,
+  0.24 m cells) that is 1.08 m, so a 0.9 m doorway can read as closed and the
+  goal aborts with `NO_VALID_PATH`. Lower `--overview-m` for such maps, at
+  four times the cells per halving. This is the reason the overview is a
+  stopgap: planning must find crossings at the map's own resolution.
+- **A route the robot can drive as it is.** The route is a line through free
+  space for a robot that turns on the spot. Nav2's planner makes the path that
+  is driven.
+- **ROS maps.** It reads GeoTIFFs only. Convert a ROS map with
+  [`costmap-from-ros-map`](../costmap-geo#ros-maps).
+
+### In place of `planner_server`
+
+Started with `--action compute_path_to_pose --route-topic plan`, the server
+answers the action Nav2's stock behaviour trees call, and `planner_server` and
+the global costmap can be removed. The robot then drives the route itself.
+This suits only a robot that turns on the spot, is close to circular, and
+needs no costmap filters or sensed obstacles in its global plan. It was run on
+the vineyard survey with a 20 m window and the stock 1 Hz replanning tree:
+97.0 m in 100 s, goal reached, least distance to a lethal cell 0.36 m.
+
+## The behaviour tree
+
+[`behavior_trees/navigate_to_pose_on_route.xml`](behavior_trees/navigate_to_pose_on_route.xml)
+is a `NavigateToPose` tree. Against Nav2's stock replanning tree it changes
+one thing: where the stock tree has one `ComputePathToPose` node, this has
+four.
+
+```xml
+<RateController hz="0.2">
+  <ComputePathToPose goal="{goal}" path="{route}" planner_id=""
+                     server_name="compute_route_to_pose" .../>
+</RateController>
+<RateController hz="1.0">
+  <Sequence>
+    <TruncatePathLocal input_path="{route}" output_path="{route_ahead}"
+                       distance_forward="15.0" distance_backward="0.0"/>
+    <GetPoseFromPath path="{route_ahead}" index="-1" pose="{route_goal}"/>
+    <ComputePathToPose goal="{route_goal}" path="{path}"
+                       planner_id="{selected_planner}" .../>
+  </Sequence>
+</RateController>
+```
+
+1. Every 5 s it asks `costmap_planner_server` for the route to the goal.
+2. Every second it cuts the route to the 15 m ahead of the robot, takes the
+   end of that stretch as a goal, and asks Nav2's planner for a path to it.
+3. The controller follows that path, as in the stock tree.
+
+A robot with its own tree adds these nodes in place of its
+`ComputePathToPose`; recoveries and the rest of the tree stay as they are.
+
+- `distance_forward` must be less than half the width of the global costmap,
+  so the point planned to lies inside it.
+- All nodes are ones Nav2 ships. Nothing is compiled.
+- The tree was written for Nav2 1.5.2 and run only on it. Node names and ports
+  differ between Nav2 releases, and `GetPoseFromPath` is absent from older ones.
+- `NavigateThroughPoses` uses a separate tree. None is provided for it.
+
 ## Choosing the window sizes
 
-Three sizes are involved: the server's `--window-m` (`W`), and the `width` of
-Nav2's global and local costmaps. Both costmaps read the same `/map`.
+Four sizes are involved: the window server's `--window-m` (`W`), the widths of
+Nav2's global (`G`) and local costmaps, and the tree's `distance_forward`
+(`D`). Both costmaps read the same `/map`.
 
 1. **Local costmap.** Size it for the controller, as on any Nav2 robot: 3 to
    6 m.
-2. **Global costmap** (`G`). Nav2 can only plan to a goal inside it, and it is
-   centred on the robot, so `G / 2` must exceed the longest leg. With
-   `route_waypoints --spacing-m 15`, a leg is 15 m along the route and
-   `G = 50` leaves 10 m to spare on each side.
-3. **Server window.** The global costmap must stay inside the last window
+2. **Planning distance `D`.** How far ahead Nav2's planner looks along the
+   route. It sets how wide a detour around a sensed obstacle can be. The demo
+   uses 15 m.
+3. **Global costmap `G`.** It is centred on the robot and must contain the
+   point `D` along the route, so `G / 2 > D`. The demo uses 40 m.
+4. **Server window `W`.** The global costmap must stay inside the last window
    until the next one arrives, so the margin `(W - G) / 2` must exceed the
    distance the robot covers in that time:
 
@@ -167,16 +293,17 @@ Nav2's global and local costmaps. Both costmaps read the same `/map`.
    move to Nav2 holding the new window. Outside the window Nav2 sees unknown
    cells.
 
-The demo uses `G = 50` and `W = 60`, a 5 m margin, with `--min-move-m 2`,
+The demo uses `G = 40` and `W = 50`, a 5 m margin, with `--min-move-m 2`,
 `--rate-hz 5` and 1 m/s: 2 + 1 x 0.4 = 2.4 m.
 
-A larger `W` costs memory and bandwidth. Each window is one message of
-`(W / resolution)^2` bytes, and each StaticLayer keeps a copy:
+None of these grows with the map. A larger `W` costs memory and bandwidth:
+each window is one message of `(W / resolution)^2` bytes, and each StaticLayer
+keeps a copy.
 
 | `W` | at 0.05 m | at 0.03 m |
 | --- | --- | --- |
 | 20 m | 0.16 MB | 0.44 MB |
-| 60 m | 1.4 MB | 4.0 MB |
+| 50 m | 1.0 MB | 2.8 MB |
 | 100 m | 4.0 MB | 11 MB |
 
 ## GeoTIFF maps
@@ -232,19 +359,19 @@ router at `tcp/localhost:7447`, and reads `ZENOH_SESSION_CONFIG_URI`,
 ## Nav2 configuration
 
 ```yaml
-global_costmap:
+global_costmap:              # and the same in local_costmap, at its size
   global_costmap:
     ros__parameters:
       global_frame: map
       robot_base_frame: base_link
       rolling_window: true
-      width: 10            # see "Choosing the window sizes"
-      height: 10
+      width: 40            # see "Choosing the window sizes"
+      height: 40
       resolution: 0.05     # the map's resolution
       track_unknown_space: true
       trinary_costmap: false
       lethal_cost_threshold: 100
-      plugins: ["static_layer"]
+      plugins: ["static_layer", "inflation_layer"]  # and your sensor layers
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_topic: /map
@@ -346,7 +473,7 @@ for example the raster shifted one pixel with
 
 ## Drive demo
 
-`demo/run.sh` has Nav2 plan and drive across a cost GeoTIFF that it never
+`demo/run.sh` has Nav2 drive to one goal across a cost GeoTIFF that it never
 holds whole.
 
 ```sh
@@ -361,49 +488,53 @@ It starts:
 - a Zenoh router;
 - `sim_robot.py`, a kinematic differential-drive robot that integrates Nav2's
   `/cmd_vel` and publishes `odom -> base_link` and `/odom`;
-- `costmap_window_server` on the GeoTIFF, with 60 m windows republished every 2 m;
+- `costmap_window_server` on the GeoTIFF, with 50 m windows republished every 2 m;
+- `costmap_planner_server` on the same GeoTIFF;
 - Nav2's planner (NavFn), controller (Regulated Pure Pursuit) and behaviour
-  tree navigator, configured by `demo/nav2_params.yaml`. The global costmap is a
-  50 m rolling window and the local costmap a 6 m one. Each holds a
-  StaticLayer on `/map` and an inflation layer, and nothing else;
-- `mission.py`, which sends the waypoints as `NavigateToPose` goals.
-
-Nav2 cannot plan to a goal outside its global costmap. `route_waypoints` plans
-the whole route on a max-pooled overview of the raster with `costmap`'s A*,
-and the mission sends Nav2 one waypoint every 15 m of it.
+  tree navigator, configured by `demo/nav2_params.yaml`, with the tree above.
+  The global costmap is a 40 m rolling window and the local costmap a 6 m one.
+  Each holds a StaticLayer on `/map` and an inflation layer, and nothing else;
+- `mission.py`, which sends the goal as one `NavigateToPose`.
 
 The mission passes when:
 
-- Nav2 reports success for every waypoint with the robot within 0.5 m of it;
+- Nav2 reports success with the robot within 0.5 m of the goal;
 - no lethal cell of the raster, read from the file with Pillow, lies under the
   0.3 m robot disc at any recorded pose.
 
-Result on a 166 x 196 m vineyard survey at 0.03 m (5,547 x 6,525 cells, 36 M):
+Result on a 166 x 196 m vineyard survey (5,547 x 6,525 cells, 36 M):
 
 | | |
 | --- | --- |
-| Waypoints reached | 7 of 7, each within 0.30 m |
-| Distance driven | 96.6 m in 101 s |
-| Windows published | 45, of 2,000 x 2,000 cells each |
-| Plans | 7, one per waypoint |
+| Goal | 68 m from the start in a straight line, 30 m outside Nav2's global costmap |
+| Reached | yes, 0.28 m from the goal |
+| Distance driven | 96.4 m in 99 s |
+| Routes from `costmap_planner_server` | 20, up to 8.8 ms each |
+| Paths from Nav2's planner along the route | 90 |
+| Windows published | 45, of 1,667 x 1,667 cells each |
 | Lethal cells under the robot disc | 0 |
-| Least distance from robot centre to a lethal cell | 0.40 m |
-| Chunks of the file read | 2,712 of 8,874; 2,235 held at the end |
+| Least distance from robot centre to a lethal cell | 0.47 m |
+| Chunks of the file read by the window server | 2,314 of 8,874; 1,753 held at the end |
 
-`render.py` draws the recording as a video: Nav2's global and local
-costmaps as Nav2 published them, the outline of the last window served, the
-plan and the track, over the dimmed raster.
+`render.py` draws the recording as a video: the last window served and Nav2's
+global costmap on the dimmed raster, with the route, Nav2's path along it, the
+track, and Nav2's local costmap.
 
 The demo does not cover:
 
 - sensors. There is no obstacle layer; Nav2 sees only the served map;
 - localisation. `map -> odom` is a fixed identity transform;
 - dynamics. The robot follows the commanded velocity exactly;
-- recovery behaviours. The behaviour tree is the stock
-  `navigate_w_replanning_only_if_goal_is_updated.xml`, which plans once per
-  goal. With the 1 Hz replanning tree a plan was still running when a waypoint
-  was reached, and Nav2 started the next goal on the previous path and
-  reported success at once.
+- recovery behaviours. The tree has none.
+
+An earlier form of the demo had no route server and sent seven waypoints. It
+found two things worth knowing:
+
+- with Nav2's costmaps at 0.05 m over the 0.03 m map, StaticLayer dropped a
+  9 cm obstacle and Nav2 drove over it;
+- with the stock 1 Hz replanning tree, a slow plan still running when a
+  waypoint was reached made Nav2 start the next goal on the previous path and
+  report success at once.
 
 ## Latency
 
@@ -443,5 +574,5 @@ size does. At 50 Hz every number falls by a factor of 2 to 5, and the
   fixed map, and the window origin moves, so updates are not used.
 - Nav2 must run `rmw_zenoh_cpp`, and a Zenoh router must connect both sides.
 - `MapInfo` has no yaw, so maps with a rotated origin are rejected.
-- A Nav2 goal must lie inside Nav2's global costmap, so a goal farther away
-  than the window needs intermediate waypoints. See the drive demo.
+- The route is planned on an overview of the static map. See
+  [Planner server](#planner-server).

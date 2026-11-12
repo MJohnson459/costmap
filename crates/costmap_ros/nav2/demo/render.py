@@ -2,10 +2,11 @@
 
 Usage: python render.py --map cost.tif --recording recording.npz --out drive.mp4
 
-Left: the whole raster, dimmed, read from the file. Drawn over it in colour
-is Nav2's global costmap as Nav2 published it, the outline of the window
-costmap_window_server last published, Nav2's plan, the waypoints and the
-track driven. Right: Nav2's local costmap around the robot.
+Left: the whole raster, dimmed, read from the file. Over it: the outline of
+the window costmap_window_server last published, Nav2's global costmap as Nav2
+published it, the route costmap_planner_server last returned, the path Nav2's
+planner made along it, the goal and the track driven. Right: Nav2's local
+costmap around the robot, as Nav2 published it.
 
 Needs ffmpeg on PATH.
 """
@@ -29,8 +30,9 @@ BACKGROUND = (24, 26, 30)
 TEXT = (228, 230, 235)
 MUTED = (150, 156, 166)
 WINDOW_OUTLINE = (255, 196, 0)
-GLOBAL_OUTLINE = (90, 200, 255)
 PLAN = (40, 110, 255)
+ROUTE = (190, 80, 230)
+GLOBAL_OUTLINE = (90, 200, 255)
 TRACK = (20, 160, 70)
 ROBOT = (20, 20, 20)
 WAYPOINT = (140, 60, 200)
@@ -78,6 +80,7 @@ def main():
     poses, windows, waypoints = rec["poses"], rec["windows"], rec["waypoints"]
     goal_events = rec["goal_events"]
     plan_ends = np.cumsum(rec["plan_len"])
+    route_ends = np.cumsum(rec["route_len"])
     raster = load_geotiff(args.map)
     res = raster["resolution"]
     cost = raster["expected"]
@@ -92,6 +95,9 @@ def main():
     coarse = np.where(blocks == 255, 0, blocks).max(axis=(1, 3))
     coarse[(blocks == 255).all(axis=(1, 3))] = 255
     base = Image.fromarray(cost_palette(0.72)[np.flipud(coarse)]).resize(
+        (left_w, HEIGHT), Image.BILINEAR
+    )
+    bright = Image.fromarray(cost_palette(0.0)[np.flipud(coarse)]).resize(
         (left_w, HEIGHT), Image.BILINEAR
     )
 
@@ -126,7 +132,17 @@ def main():
         frame.paste(base, (0, 0))
         draw = ImageDraw.Draw(frame)
 
-        gi = latest(rec["global_meta"][:, 0], t)
+        wi = latest(windows[:, 0], t)
+        if wi is not None:
+            _, ox, oy, ww, wh = windows[wi]
+            x0, y1 = to_px(ox, oy)
+            x1, y0 = to_px(ox + ww, oy + wh)
+            box = (max(int(x0), 0), max(int(y0), 0), min(int(x1), left_w), min(int(y1), HEIGHT))
+            if box[0] < box[2] and box[1] < box[3]:
+                frame.paste(bright.crop(box), box[:2])
+            draw.rectangle([x0, y0, x1, y1], outline=WINDOW_OUTLINE, width=2)
+
+        gi = latest(rec["global_meta"][:, 0], t) if len(rec["global_meta"]) else None
         if gi is not None:
             _, ox, oy, gres = rec["global_meta"][gi]
             grid = rec["global_grid"][gi]
@@ -137,18 +153,16 @@ def main():
             frame.paste(image, (int(round(x0)), int(round(y0))))
             draw.rectangle([x0, y0, x1, y1], outline=GLOBAL_OUTLINE, width=2)
 
-        wi = latest(windows[:, 0], t)
-        if wi is not None:
-            _, ox, oy, ww, wh = windows[wi]
-            x0, y1 = to_px(ox, oy)
-            x1, y0 = to_px(ox + ww, oy + wh)
-            draw.rectangle([x0, y0, x1, y1], outline=WINDOW_OUTLINE, width=2)
+        ri = latest(rec["route_t"], t) if len(rec["route_t"]) else None
+        if ri is not None:
+            route = rec["route_xy"][route_ends[ri] - rec["route_len"][ri] : route_ends[ri]]
+            draw.line([to_px(px, py) for px, py in route[::5]], fill=ROUTE, width=2)
 
         plan = None
         qi = latest(rec["plan_t"], t)
         if qi is not None:
             plan = rec["plan_xy"][plan_ends[qi] - rec["plan_len"][qi] : plan_ends[qi]]
-            draw.line([to_px(px, py) for px, py in plan[::5]], fill=PLAN, width=2)
+            draw.line([to_px(px, py) for px, py in plan[::5]], fill=PLAN, width=3)
         draw.line([to_px(px, py) for _, px, py, _ in poses[: pi + 1 : 3]] or [to_px(x, y)] * 2,
                   fill=TRACK, width=3)
         done = int((reached[:, 0] <= t).sum())
@@ -185,11 +199,13 @@ def main():
 
         text_y = panel_y + PANEL + 18
         lines = [
-            (f"t {t:5.0f} s    driven {travelled[pi]:5.1f} m    waypoint {min(done + 1, len(waypoints))}/{len(waypoints)}", TEXT),
+            (f"t {t:5.0f} s    driven {travelled[pi]:5.1f} m    routes {0 if ri is None else ri + 1}  plans {0 if qi is None else qi + 1}", TEXT),
             (f"map {map_w_m:.0f} x {map_h_m:.0f} m, {cost.size / 1e6:.0f} M cells at {res:.2f} m", MUTED),
             (f"windows published: {0 if wi is None else wi + 1}", WINDOW_OUTLINE),
             ("yellow: window last published by costmap_window_server", WINDOW_OUTLINE),
-            ("blue: Nav2 global costmap, as Nav2 published it", GLOBAL_OUTLINE),
+            ("light blue: Nav2 global costmap, as Nav2 published it", GLOBAL_OUTLINE),
+            ("purple: route across the whole map, costmap_planner_server", ROUTE),
+            ("blue: Nav2's planner, 15 m along the route", PLAN),
             ("dimmed: the file outside what Nav2 holds now", MUTED),
         ]
         for line, colour in lines:
