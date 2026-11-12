@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use glam::{IVec2, UVec2, Vec2};
 
 use crate::{
-    Grid2d,
+    DenseGrid,
     types::{COST_UNKNOWN, MapInfo, VoxelError},
 };
 
@@ -250,20 +250,20 @@ impl<T: Clone> TiledGrid<T> {
     /// The grid's origin is `cell_origin(min_cell)` and its resolution matches this
     /// grid. Cells in absent chunks, and cells beyond the `i32` cell range, hold the
     /// fill value, which is also the returned grid's fill value.
-    pub fn window(&self, min_cell: IVec2, size: UVec2) -> Grid2d<T> {
+    pub fn window(&self, min_cell: IVec2, size: UVec2) -> DenseGrid<T> {
         let info = MapInfo {
             width: size.x,
             height: size.y,
             resolution: self.resolution,
             origin: self.cell_origin(min_cell),
         };
-        let mut grid = Grid2d::new_with_value(info, self.fill.clone());
+        let mut grid = DenseGrid::new_with_value(info, self.fill.clone());
         self.copy_out(min_cell, size, grid.as_mut_slice());
         grid
     }
 
     /// Like [`window`](Self::window), covering `size` cells with the cell containing `center` in the middle.
-    pub fn window_centered(&self, center: Vec2, size: UVec2) -> Grid2d<T> {
+    pub fn window_centered(&self, center: Vec2, size: UVec2) -> DenseGrid<T> {
         let min_cell = self.world_to_cell(center) - (size / 2).as_ivec2();
         self.window(min_cell, size)
     }
@@ -273,7 +273,7 @@ impl<T: Clone> TiledGrid<T> {
     /// The target origin is snapped to the nearest cell boundary. Cells without a
     /// loaded chunk are set to the fill value. Fails if the resolutions differ by
     /// more than a relative 1e-4.
-    pub fn read_into(&self, target: &mut Grid2d<T>) -> Result<(), VoxelError> {
+    pub fn read_into(&self, target: &mut DenseGrid<T>) -> Result<(), VoxelError> {
         let (min_cell, size) = self.window_extent(target.info())?;
         self.copy_out(min_cell, size, target.as_mut_slice());
         Ok(())
@@ -283,7 +283,7 @@ impl<T: Clone> TiledGrid<T> {
     ///
     /// Inverse of [`read_into`](Self::read_into), with the same origin snapping and
     /// resolution check. Cells beyond the `i32` cell range are ignored.
-    pub fn write_window(&mut self, source: &Grid2d<T>) -> Result<(), VoxelError> {
+    pub fn write_window(&mut self, source: &DenseGrid<T>) -> Result<(), VoxelError> {
         let (min_cell, size) = self.window_extent(source.info())?;
         for run in row_runs(self.chunk_size, min_cell, size) {
             let chunk = self.chunk_mut(run.chunk);
@@ -506,7 +506,7 @@ mod tests {
             resolution: 0.5,
             origin: g.cell_origin(IVec2::new(-9, -4)),
         };
-        let source = Grid2d::new_with(info, |x, y| pattern(IVec2::new(x as i32, y as i32)));
+        let source = DenseGrid::new_with(info, |x, y| pattern(IVec2::new(x as i32, y as i32)));
         g.write_window(&source).unwrap();
 
         let back = g.window(IVec2::new(-9, -4), UVec2::new(20, 13));
@@ -517,7 +517,7 @@ mod tests {
     #[test]
     fn read_into_rejects_resolution_mismatch() {
         let g = grid(8);
-        let mut target = Grid2d::<u8>::new_with_value(MapInfo::square(4, 0.25), 0);
+        let mut target = DenseGrid::<u8>::new_with_value(MapInfo::square(4, 0.25), 0);
         assert!(matches!(
             g.read_into(&mut target),
             Err(VoxelError::InvalidArgument(_))
@@ -536,7 +536,7 @@ mod tests {
             resolution: 0.5,
             origin: Vec2::new(0.52, 0.98),
         };
-        let mut target = Grid2d::new_with_value(info, 99u8);
+        let mut target = DenseGrid::new_with_value(info, 99u8);
         g.read_into(&mut target).unwrap();
         // The origin snaps to cell (1, 2), so cell (2, 3) lands at (1, 1).
         assert_eq!(target[UVec2::new(1, 1)], 11);

@@ -1,4 +1,4 @@
-//! Obstacle inflation for `Grid2d<u8>` costmaps.
+//! Obstacle inflation for `DenseGrid<u8>` costmaps.
 //!
 //! Provides inflate operations that expand lethal cells outward with inscribed
 //! exponential decay. Uses wavefront propagation for performance.
@@ -636,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn inflation_layer_in_layered_grid2d() {
+    fn inflation_layer_in_layered_costmap() {
         let info = MapInfo {
             width: 5,
             height: 5,

@@ -1,3 +1,3 @@
-use crate::Grid2d;
+use crate::DenseGrid;
 
-pub type OccupancyGrid = Grid2d<i8>;
+pub type OccupancyGrid = DenseGrid<i8>;

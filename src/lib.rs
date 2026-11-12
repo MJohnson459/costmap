@@ -12,6 +12,8 @@ pub mod types;
 pub mod rerun_viz;
 
 pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_into};
+pub use grid::DenseGrid;
+#[allow(deprecated)]
 pub use grid::Grid2d;
 pub use layers::{
     Beam, InflationConfig, ObstacleConfig, ObstacleLayer, ProjectionLayer, TiledMapLayer,

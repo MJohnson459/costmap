@@ -1,4 +1,4 @@
-//! Sparse tiled grids for maps too large for a dense [`Grid2d`](crate::Grid2d).
+//! Sparse tiled grids for maps too large for a dense [`DenseGrid`](crate::DenseGrid).
 //!
 //! [`TiledGrid`] stores fixed-size chunks addressed by signed cell coordinates.
 //! Existing algorithms run on a dense window copied out of the tiles, and

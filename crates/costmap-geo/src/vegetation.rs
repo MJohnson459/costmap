@@ -9,10 +9,12 @@
 //! cell: a window under one cell reduces to the per-cell test. Both counts come from
 //! summed-area tables, so a cell costs a few lookups whatever the window.
 
+use costmap::DenseGrid;
 use glam::UVec2;
 
+use crate::frame::cells;
+
 use crate::{
-    dense::DenseGrid,
     rules::{Colour, CostRules, excess_green},
     slope::odd_box_radius,
 };
@@ -43,7 +45,7 @@ pub fn vegetation_mask(
         colours,
         |colour| matches!(colour, Colour::Rgb(rgb) if is_green(rgb, rules.exg_threshold)),
     );
-    DenseGrid::from_fn(colours.size(), |x, y| {
+    DenseGrid::new_with(cells(colours.size()), |x, y| {
         let known = known.box_sum(x, y, radius);
         known > 0
             && f64::from(green.box_sum(x, y, radius)) / f64::from(known)
@@ -66,7 +68,7 @@ impl AreaTable {
         for y in 0..size.y {
             let mut row_count = 0;
             for x in 0..size.x {
-                row_count += u32::from(counts(colours.at(x, y)));
+                row_count += u32::from(counts(colours[UVec2::new(x, y)]));
                 let here = (y as usize + 1) * stride + x as usize + 1;
                 sums[here] = sums[here - stride] + row_count;
             }
@@ -105,12 +107,12 @@ mod tests {
     }
 
     fn scene(size: u32, colour: impl Fn(u32, u32) -> Colour) -> DenseGrid<Colour> {
-        DenseGrid::from_fn(UVec2::splat(size), colour)
+        DenseGrid::new_with(cells(UVec2::splat(size)), colour)
     }
 
     fn centre_is_vegetation(patch: [[Colour; 3]; 3], min_fraction: f64) -> bool {
         let colours = scene(3, |x, y| patch[y as usize][x as usize]);
-        vegetation_mask(&colours, &rules(min_fraction), 1).at(1, 1)
+        vegetation_mask(&colours, &rules(min_fraction), 1)[UVec2::new(1, 1)]
     }
 
     #[test]
@@ -140,7 +142,11 @@ mod tests {
             let mask = vegetation_mask(&colours, &rules(0.5), radius);
             for y in [0, 20, 39] {
                 for x in 0..40 {
-                    assert_eq!(mask.at(x, y), band.contains(&x), "r {radius} x {x} y {y}");
+                    assert_eq!(
+                        mask[UVec2::new(x, y)],
+                        band.contains(&x),
+                        "r {radius} x {x} y {y}"
+                    );
                 }
             }
         }
@@ -153,7 +159,7 @@ mod tests {
         assert!(default.as_slice().iter().all(|&v| !v));
         let per_cell = vegetation_mask(&colours, &rules(0.5), 0);
         let count = per_cell.as_slice().iter().filter(|&&v| v).count();
-        assert_eq!((count, per_cell.at(10, 10)), (1, true));
+        assert_eq!((count, per_cell[UVec2::new(10, 10)]), (1, true));
     }
 
     #[test]
@@ -217,7 +223,7 @@ mod tests {
             exg_threshold: exg + 0.01,
             ..CostRules::default()
         };
-        assert!(vegetation_mask(&colours, &below, 1).at(2, 2));
-        assert!(!vegetation_mask(&colours, &above, 1).at(2, 2));
+        assert!(vegetation_mask(&colours, &below, 1)[UVec2::new(2, 2)]);
+        assert!(!vegetation_mask(&colours, &above, 1)[UVec2::new(2, 2)]);
     }
 }

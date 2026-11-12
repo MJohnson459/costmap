@@ -3,7 +3,7 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use glam::Vec2;
 
-use costmap::Grid2d;
+use costmap::DenseGrid;
 use costmap::types::MapInfo;
 
 fn bench_update_origin(c: &mut Criterion) {
@@ -12,9 +12,9 @@ fn bench_update_origin(c: &mut Criterion) {
         height: 256,
         ..Default::default()
     };
-    let grid = Grid2d::<u8>::new(info);
+    let grid = DenseGrid::<u8>::new(info);
 
-    c.bench_function("grid2d_update_origin_shift", |b| {
+    c.bench_function("dense_grid_update_origin_shift", |b| {
         b.iter_batched(
             || grid.clone(),
             |mut grid| {

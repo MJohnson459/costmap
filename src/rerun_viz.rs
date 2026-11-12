@@ -70,7 +70,7 @@ fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
     .with_opacity(COSTMAP_OPACITY)
 }
 
-/// Log an `OccupancyGrid` (`Grid2d<i8>`) as a native Rerun `GridMap` archetype.
+/// Log an `OccupancyGrid` (`DenseGrid<i8>`) as a native Rerun `GridMap` archetype.
 ///
 /// The raw occupancy values (ROS `nav_msgs/OccupancyGrid` convention: -1 unknown,
 /// 0 free, 100 occupied) are logged as a single-channel (L/U8) grid and coloured by

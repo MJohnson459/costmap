@@ -1,6 +1,6 @@
 //! A layer that owns a generic semantic grid and projects it into the master.
 //!
-//! `ProjectionLayer<T>` is the first-class way to integrate a custom `Grid2d<T>`
+//! `ProjectionLayer<T>` is the first-class way to integrate a custom `DenseGrid<T>`
 //! into a [`LayeredCostmap`](crate::LayeredCostmap) for either global or rolling-window
 //! costmaps. The caller can ingest data via [`ProjectionLayer::source_mut`], read it back via
 //! [`ProjectionLayer::source`], and the layer handles both the geometric transformation (rolling
@@ -12,7 +12,7 @@
 use glam::Vec2;
 
 use crate::{
-    Grid2d,
+    DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project_into},
     types::{Bounds, CellRegion, Pose2},
 };
@@ -25,7 +25,7 @@ use crate::{
 /// so producers that write into the source during `update_costs` see a centred grid.
 #[allow(clippy::type_complexity)]
 pub struct ProjectionLayer<T> {
-    source: Grid2d<T>,
+    source: DenseGrid<T>,
     policy: MergePolicy,
     project: Box<dyn Fn(&T) -> Option<u8> + Send + Sync>,
     rolling_window: bool,
@@ -43,7 +43,7 @@ impl<T> ProjectionLayer<T> {
     /// * `project` — closure that converts `&T` → `Option<u8>` cost. `None` leaves the
     ///   master cell untouched; `Some(cost)` applies the policy.
     pub fn from_grid(
-        source: Grid2d<T>,
+        source: DenseGrid<T>,
         policy: MergePolicy,
         rolling_window: bool,
         project: impl Fn(&T) -> Option<u8> + Send + Sync + 'static,
@@ -58,7 +58,7 @@ impl<T> ProjectionLayer<T> {
     }
 
     /// Immutable reference to the source grid (query path).
-    pub fn source(&self) -> &Grid2d<T> {
+    pub fn source(&self) -> &DenseGrid<T> {
         &self.source
     }
 
@@ -66,7 +66,7 @@ impl<T> ProjectionLayer<T> {
     ///
     /// Use this to write semantic data into the grid between updates. Typically
     /// called after `layer_mut::<ProjectionLayer<T>>(id)` and before `update_map`.
-    pub fn source_mut(&mut self) -> &mut Grid2d<T> {
+    pub fn source_mut(&mut self) -> &mut DenseGrid<T> {
         &mut self.source
     }
 }
@@ -116,7 +116,7 @@ mod tests {
         // Create a layered costmap with a projection layer that projects f32 to u8.
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -159,7 +159,7 @@ mod tests {
     fn test_projection_layer_wrong_type_returns_none() {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -183,7 +183,7 @@ mod tests {
         // Test that projection layer can be stacked with inflation.
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
         let proj_id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -236,7 +236,7 @@ mod tests {
     fn test_projection_layer_reset() {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
 
-        let source = Grid2d::<f32>::new_with_value(default_info(), 0.0);
+        let source = DenseGrid::<f32>::new_with_value(default_info(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_projection_layer_is_clearable() {
         let layer = ProjectionLayer::from_grid(
-            Grid2d::<f32>::new_with_value(default_info(), 0.0),
+            DenseGrid::<f32>::new_with_value(default_info(), 0.0),
             MergePolicy::Overwrite,
             false,
             |_| Some(100),
@@ -283,7 +283,7 @@ mod tests {
     fn update_bounds_rolling_recenters_and_covers_source_extent() {
         // 5x5 @ 1.0 m → a 5 m square, half-extent 2.5 m.
         let mut layer = ProjectionLayer::from_grid(
-            Grid2d::<f32>::new_with_value(default_info(), 0.0),
+            DenseGrid::<f32>::new_with_value(default_info(), 0.0),
             MergePolicy::Overwrite,
             true,
             |_| Some(0),
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn update_bounds_non_rolling_uses_fixed_extent() {
         let mut layer = ProjectionLayer::from_grid(
-            Grid2d::<f32>::new_with_value(default_info(), 0.0),
+            DenseGrid::<f32>::new_with_value(default_info(), 0.0),
             MergePolicy::Overwrite,
             false,
             |_| Some(0),
@@ -339,7 +339,7 @@ mod tests {
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, true);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
-                Grid2d::<f32>::new_with_value(default_info(), 0.0),
+                DenseGrid::<f32>::new_with_value(default_info(), 0.0),
                 MergePolicy::Max,
                 true,
                 |t| (*t > 0.5).then_some(COST_LETHAL),

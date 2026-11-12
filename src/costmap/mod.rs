@@ -6,6 +6,6 @@ pub use layered::{Layer, LayerId, LayeredCostmap};
 pub use merge::{merge_max, merge_max_keep_unknown, merge_overwrite};
 pub use project::{MergePolicy, project_into};
 
-use crate::Grid2d;
+use crate::DenseGrid;
 
-pub type Costmap = Grid2d<u8>;
+pub type Costmap = DenseGrid<u8>;

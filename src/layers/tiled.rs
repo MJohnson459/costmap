@@ -5,7 +5,7 @@ use std::sync::Arc;
 use glam::IVec2;
 
 use crate::{
-    Grid2d,
+    DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project::merge_cost},
     tiled::TiledGrid,
     types::{Bounds, COST_UNKNOWN, CellRegion, MapInfo, Pose2, VoxelError},
@@ -55,7 +55,7 @@ impl TiledMapLayer {
     }
 
     /// Dense copy of the tiles under `region` of a master described by `info`.
-    fn region_window(&self, info: &MapInfo, region: CellRegion) -> Option<Grid2d<u8>> {
+    fn region_window(&self, info: &MapInfo, region: CellRegion) -> Option<DenseGrid<u8>> {
         let size = region.max.saturating_sub(region.min);
         if size.x == 0 || size.y == 0 {
             return None;
@@ -66,7 +66,7 @@ impl TiledMapLayer {
             resolution: info.resolution,
             origin: info.origin + region.min.as_vec2() * info.resolution,
         };
-        let mut window = Grid2d::new_with_value(window_info, COST_UNKNOWN);
+        let mut window = DenseGrid::new_with_value(window_info, COST_UNKNOWN);
         self.grid.read_into(&mut window).ok()?;
         Some(window)
     }

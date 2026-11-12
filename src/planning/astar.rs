@@ -7,7 +7,7 @@ use std::f32::consts::SQRT_2;
 use glam::{IVec2, UVec2, Vec2};
 
 use crate::{
-    Costmap, Grid2d,
+    Costmap, DenseGrid,
     types::{COST_FREE, COST_INSCRIBED, COST_UNKNOWN},
 };
 
@@ -67,7 +67,7 @@ pub struct Path {
 
 impl Path {
     /// World coordinates of the cell centres along the path.
-    pub fn to_world<T>(&self, grid: &Grid2d<T>) -> Vec<Vec2> {
+    pub fn to_world<T>(&self, grid: &DenseGrid<T>) -> Vec<Vec2> {
         self.cells.iter().map(|&c| grid.map_to_world(c)).collect()
     }
 

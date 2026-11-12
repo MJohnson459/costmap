@@ -14,14 +14,17 @@ use std::{
 
 use crate::types::{MapInfo, VoxelError};
 
-#[derive(Debug, Clone)]
-pub struct Grid2d<T> {
+/// A bounded grid that stores every cell, row-major from cell (0, 0), placed in the
+/// world by a [`MapInfo`]. [`TiledGrid`](crate::TiledGrid) is the sparse counterpart
+/// for maps too large to hold whole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DenseGrid<T> {
     info: MapInfo,
     data: Vec<T>,
     fill_value: T,
 }
 
-impl<T> Grid2d<T> {
+impl<T> DenseGrid<T> {
     /// Create a grid from existing data, using [`Default::default`] as the fill value.
     pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
     where
@@ -109,10 +112,16 @@ impl<T> Grid2d<T> {
         self.info.height
     }
 
+    /// Width and height in cells.
+    #[inline]
+    pub fn size(&self) -> UVec2 {
+        UVec2::new(self.info.width, self.info.height)
+    }
+
     /// Check if this grid has the same layout (width, height, resolution, origin) as another grid.
     ///
     /// This is useful for validating that two grids can be safely merged or compared.
-    pub fn layout_matches<U>(&self, other: &Grid2d<U>) -> bool {
+    pub fn layout_matches<U>(&self, other: &DenseGrid<U>) -> bool {
         self.info() == other.info()
     }
 
@@ -353,7 +362,7 @@ impl<T> Grid2d<T> {
     }
 }
 
-impl<T> Index<UVec2> for Grid2d<T> {
+impl<T> Index<UVec2> for DenseGrid<T> {
     type Output = T;
 
     #[inline]
@@ -367,7 +376,7 @@ impl<T> Index<UVec2> for Grid2d<T> {
     }
 }
 
-impl<T> IndexMut<UVec2> for Grid2d<T> {
+impl<T> IndexMut<UVec2> for DenseGrid<T> {
     #[inline]
     fn index_mut(&mut self, index: UVec2) -> &mut Self::Output {
         self.get_mut(index).unwrap_or_else(|| {
@@ -383,14 +392,14 @@ impl<T> IndexMut<UVec2> for Grid2d<T> {
 mod tests {
     use super::*;
 
-    fn world_to_map_to_world(grid: &Grid2d<i8>, pos: Vec2) -> Vec2 {
+    fn world_to_map_to_world(grid: &DenseGrid<i8>, pos: Vec2) -> Vec2 {
         let map_pos = grid.world_to_map_continuous(pos).unwrap();
         grid.map_to_world_continuous(map_pos)
     }
 
     #[test]
     fn test_world_to_map_to_world() {
-        let grid = Grid2d::<i8>::init(
+        let grid = DenseGrid::<i8>::init(
             MapInfo {
                 width: 10,
                 height: 10,
@@ -437,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_update_origin_shifts_data() {
-        let mut grid = Grid2d::<i8>::init(
+        let mut grid = DenseGrid::<i8>::init(
             MapInfo {
                 width: 4,
                 height: 4,
@@ -457,7 +466,7 @@ mod tests {
 
     #[test]
     fn test_resize_map_clears_data() {
-        let mut grid = Grid2d::<i8>::init(
+        let mut grid = DenseGrid::<i8>::init(
             MapInfo {
                 width: 4,
                 height: 4,
@@ -476,7 +485,7 @@ mod tests {
 
     #[test]
     fn iter_cells_row_major_order() {
-        let grid = Grid2d::<u8>::init(
+        let grid = DenseGrid::<u8>::init(
             MapInfo {
                 width: 3,
                 height: 2,
@@ -503,7 +512,7 @@ mod tests {
 
     #[test]
     fn iter_cells_mut_writes_values() {
-        let mut grid = Grid2d::<u8>::init(
+        let mut grid = DenseGrid::<u8>::init(
             MapInfo {
                 width: 2,
                 height: 2,
@@ -525,7 +534,7 @@ mod tests {
 
     #[test]
     fn test_layout_matches_equal() {
-        let grid_u8 = Grid2d::<u8>::init(
+        let grid_u8 = DenseGrid::<u8>::init(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -536,7 +545,7 @@ mod tests {
         )
         .unwrap();
 
-        let grid_f32 = Grid2d::<f32>::init(
+        let grid_f32 = DenseGrid::<f32>::init(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -553,7 +562,7 @@ mod tests {
 
     #[test]
     fn test_layout_matches_different_width() {
-        let grid_u8 = Grid2d::<u8>::init(
+        let grid_u8 = DenseGrid::<u8>::init(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -564,7 +573,7 @@ mod tests {
         )
         .unwrap();
 
-        let grid_f32 = Grid2d::<f32>::init(
+        let grid_f32 = DenseGrid::<f32>::init(
             MapInfo {
                 width: 15,
                 height: 20,
@@ -580,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_layout_matches_different_resolution() {
-        let grid_u8 = Grid2d::<u8>::init(
+        let grid_u8 = DenseGrid::<u8>::init(
             MapInfo {
                 width: 10,
                 height: 20,
@@ -591,7 +600,7 @@ mod tests {
         )
         .unwrap();
 
-        let grid_f32 = Grid2d::<f32>::init(
+        let grid_f32 = DenseGrid::<f32>::init(
             MapInfo {
                 width: 10,
                 height: 20,

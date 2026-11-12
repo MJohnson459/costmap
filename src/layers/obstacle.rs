@@ -15,14 +15,14 @@
 use glam::{UVec2, Vec2};
 
 use crate::{
-    Grid2d,
+    DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project_into},
     iterators::line::LineIterator,
     types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, MapInfo, Pose2, VoxelError},
 };
 
 /// Distance, in cells, that a clipped ray start is kept inside the grid edge.
-/// `Grid2d::world_to_map_continuous` rejects the upper edge itself, and the world
+/// `DenseGrid::world_to_map_continuous` rejects the upper edge itself, and the world
 /// round trip of a point on that edge can land on either side of it.
 const CLIP_MARGIN_CELLS: f32 = 0.01;
 
@@ -78,7 +78,7 @@ pub struct Beam {
 pub struct ObstacleLayer {
     grid: Costmap,
     /// Time each marked cell was last observed. Allocated only when decay is enabled.
-    stamps: Option<Grid2d<Option<f64>>>,
+    stamps: Option<DenseGrid<Option<f64>>>,
     config: ObstacleConfig,
     /// World area changed since the last `update_costs`; used in fixed mode.
     touched: Bounds,
@@ -99,8 +99,10 @@ impl ObstacleLayer {
     /// Create a layer whose grid has the layout `info`, with every cell unknown.
     pub fn new(info: MapInfo, config: ObstacleConfig) -> Self {
         Self {
-            grid: Grid2d::new_with_value(info, COST_UNKNOWN),
-            stamps: config.decay_s.map(|_| Grid2d::new_with_value(info, None)),
+            grid: DenseGrid::new_with_value(info, COST_UNKNOWN),
+            stamps: config
+                .decay_s
+                .map(|_| DenseGrid::new_with_value(info, None)),
             config,
             touched: Bounds::empty(),
             pending_hits: Vec::new(),

@@ -7,7 +7,7 @@ use std::{
 };
 
 use costmap::{
-    GeoReference, Grid2d, MapInfo, TiledGrid, types::COST_UNKNOWN, write_cost_geotiff_region,
+    DenseGrid, GeoReference, MapInfo, TiledGrid, types::COST_UNKNOWN, write_cost_geotiff_region,
 };
 use glam::{DVec2, IVec2, UVec2, Vec2};
 
@@ -59,7 +59,7 @@ pub fn write_map(
         resolution,
         origin: Vec2::ZERO,
     };
-    let raster = Grid2d::new_with(info, |x, y| {
+    let raster = DenseGrid::new_with(info, |x, y| {
         cost(info.origin + (UVec2::new(x, y).as_vec2() + 0.5) * resolution)
     });
     let mut tiles = TiledGrid::new(resolution, WRITE_CHUNK_CELLS, COST_UNKNOWN).unwrap();

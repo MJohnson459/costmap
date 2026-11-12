@@ -1,4 +1,4 @@
-// --- Occupancy grid constants (i8, used by OccupancyGrid / Grid2d<i8>) ---
+// --- Occupancy grid constants (i8, used by OccupancyGrid / DenseGrid<i8>) ---
 
 pub const UNKNOWN: i8 = -1;
 pub const FREE: i8 = 0;
@@ -7,7 +7,7 @@ pub const OCCUPIED: i8 = 100;
 pub const DEFAULT_OCCUPIED_THRESH: f32 = 0.65;
 pub const DEFAULT_FREE_THRESH: f32 = 0.196;
 
-// --- Costmap constants (u8, used by Grid2d<u8> costmaps) ---
+// --- Costmap constants (u8, used by DenseGrid<u8> costmaps) ---
 
 /// Free space in a costmap (no obstacle cost).
 pub const COST_FREE: u8 = 0;

@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn layered_grid2d_update_map_aggregates_bounds() {
+    fn layered_costmap_update_map_aggregates_bounds() {
         struct BoundsLayer {
             margin: f32,
         }

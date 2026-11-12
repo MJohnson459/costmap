@@ -1,6 +1,6 @@
 use glam::{IVec2, UVec2, Vec2};
 
-use crate::Grid2d;
+use crate::DenseGrid;
 
 /// Iterator over all grid cells inside a convex polygon.
 ///
@@ -18,7 +18,7 @@ pub struct PolygonIterator {
 }
 
 impl PolygonIterator {
-    pub fn new<T>(grid: &Grid2d<T>, points: &[Vec2]) -> Option<Self> {
+    pub fn new<T>(grid: &DenseGrid<T>, points: &[Vec2]) -> Option<Self> {
         if points.len() < 3 {
             return None;
         }
@@ -122,12 +122,12 @@ impl Iterator for PolygonIterator {
 }
 
 pub struct PolygonValueIterator<'a, T> {
-    grid: &'a Grid2d<T>,
+    grid: &'a DenseGrid<T>,
     iter: PolygonIterator,
 }
 
 impl<'a, T> PolygonValueIterator<'a, T> {
-    pub fn new(grid: &'a Grid2d<T>, points: &[Vec2]) -> Option<Self> {
+    pub fn new(grid: &'a DenseGrid<T>, points: &[Vec2]) -> Option<Self> {
         Some(Self {
             iter: PolygonIterator::new(grid, points)?,
             grid,
@@ -147,12 +147,12 @@ impl<'a, T> Iterator for PolygonValueIterator<'a, T> {
 }
 
 pub struct PolygonValueMutIterator<'a, T> {
-    grid: &'a mut Grid2d<T>,
+    grid: &'a mut DenseGrid<T>,
     iter: PolygonIterator,
 }
 
 impl<'a, T> PolygonValueMutIterator<'a, T> {
-    pub fn new(grid: &'a mut Grid2d<T>, points: &[Vec2]) -> Option<Self> {
+    pub fn new(grid: &'a mut DenseGrid<T>, points: &[Vec2]) -> Option<Self> {
         let iter = PolygonIterator::new(grid, points)?;
         Some(Self { iter, grid })
     }
@@ -170,7 +170,7 @@ impl<'a, T> Iterator for PolygonValueMutIterator<'a, T> {
     }
 }
 
-impl<T> Grid2d<T> {
+impl<T> DenseGrid<T> {
     pub fn polygon(&self, points: &[Vec2]) -> Option<PolygonIterator> {
         PolygonIterator::new(self, points)
     }
@@ -192,7 +192,7 @@ mod tests {
     use glam::{UVec2, Vec2};
 
     use super::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator};
-    use crate::Grid2d;
+    use crate::DenseGrid;
     use crate::types::MapInfo;
 
     #[test]
@@ -203,7 +203,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let grid = Grid2d::<u8>::new(info);
+        let grid = DenseGrid::<u8>::new(info);
         let points = vec![
             Vec2::new(1.0, 1.0),
             Vec2::new(4.0, 1.0),
@@ -224,7 +224,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let mut grid = Grid2d::<u8>::new(info);
+        let mut grid = DenseGrid::<u8>::new(info);
         grid.set(UVec2::new(2, 2), 100).unwrap();
 
         let points = vec![
@@ -250,7 +250,7 @@ mod tests {
             resolution: 1.0,
             ..Default::default()
         };
-        let mut grid = Grid2d::<u8>::new(info);
+        let mut grid = DenseGrid::<u8>::new(info);
         let points = vec![
             Vec2::new(1.0, 1.0),
             Vec2::new(4.0, 1.0),

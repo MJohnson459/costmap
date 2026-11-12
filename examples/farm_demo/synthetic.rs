@@ -12,7 +12,7 @@ use std::{
 };
 
 use costmap::{
-    GeoReference, Grid2d, MapInfo, TiledGrid, VoxelError,
+    DenseGrid, GeoReference, MapInfo, TiledGrid, VoxelError,
     types::{COST_FREE, COST_LETHAL, COST_UNKNOWN},
     write_cost_geotiff,
 };
@@ -140,9 +140,9 @@ impl Hedge {
 }
 
 /// Rasterise the farm.
-fn generate() -> Grid2d<u8> {
+fn generate() -> DenseGrid<u8> {
     let size = (FARM_SIZE_M / RESOLUTION_M).round().as_uvec2();
-    let mut raster = Grid2d::new_with_value(
+    let mut raster = DenseGrid::new_with_value(
         MapInfo {
             width: size.x,
             height: size.y,
@@ -287,7 +287,7 @@ fn place_in_field(rng: &mut Rng, xs: [f32; 4], ys: [f32; 3], size: Vec2) -> Vec2
 }
 
 /// Cells whose centres lie in the world rectangle `[min, max)`, clipped to the raster.
-fn cells_in(raster: &Grid2d<u8>, min: Vec2, max: Vec2) -> impl Iterator<Item = UVec2> + use<> {
+fn cells_in(raster: &DenseGrid<u8>, min: Vec2, max: Vec2) -> impl Iterator<Item = UVec2> + use<> {
     let size = UVec2::new(raster.width(), raster.height()).as_vec2();
     let resolution = raster.info().resolution;
     let lo = (min / resolution - 0.5)
@@ -301,13 +301,13 @@ fn cells_in(raster: &Grid2d<u8>, min: Vec2, max: Vec2) -> impl Iterator<Item = U
     (lo.y..hi.y).flat_map(move |y| (lo.x..hi.x).map(move |x| UVec2::new(x, y)))
 }
 
-fn fill_rect(raster: &mut Grid2d<u8>, min: Vec2, max: Vec2, cost: u8) {
+fn fill_rect(raster: &mut DenseGrid<u8>, min: Vec2, max: Vec2, cost: u8) {
     for cell in cells_in(raster, min, max) {
         raster[cell] = cost;
     }
 }
 
-fn fill_disc(raster: &mut Grid2d<u8>, centre: Vec2, radius: f32, cost: u8) {
+fn fill_disc(raster: &mut DenseGrid<u8>, centre: Vec2, radius: f32, cost: u8) {
     let cells: Vec<UVec2> = cells_in(raster, centre - radius, centre + radius)
         .filter(|&cell| raster.map_to_world(cell).distance(centre) <= radius)
         .collect();
