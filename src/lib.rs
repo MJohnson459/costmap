@@ -12,6 +12,7 @@ pub mod rerun_viz;
 
 pub use costmap::{Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, project_into};
 pub use grid::Grid2d;
+pub use layers::obstacle::{Beam, ObstacleConfig, ObstacleLayer};
 pub use layers::{InflationConfig, ProjectionLayer, WavefrontInflationLayer};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use planning::{Path, PlanOptions, line_passable, plan};
