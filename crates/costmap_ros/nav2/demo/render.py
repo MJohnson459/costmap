@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from cost_raster import load_geotiff  # noqa: E402
+from cost_raster import load_map  # noqa: E402
 
 WIDTH, HEIGHT = 1280, 720
 PANEL = 440
@@ -81,7 +81,7 @@ def main():
     goal_events = rec["goal_events"]
     plan_ends = np.cumsum(rec["plan_len"])
     route_ends = np.cumsum(rec["route_len"])
-    raster = load_geotiff(args.map)
+    raster = load_map(args.map)
     res = raster["resolution"]
     cost = raster["expected"]
     map_h_m, map_w_m = cost.shape[0] * res, cost.shape[1] * res
