@@ -200,17 +200,43 @@ cargo run --release --example farm_demo --features rerun,geotiff -- \
 
 ### Nav2
 
-`costmap_window_server` publishes the part of the map around the robot as `nav_msgs/OccupancyGrid`; Nav2's `StaticLayer` consumes it. Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:
+Nav2's `map_server` publishes a whole map as one message. A survey-scale map does not fit: the vineyard above is 36 M cells. `costmap_window_server` takes `map_server`'s place and publishes only the part of the map around the robot, as `nav_msgs/OccupancyGrid` on `/map`. Nav2's stock `StaticLayer` consumes it; Nav2 needs no plugin.
+
+On a robot that already runs Nav2:
+
+1. Start a Zenoh router and the server where `map_server` was launched:
+
+   ```bash
+   ros2 run rmw_zenoh_cpp rmw_zenohd
+   cargo run --release -p costmap_ros --bin costmap_window_server -- --map cost.tif --window-m 60
+   ```
+
+2. In both Nav2 costmaps set `rolling_window: true`, a `width` and `height` smaller than `--window-m`, and the map's `resolution`. At another resolution `StaticLayer` drops small obstacles.
+3. Provide `map -> base_link` on `/tf`. The `map` frame of a GeoTIFF is its lower-left corner, x east and y north; the server logs that corner's projected coordinates at start.
+4. Send goals inside the global costmap. For a goal farther away, send waypoints:
+
+   ```bash
+   cargo run --release -p costmap_ros --example route_waypoints -- \
+       --map cost.tif --start 53.5,30 --goal 100.1,80
+   ```
+
+Requirements and limits:
+
+- Every node that talks to the server runs `rmw_zenoh_cpp` (`RMW_IMPLEMENTATION=rmw_zenoh_cpp`). There is no DDS support.
+- The server is a plain binary with no launch file or ROS package. It needs no ROS install to build.
+- It has run against Nav2 1.5.2 on ROS Lyrical with a simulated robot, not on a physical one.
+
+Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:
 
 ```bash
 cd crates/costmap_ros/nav2
-# Compare every cell a Nav2 costmap holds with the source map.
+# Integration test: compare every cell a Nav2 costmap holds with the source map.
 bash test_costmap.sh
-# Nav2 plans and drives a simulated robot across a cost GeoTIFF.
+# Demo: Nav2 plans and drives a simulated robot across a cost GeoTIFF.
 DRIVE_MAP=cost.tif DRIVE_START=53.5,30 DRIVE_GOAL=100.1,80 bash demo_drive.sh
 ```
 
-On a 166 x 196 m vineyard survey of 36 M cells, Nav2 drove 96.6 m through 7 waypoints while holding a 50 m window. See [`crates/costmap_ros`](crates/costmap_ros#drive-demo).
+In the demo Nav2 drove 96.6 m through 7 waypoints across the vineyard while holding a 50 m window of it. [`crates/costmap_ros`](crates/costmap_ros) has the server's options, the Nav2 parameters and the results.
 
 ## Roadmap
 
