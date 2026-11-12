@@ -41,7 +41,7 @@ struct Args {
     #[arg(long)]
     map: PathBuf,
     /// Side length of the published square window in metres.
-    #[arg(long, default_value_t = 20.0)]
+    #[arg(long, default_value_t = 50.0)]
     window_m: f32,
     /// Topic to publish on.
     #[arg(long, default_value = "map")]
