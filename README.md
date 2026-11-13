@@ -104,7 +104,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [occupancy_raycast](examples/occupancy_raycast.rs) | loading a ROS map and a 360° DDA raycast sweep | `cargo run --example occupancy_raycast --features rerun` |
 | [local_costmap_lidar](examples/local_costmap_lidar.rs) | a rolling local costmap fed by simulated lidar, with inflation | `cargo run --example local_costmap_lidar --features rerun` |
 | [learned_traversability](examples/learned_traversability.rs) | a costmap layer from a traversability estimate | `cargo run --example learned_traversability --features rerun` |
-| [farm_demo](examples/farm_demo) | a simulated robot crossing a cost GeoTIFF it never holds whole | `cargo run --release --example farm_demo --features rerun,geotiff` |
 
 The examples open the [Rerun](https://rerun.io) viewer, which must be installed (`cargo install rerun-cli`).
 
@@ -119,7 +118,7 @@ A map of a field is larger than a robot's costmap and is georeferenced. The crat
 1. **Survey.** Process a drone survey with OpenDroneMap with `--dsm --dtm`. It writes an orthophoto, a surface model and a terrain model.
 2. **Cost map.** `costmap-from-ortho` turns those three rasters into a single-band `u8` cost GeoTIFF: obstacles from height above ground, graded cost from slope. See [`crates/costmap-geo`](crates/costmap-geo) for the rules, row crops and the keep-out polygon overrides.
 3. **Inspect and edit.** Open the cost GeoTIFF in QGIS. Value 0 is free, 254 lethal, 255 unknown.
-4. **Navigate.** Serve it to Nav2 with [`costmap_ros`](crates/costmap_ros), or load it with `CostGeoTiff` into a `TiledGrid` in a Rust program, as the [farm demo](examples/farm_demo) does.
+4. **Navigate.** Serve it to Nav2 with [`costmap_ros`](crates/costmap_ros), or load it with `CostGeoTiff` into a `TiledGrid` in a Rust program.
 
 ```bash
 cargo run --release -p costmap-geo --bin costmap-from-ortho -- \

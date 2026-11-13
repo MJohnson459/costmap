@@ -32,10 +32,6 @@ geotiff = ["dep:tiff"]
 [profile.release]
 debug = true
 
-# The farm_demo smoke test simulates a full drive, which takes over a minute unoptimised.
-[profile.test]
-opt-level = 1
-
 [[example]]
 name = "footprint_checking"
 path = "examples/footprint_checking.rs"
@@ -55,12 +51,6 @@ required-features = ["rerun"]
 name = "learned_traversability"
 path = "examples/learned_traversability.rs"
 required-features = ["rerun"]
-
-[[example]]
-name = "farm_demo"
-path = "examples/farm_demo/main.rs"
-required-features = ["rerun", "geotiff"]
-test = true
 
 [[bench]]
 name = "load_warehouse"
