@@ -96,7 +96,7 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     // Hiroz logs every endpoint it declares at info, so it is held at warn.
-    let default_filter = "warn,costmap_window_server=info,costmap_ros=info";
+    let default_filter = "warn,tiled_map_server=info,costmap_ros=info";
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into()),
@@ -125,7 +125,7 @@ fn main() -> anyhow::Result<()> {
         .build()
         .map_err(|e| anyhow!("opening Zenoh session: {e}"))?;
     let node = ctx
-        .create_node("costmap_window_server")
+        .create_node("tiled_map_server")
         .build()
         .map_err(|e| anyhow!("creating node: {e}"))?;
     let publisher = node

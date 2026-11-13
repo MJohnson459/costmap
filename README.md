@@ -17,15 +17,15 @@ The library is an independent alternative to Nav2's [costmap_2d](https://github.
 | Crate | Use it to | Start at |
 | --- | --- | --- |
 | `costmap` (repository root) | build costmaps and plan on them in a Rust program | [Using the library](#using-the-library) |
-| [`costmap_ros`](crates/costmap_ros) | give Nav2 a map too large for `map_server`, with no change to Nav2 | [its README](crates/costmap_ros) |
+| [`tiled_map_server`](crates/costmap_ros), a ROS 2 package | give Nav2 a map too large for `map_server`, with no change to Nav2 | [its README](crates/costmap_ros) |
 
 ## With Nav2
 
-`costmap_ros` is a ROS 2 package. Its node, `costmap_window_server`, takes the place of `nav2_map_server`: it publishes only the part of the map around the robot, and plans routes across the whole map, of which Nav2's own planner plans the next 15 m. Nav2 runs unmodified, on `rmw_zenoh_cpp`.
+`tiled_map_server` is a ROS 2 package, built from the `costmap_ros` crate. Its node, of the same name, takes the place of `nav2_map_server`: it publishes only the part of the map around the robot, and plans routes across the whole map, of which Nav2's own planner plans the next 15 m. Nav2 runs unmodified, on `rmw_zenoh_cpp`.
 
 ```bash
-colcon build --packages-select costmap_ros
-ros2 launch costmap_ros costmap.launch.py map:=/maps/site.yaml
+colcon build --packages-select tiled_map_server
+ros2 launch tiled_map_server tiled_map_server.launch.py map:=/maps/site.yaml
 ```
 
 Measured against `nav2_map_server` with a global costmap of the whole map, on a 36 M-cell survey:
@@ -114,15 +114,15 @@ The examples open the [Rerun](https://rerun.io) viewer, which must be installed 
 
 A cost GeoTIFF is read a piece at a time, so a map can be larger than memory.
 
-- **From a ROS map:** `costmap-from-ros-map site.yaml site.tif`, installed with [`costmap_ros`](crates/costmap_ros).
+- **From a ROS map:** `costmap-from-ros-map site.yaml site.tif`, installed with [`tiled_map_server`](crates/costmap_ros).
 - **From a drone survey:** [`costmap-geo`](https://github.com/MJohnson459/costmap-geo) turns OpenDroneMap's orthophoto, surface model and terrain model into one.
 - **By hand:** open the file in QGIS. Value 0 is free, 254 lethal, 255 unknown.
 
-Serve it to Nav2 with [`costmap_ros`](crates/costmap_ros), or load it with `CostGeoTiff` into a `TiledGrid` in a Rust program.
+Serve it to Nav2 with [`tiled_map_server`](crates/costmap_ros), or load it with `CostGeoTiff` into a `TiledGrid` in a Rust program.
 
 ## Not here yet
 
-- **Frames and time in the library.** The library takes coordinates in one frame; callers convert. `costmap_ros` reads `/tf` for the robot pose only. The [`transforms`](https://github.com/deniz-hofmeister/transforms) crate is the candidate for a proper frame tree and has not been evaluated.
+- **Frames and time in the library.** The library takes coordinates in one frame; callers convert. `tiled_map_server` reads `/tf` for the robot pose only. The [`transforms`](https://github.com/deniz-hofmeister/transforms) crate is the candidate for a proper frame tree and has not been evaluated.
 - **3D.** Grids are 2D.
 - **A release on the ROS build farm.** See [`crates/costmap_ros`](crates/costmap_ros#not-on-the-ros-build-farm).
 

@@ -1,7 +1,7 @@
-# costmap_ros
+# tiled_map_server
 
 A ROS 2 node that lets Nav2 navigate a map too large for it to hold.
-`costmap_window_server` takes the place of `nav2_map_server` and does two
+`tiled_map_server` takes the place of `nav2_map_server` and does two
 things:
 
 - **It serves a window of the map.** It publishes the square of the map
@@ -48,15 +48,15 @@ not run on a physical robot, on another Nav2 release, or beside AMCL.
 
 ## Install
 
-All three ways install the same files: `costmap_window_server` and
-`costmap-from-ros-map` under `lib/costmap_ros`, and the launch file and
-behaviour tree under `share/costmap_ros`. Afterwards
-`ros2 pkg executables costmap_ros` lists the two programs.
+All three ways install the same files: `tiled_map_server` and
+`costmap-from-ros-map` under `lib/tiled_map_server`, and the launch file and
+behaviour tree under `share/tiled_map_server`. Afterwards
+`ros2 pkg executables tiled_map_server` lists the two programs.
 
 ### A Debian package
 
-Each release will carry `ros-lyrical-costmap-ros_VERSION_amd64.deb` and
-`ros-lyrical-costmap-ros_VERSION_arm64.deb`, so nothing is compiled on the
+Each release will carry `ros-lyrical-tiled-map-server_VERSION_amd64.deb` and
+`ros-lyrical-tiled-map-server_VERSION_arm64.deb`, so nothing is compiled on the
 robot. No release carries them yet. Until one does, build the package with
 CMake and a Rust toolchain; no ROS install is needed:
 
@@ -66,16 +66,16 @@ cmake --build build
 (cd build && cpack)
 ```
 
-Then install `build/ros-lyrical-costmap-ros_VERSION_ARCH.deb`:
+Then install `build/ros-lyrical-tiled-map-server_VERSION_ARCH.deb`:
 
 ```sh
-sudo apt install ./ros-lyrical-costmap-ros_VERSION_arm64.deb
+sudo apt install ./ros-lyrical-tiled-map-server_VERSION_arm64.deb
 source /opt/ros/lyrical/setup.bash
 ```
 
 The package installs into `/opt/ros/lyrical` beside the distribution's own
 packages, and `apt` installs `ros-lyrical-launch-ros` and
-`ros-lyrical-rmw-zenoh-cpp` with it. `sudo apt remove ros-lyrical-costmap-ros`
+`ros-lyrical-rmw-zenoh-cpp` with it. `sudo apt remove ros-lyrical-tiled-map-server`
 removes it. It is not in an apt repository, so `apt upgrade` does not update
 it.
 
@@ -86,7 +86,7 @@ cd ~/ros2_ws/src
 git clone https://github.com/MJohnson459/costmap.git
 cd ..
 rosdep install --from-paths src/costmap/crates/costmap_ros --ignore-src
-colcon build --packages-select costmap_ros
+colcon build --packages-select tiled_map_server
 source install/setup.bash
 ```
 
@@ -98,7 +98,7 @@ takes about 1.5 minutes and installs 51 MB.
 
 ### RoboStack and pixi
 
-`conda/recipe.yaml` builds `ros-lyrical-costmap-ros` for a RoboStack
+`conda/recipe.yaml` builds `ros-lyrical-tiled-map-server` for a RoboStack
 environment:
 
 ```sh
@@ -107,7 +107,7 @@ pixi exec rattler-build build --recipe crates/costmap_ros/conda/recipe.yaml \
 ```
 
 Add `dist/conda` as a channel of the pixi workspace, then
-`pixi add ros-lyrical-costmap-ros`. Each release carries the built package for
+`pixi add ros-lyrical-tiled-map-server`. Each release carries the built package for
 linux-64. It is not on a public channel.
 
 ### Not on the ROS build farm
@@ -120,13 +120,13 @@ installs in one line.
 ## Replace map_server
 
 1. **Stop starting `map_server`.** Remove it from the launch file and from the
-   `node_names` of its lifecycle manager. `costmap_window_server` is not a
+   `node_names` of its lifecycle manager. `tiled_map_server` is not a
    lifecycle node; it serves as soon as it starts.
 
-2. **Start `costmap_window_server`** on the map `map_server` was given:
+2. **Start `tiled_map_server`** on the map `map_server` was given:
 
    ```sh
-   ros2 launch costmap_ros costmap.launch.py map:=/maps/site.yaml
+   ros2 launch tiled_map_server tiled_map_server.launch.py map:=/maps/site.yaml
    ```
 
    or from a launch file:
@@ -134,14 +134,14 @@ installs in one line.
    ```python
    IncludeLaunchDescription(
        PathJoinSubstitution(
-           [FindPackageShare("costmap_ros"), "launch", "costmap.launch.py"]
+           [FindPackageShare("tiled_map_server"), "launch", "tiled_map_server.launch.py"]
        ),
        launch_arguments={"map": "/maps/site.yaml"}.items(),
    )
    ```
 
    It connects to the Zenoh router the robot already runs for
-   `rmw_zenoh_cpp`. `ros2 launch costmap_ros costmap.launch.py --show-args`
+   `rmw_zenoh_cpp`. `ros2 launch tiled_map_server tiled_map_server.launch.py --show-args`
    lists the arguments.
 
 3. **Set the costmaps to follow the window**, at the map's resolution:
@@ -187,7 +187,7 @@ installs in one line.
    the installed file, which this prints:
 
    ```sh
-   echo "$(ros2 pkg prefix --share costmap_ros)/behavior_trees/navigate_to_pose_on_route.xml"
+   echo "$(ros2 pkg prefix --share tiled_map_server)/behavior_trees/navigate_to_pose_on_route.xml"
    ```
 
    Skip this step and Nav2 still works, for goals inside the served window.
@@ -223,7 +223,7 @@ has one `ComputePathToPose` node, this has four.
 </RateController>
 ```
 
-1. Every 5 s it asks `costmap_window_server` for the route to the goal.
+1. Every 5 s it asks `tiled_map_server` for the route to the goal.
 2. Every second it cuts the route to the 15 m ahead of the robot, takes the
    end of that stretch as a goal, and asks Nav2's planner for a path to it.
 3. The controller follows that path, as in the stock tree.
@@ -288,7 +288,7 @@ no worse than `map_server`, and Nav2 still holds only windows. For a map too
 large for it, convert it once:
 
 ```sh
-ros2 run costmap_ros costmap-from-ros-map site.yaml site.tif
+ros2 run tiled_map_server costmap-from-ros-map site.yaml site.tif
 ```
 
 The GeoTIFF's lower-left corner is the YAML origin. Its `map` frame starts at
@@ -298,7 +298,7 @@ otherwise `map` coordinates shift by the origin.
 [`costmap-from-ortho`](https://github.com/MJohnson459/costmap-geo) writes cost GeoTIFFs from drone
 surveys. For those the `map` frame is the raster's lower-left corner, x east
 and y north. A robot localised in projected coordinates (RTK GNSS in UTM,
-say) needs a static transform from that frame to `map`; the window server
+say) needs a static transform from that frame to `map`; the node
 logs the corner's coordinates at start. It does no reprojection.
 
 **The route graph.** Routes are planned on a graph of the map:
@@ -333,7 +333,7 @@ The programs take command-line options, not ROS parameters, and cannot be
 remapped or namespaced with `--ros-args`. The launch file passes its arguments
 through as options.
 
-### costmap_window_server
+### tiled_map_server
 
 Publishes the window on `--topic` with QoS reliable, transient local, depth 1,
 which is what `StaticLayer` requests with `map_subscribe_transient_local:
@@ -397,7 +397,7 @@ costmap filters or sensed obstacles in its global plan.
   a router at `tcp/localhost:7447` and reads `ZENOH_SESSION_CONFIG_URI`,
   `ZENOH_CONFIG_OVERRIDE` and `ROS_DOMAIN_ID`.
 - **Logging.** `RUST_LOG` sets the level, for example
-  `RUST_LOG=costmap_window_server=debug` for one line per published window.
+  `RUST_LOG=tiled_map_server=debug` for one line per published window.
 - **Stopping.** Ctrl-C or SIGTERM.
 
 ## Costs and occupancy

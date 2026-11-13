@@ -1,4 +1,4 @@
-//! When the window server publishes a new window.
+//! When the node publishes a new window.
 
 use std::time::{Duration, Instant};
 

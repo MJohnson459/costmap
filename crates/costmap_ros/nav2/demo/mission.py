@@ -3,7 +3,7 @@
 Sends each waypoint to Nav2 as a NavigateToPose goal and waits for Nav2 to
 report success with the robot within 0.5 m of it. Meanwhile it records the
 robot pose, every plan, Nav2's local costmap (and its global costmap, if it
-has one) and the extent of every window costmap_window_server publishes, and
+has one) and the extent of every window tiled_map_server publishes, and
 writes them to <out>/recording.npz for render.py.
 
 Afterwards it checks the driven track against the raster read straight from

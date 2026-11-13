@@ -4,10 +4,10 @@
 # Usage: DRIVE_MAP=/path/cost.tif DRIVE_START=x,y DRIVE_GOAL=x,y bash demo/run.sh
 #
 # DRIVE_MAP is a cost GeoTIFF or a ROS map YAML.
-# DRIVE_SERVER_ARGS adds options to costmap_window_server, such as
+# DRIVE_SERVER_ARGS adds options to tiled_map_server, such as
 # "--pose-topic /pose", which the simulated robot publishes.
 #
-# costmap_window_server publishes a SERVER_WINDOW_M (default 50) metre window
+# tiled_map_server publishes a SERVER_WINDOW_M (default 50) metre window
 # of the map around the robot. Nav2's global costmap takes the size of each
 # window and its local costmap is a 6 m rolling one; both hold only that
 # window plus inflation.
@@ -15,7 +15,7 @@
 # behaviour tree navigate_to_pose_on_route.xml has Nav2's planner plan to the
 # point 15 m along that route, once a second. The mission sends one goal.
 #
-# Starts a Zenoh router, a kinematic robot (sim_robot.py), the window server
+# Starts a Zenoh router, a kinematic robot (sim_robot.py), the node
 # with routes, Nav2's planner, controller and behaviour tree navigator, and
 # the mission (mission.py), which reports PASS/FAIL and writes recording.npz to
 # DRIVE_OUT (default: the log directory). render.py turns that into a
@@ -39,10 +39,10 @@ DRIVE_OUT="${DRIVE_OUT:-$LOG_DIR}"
 LOG_TAG=drive
 source "$NAV2_DIR/lib.sh"
 
-log "building costmap_window_server"
+log "building tiled_map_server"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
-    --bin costmap_window_server
-SERVER="$REPO/target/release/costmap_window_server"
+    --bin tiled_map_server
+SERVER="$REPO/target/release/tiled_map_server"
 
 enter_ros_env
 RESOLUTION="$(python -u "$NAV2_DIR/test/check_costmap.py" --map "$DRIVE_MAP" --print-resolution)" ||
@@ -54,10 +54,10 @@ start_router
 start sim python -u "$HERE/sim_robot.py" --x "${DRIVE_START%,*}" --y "${DRIVE_START#*,}"
 wait_for "simulated robot" "$STAGE_TIMEOUT_S" log_has sim "sim: robot at"
 
-RUST_LOG="warn,costmap_window_server=debug,costmap_ros=debug" start server "$SERVER" \
+RUST_LOG="warn,tiled_map_server=debug,costmap_ros=debug" start server "$SERVER" \
     --map "$DRIVE_MAP" --window-m "$SERVER_WINDOW_M" --routes ${DRIVE_SERVER_ARGS:-}
 wait_for "routes" "$STAGE_TIMEOUT_S" log_has server "serving compute_route_to_pose"
-wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
+wait_for "tiled_map_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
 require_alive server "$server_pid"
 
 # Both costmaps run at the map's resolution. StaticLayer point-samples a map of

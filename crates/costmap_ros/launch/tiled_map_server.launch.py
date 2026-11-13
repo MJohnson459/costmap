@@ -1,9 +1,9 @@
 """Serves a map window and routes across the whole map, from one process.
 
-    ros2 launch costmap_ros costmap.launch.py map:=/maps/site.yaml
+    ros2 launch tiled_map_server tiled_map_server.launch.py map:=/maps/site.yaml
 
-costmap_window_server takes command-line options, not ROS parameters, so it is
-started as a process. `ros2 run costmap_ros costmap_window_server --help`
+tiled_map_server takes command-line options, not ROS parameters, so it is
+started as a process. `ros2 run tiled_map_server tiled_map_server --help`
 lists every option.
 """
 
@@ -28,7 +28,7 @@ ARGUMENTS = [
 
 def node(name, *options, condition=None):
     executable = PathJoinSubstitution(
-        [FindPackagePrefix("costmap_ros"), "lib", "costmap_ros", name]
+        [FindPackagePrefix("tiled_map_server"), "lib", "tiled_map_server", name]
     )
     return ExecuteProcess(
         cmd=[executable, *options], name=name, output="screen", condition=condition
@@ -56,9 +56,9 @@ def generate_launch_description():
     ]
     # One process serves both, on one /tf subscription.
     with_routes = node(
-        "costmap_window_server", *window, *routes, condition=IfCondition(value("routes"))
+        "tiled_map_server", *window, *routes, condition=IfCondition(value("routes"))
     )
     window_only = node(
-        "costmap_window_server", *window, condition=UnlessCondition(value("routes"))
+        "tiled_map_server", *window, condition=UnlessCondition(value("routes"))
     )
     return LaunchDescription([*declared, with_routes, window_only])

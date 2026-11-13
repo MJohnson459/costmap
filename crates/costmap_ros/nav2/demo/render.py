@@ -3,8 +3,8 @@
 Usage: python render.py --map cost.tif --recording recording.npz --out drive.mp4
 
 Left: the whole raster, dimmed, read from the file. Over it: the outline of
-the window costmap_window_server last published, Nav2's global costmap as Nav2
-published it, the route costmap_window_server last returned, the path Nav2's
+the window tiled_map_server last published, Nav2's global costmap as Nav2
+published it, the route tiled_map_server last returned, the path Nav2's
 planner made along it, the goal and the track driven. Right: Nav2's local
 costmap around the robot, as Nav2 published it.
 
@@ -204,9 +204,9 @@ def main():
             (f"t {t:5.0f} s    driven {travelled[pi]:5.1f} m    routes {0 if ri is None else ri + 1}  plans {0 if qi is None else qi + 1}", TEXT),
             (f"map {map_w_m:.0f} x {map_h_m:.0f} m, {cost.size / 1e6:.0f} M cells at {res:.2f} m", MUTED),
             (f"windows published: {0 if wi is None else wi + 1}", WINDOW_OUTLINE),
-            ("yellow: window last published by costmap_window_server", WINDOW_OUTLINE),
+            ("yellow: window last published by tiled_map_server", WINDOW_OUTLINE),
             ("light blue: Nav2 global costmap, as Nav2 published it", GLOBAL_OUTLINE),
-            ("purple: route across the whole map, costmap_window_server", ROUTE),
+            ("purple: route across the whole map, tiled_map_server", ROUTE),
             ("blue: Nav2's planner, 15 m along the route", PLAN),
             ("dimmed: the file outside what Nav2 holds now", MUTED),
         ]

@@ -12,7 +12,7 @@ Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 - **Cost GeoTIFFs** (feature `geotiff`). `CostGeoTiff` reads the chunks a region needs; `write_cost_geotiff` writes them with max-pooled overviews; `GeoReference` places them.
 - **`ObstacleLayer`.** Marks sensor hits, clears along beams and forgets obstacles after a set time.
 - **`cost_from_occupancy`, `occupancy_from_cost`, `costmap_from_occupancy`.** Nav2's `StaticLayer` rule and its inverse.
-- **`costmap_ros`.** A ROS 2 package for Nav2 on `rmw_zenoh_cpp`. `costmap_window_server` takes the place of `nav2_map_server`: it publishes a window of the map around the robot and plans routes across the whole map for Nav2's planner to follow. `costmap-from-ros-map` converts a ROS map to a cost GeoTIFF. It installs from a Debian package, with colcon, or as a conda package.
+- **`tiled_map_server`.** A ROS 2 package for Nav2 on `rmw_zenoh_cpp`, built from the `costmap_ros` crate. Its node takes the place of `nav2_map_server`: it publishes a window of the map around the robot and plans routes across the whole map for Nav2's planner to follow. `costmap-from-ros-map` converts a ROS map to a cost GeoTIFF. It installs from a Debian package, with colcon, or as a conda package.
 
 ### Changed
 
