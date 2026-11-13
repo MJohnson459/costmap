@@ -1,7 +1,7 @@
 # Nav2 for the drive demo: planner, controller and behaviour tree navigator.
-# costmap_window_server supplies the route across the whole map; Nav2's
+# tiled_map_server supplies the route across the whole map; Nav2's
 # planner plans the 15 m ahead on it inside the global costmap. Both costmaps
-# hold only what costmap_window_server publishes on /map, plus inflation. There
+# hold only what tiled_map_server publishes on /map, plus inflation. There
 # is no sensor layer.
 #
 # demo/run.sh overrides `resolution` in both costmaps from the map, and the

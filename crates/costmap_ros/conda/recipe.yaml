@@ -1,15 +1,15 @@
-# Conda package of costmap_ros for a RoboStack ROS Lyrical environment.
+# Conda package of tiled_map_server for a RoboStack ROS Lyrical environment.
 #
 #   pixi exec rattler-build build --recipe crates/costmap_ros/conda/recipe.yaml \
 #       -c robostack-lyrical -c conda-forge --output-dir dist/conda
 #
 # The package installs into the environment's prefix, which is also its ament
-# prefix, so `ros2 run costmap_ros ...` finds the programs with no setup file.
+# prefix, so `ros2 run tiled_map_server ...` finds the programs with no setup file.
 context:
   version: "0.1.0"
 
 package:
-  name: ros-lyrical-costmap-ros
+  name: ros-lyrical-tiled-map-server
   version: ${{ version }}
 
 source:
@@ -34,7 +34,7 @@ requirements:
 
 tests:
   - script:
-      - "$PREFIX/lib/costmap_ros/costmap_window_server --help"
+      - "$PREFIX/lib/tiled_map_server/tiled_map_server --help"
 
 about:
   homepage: https://github.com/MJohnson459/costmap

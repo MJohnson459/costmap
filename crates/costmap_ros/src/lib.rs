@@ -7,7 +7,7 @@
 //! - [`convert`]: `Costmap` ↔ `nav_msgs/OccupancyGrid`.
 //! - [`source`]: the [`MapSource`] trait that supplies windows of a map, for
 //!   dense maps in memory and tiled GeoTIFFs read on demand.
-//! - [`republish`]: when the window server publishes a new window.
+//! - [`republish`]: when the node publishes a new window.
 //! - [`pose`]: the robot's pose, from `/tf` or from a pose topic.
 //! - [`route`]: routes across a whole map, planned on a graph of its tiles.
 //! - [`route_server`]: those routes served as Nav2's `ComputePathToPose` action.

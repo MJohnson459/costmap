@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Integration test of costmap_window_server against a real Nav2 costmap.
+# Integration test of tiled_map_server against a real Nav2 costmap.
 #
 # Usage: bash test/run.sh
 #
-# SERVER_RATE_HZ (default 10) sets the window server's --rate-hz and NAV2_HZ
+# SERVER_RATE_HZ (default 10) sets the node's --rate-hz and NAV2_HZ
 # (default 10) sets Nav2's update_frequency and publish_frequency.
 #
 # E2E_MAP=/path/cost.tif selects the GeoTIFF mode instead: one phase per
@@ -17,7 +17,7 @@
 # Starts a Zenoh router, then for each map format (ROS YAML, and a GeoTIFF
 # converted from the same fixture) and published window size (12 m, 100 m):
 # the checker (which also publishes the robot's map -> base_link tf), the
-# window server on the fixture, and a standalone Nav2 costmap with a
+# node on the fixture, and a standalone Nav2 costmap with a
 # StaticLayer, which it configures and activates. The checker compares Nav2's
 # costmap with the fixture, moves the robot, and reports PASS/FAIL and
 # latency. Every process is started in its own process group and stopped by
@@ -54,10 +54,10 @@ TIF="$LOG_DIR/warehouse.tif"
 LOG_TAG=e2e
 source "$NAV2_DIR/lib.sh"
 
-log "building costmap_window_server and the GeoTIFF converter"
+log "building tiled_map_server and the GeoTIFF converter"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
-    --bin costmap_window_server --bin costmap-from-ros-map
-SERVER="$REPO/target/release/costmap_window_server"
+    --bin tiled_map_server --bin costmap-from-ros-map
+SERVER="$REPO/target/release/tiled_map_server"
 if [[ -z "$SERVE_MAP" ]]; then
     "$REPO/target/release/costmap-from-ros-map" "$MAP" "$TIF" >/dev/null
     log "converted $MAP to $TIF"
@@ -88,10 +88,10 @@ for window_m in "${WINDOWS_M[@]}"; do
     check_pid="${!check_pid_var}"
     wait_for "tf publisher (checker)" "$STAGE_TIMEOUT_S" log_has "check_${tag}" "tf: publishing"
 
-    RUST_LOG="warn,costmap_window_server=debug,costmap_ros=debug" start "server_${tag}" "$SERVER" \
+    RUST_LOG="warn,tiled_map_server=debug,costmap_ros=debug" start "server_${tag}" "$SERVER" \
         --map "$served_map" --window-m "$window_m" --rate-hz "$SERVER_RATE_HZ"
     server_pid_var="server_${tag}_pid"
-    wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" \
+    wait_for "tiled_map_server first publish" "$STAGE_TIMEOUT_S" \
         log_has "server_${tag}" "published"
     require_alive "server_${tag}" "${!server_pid_var}"
     if [[ "$map_kind" == tif ]] && ! log_has "server_${tag}" "GeoTIFF"; then

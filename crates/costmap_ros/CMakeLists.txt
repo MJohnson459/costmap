@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(costmap_ros NONE)
+project(tiled_map_server NONE)
 
 # ON installs what ROS needs to find the package without ament_cmake, so the
 # build needs CMake and a Rust toolchain and no ROS install. `cpack` then
@@ -21,7 +21,7 @@ else()
   set(BUILT "${CARGO_TARGET_DIR}/release")
 endif()
 # The node, and the tool that writes a ROS map as a cost GeoTIFF.
-set(PROGRAMS costmap_window_server costmap-from-ros-map)
+set(PROGRAMS tiled_map_server costmap-from-ros-map)
 set(BIN_FLAGS "")
 foreach(program ${PROGRAMS})
   list(APPEND BIN_FLAGS --bin ${program})
@@ -55,14 +55,14 @@ if(COSTMAP_ROS_STANDALONE)
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/ament_index/${PROJECT_NAME}"
     DESTINATION share/ament_index/resource_index/packages)
 
-  # `cpack` writes ros-DISTRO-costmap-ros_VERSION_ARCH.deb, which installs
+  # `cpack` writes ros-DISTRO-tiled-map-server_VERSION_ARCH.deb, which installs
   # into /opt/ros/DISTRO beside the distribution's own packages.
   set(ROS_DISTRO "lyrical" CACHE STRING "ROS distribution the .deb installs into")
   file(READ package.xml PACKAGE_XML)
   string(REGEX MATCH "<version>([^<]+)</version>" _ "${PACKAGE_XML}")
   set(CPACK_GENERATOR DEB)
   set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/ros/${ROS_DISTRO}")
-  set(CPACK_PACKAGE_NAME "ros-${ROS_DISTRO}-costmap-ros")
+  set(CPACK_PACKAGE_NAME "ros-${ROS_DISTRO}-tiled-map-server")
   set(CPACK_PACKAGE_VERSION "${CMAKE_MATCH_1}")
   set(CPACK_PACKAGE_CONTACT "Michael Johnson <mjohnson459@gmail.com>")
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY

@@ -45,13 +45,13 @@ jobs:
         run: |
           dpkg --info build/*.deb
           dpkg -x build/*.deb dist
-          for program in costmap_window_server costmap-from-ros-map; do
-            dist/opt/ros/lyrical/lib/costmap_ros/$program --help
+          for program in tiled_map_server costmap-from-ros-map; do
+            dist/opt/ros/lyrical/lib/tiled_map_server/$program --help
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: costmap_ros-${{ matrix.arch }}
+          name: tiled_map_server-${{ matrix.arch }}
           path: build/*.deb
           if-no-files-found: error
 
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: costmap_ros-conda
+          name: tiled_map_server-conda
           path: dist/conda/linux-64/*.conda
           if-no-files-found: error
 

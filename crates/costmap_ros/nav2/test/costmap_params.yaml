@@ -1,5 +1,5 @@
 # Standalone Nav2 costmap (nav2_costmap_2d executable, node /costmap) that
-# reads costmap_window_server's windows through a StaticLayer and nothing else.
+# reads tiled_map_server's windows through a StaticLayer and nothing else.
 costmap:
   ros__parameters:
     global_frame: map

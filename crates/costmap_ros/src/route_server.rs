@@ -1,6 +1,6 @@
 //! Serves [`RoutePlanner`] routes as Nav2's `ComputePathToPose` action.
 //!
-//! `costmap_window_server --routes` runs it beside the map window, and the two
+//! `tiled_map_server --routes` runs it beside the map window, and the two
 //! share one source of the robot's pose.
 
 use std::sync::Arc;

@@ -1,7 +1,7 @@
-"""Check a live Nav2 costmap against the map costmap_window_server serves.
+"""Check a live Nav2 costmap against the map tiled_map_server serves.
 
 The process is also the robot: it publishes map -> base_link on /tf from
-start-up, so Nav2 and the window server can resolve the robot pose. Once
+start-up, so Nav2 and the node can resolve the robot pose. Once
 Nav2's costmap arrives it compares every cell, by world position, with the
 map read straight from its file: a ROS map YAML and image (trinary rule), or
 a cost GeoTIFF (the occupancy the bridge sends for each cost, through Nav2's

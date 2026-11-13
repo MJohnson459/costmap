@@ -6,7 +6,7 @@
 #
 # nav2:    nav2_map_server publishes the whole map and planner_server plans on
 #          a global costmap covering all of it (bench/nav2_params.yaml).
-# costmap: costmap_window_server --routes publishes a 50 m window and plans
+# costmap: tiled_map_server --routes publishes a 50 m window and plans
 #          the trip, and planner_server plans the 15 m ahead on a global
 #          costmap the size of that window (demo/nav2_params.yaml).
 #
@@ -15,7 +15,7 @@
 # process's resident memory and CPU time. Results are written to BENCH_OUT
 # (default: a temporary directory) as nav2.json and costmap.json.
 # BENCH_CASES="nav2 costmap" chooses the cases. BENCH_SERVER_ARGS adds options to
-# costmap_window_server, such as "--pose-topic /pose".
+# tiled_map_server, such as "--pose-topic /pose".
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,9 +34,9 @@ LOG_TAG=bench
 source "$NAV2_DIR/lib.sh"
 mkdir -p "$BENCH_OUT"
 
-log "building costmap_window_server"
+log "building tiled_map_server"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
-    --bin costmap_window_server
+    --bin tiled_map_server
 
 enter_ros_env
 # The measured nodes are started by path: `ros2 run` would leave a Python
@@ -88,11 +88,11 @@ run_costmap() {
     rm -f "$BENCH_MAP.tilegraph"
     start_common
     # The server logs each publish at debug level.
-    RUST_LOG="warn,costmap_window_server=debug,costmap_ros=info" start server \
-        "$REPO/target/release/costmap_window_server" \
+    RUST_LOG="warn,tiled_map_server=debug,costmap_ros=info" start server \
+        "$REPO/target/release/tiled_map_server" \
         --map "$BENCH_MAP" --window-m 50 --routes ${BENCH_SERVER_ARGS:-}
     wait_for "routes" "$STAGE_TIMEOUT_S" log_has server "serving compute_route_to_pose"
-    wait_for "costmap_window_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
+    wait_for "tiled_map_server first publish" "$STAGE_TIMEOUT_S" log_has server "published"
     grep -o "built the tile graph in [0-9.]* s" "$LOG_DIR/server.log" | sed "s/^/[bench] /" || true
     # The demo publishes the global costmap for its recording; a robot need not.
     start planner "$ROS_LIB/nav2_planner/planner_server" --ros-args \
@@ -103,7 +103,7 @@ run_costmap() {
     wait_for "Nav2 (planner active)" "$STAGE_TIMEOUT_S" \
         log_has lifecycle "Managed nodes are active"
     measure costmap --trip-action compute_route_to_pose --near-action compute_path_to_pose \
-        --group "costmap_window_server=$server_pid" --group "planner_server=$planner_pid"
+        --group "tiled_map_server=$server_pid" --group "planner_server=$planner_pid"
 }
 
 for case in $BENCH_CASES; do
