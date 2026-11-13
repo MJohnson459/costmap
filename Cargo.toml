@@ -75,6 +75,10 @@ name = "astar"
 harness = false
 
 [[bench]]
+name = "tile_graph"
+harness = false
+
+[[bench]]
 name = "line_iterator"
 harness = false
 

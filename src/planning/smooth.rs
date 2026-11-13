@@ -22,34 +22,41 @@ impl Path {
     ///
     /// Lines are traced as in [`line_passable`].
     pub fn shortcut(&self, grid: &Costmap, options: &PlanOptions) -> Vec<UVec2> {
-        let cells = &self.cells;
-        let Some(&first) = cells.first() else {
-            return Vec::new();
-        };
-        let cost = |cell: UVec2| passable_cost(grid, cell, options);
-        let mut waypoints = vec![first];
-        let mut anchor = 0;
-        let mut bound = cost(first).unwrap_or(0);
-        let mut next = 1;
-        while next < cells.len() {
-            let bound_with_next = bound.max(cost(cells[next]).unwrap_or(0));
-            let adjacent = next == anchor + 1;
-            if adjacent || line_within(grid, cells[anchor], cells[next], options, bound_with_next) {
-                bound = bound_with_next;
-                next += 1;
-            } else {
-                anchor = next - 1;
-                waypoints.push(cells[anchor]);
-                bound = cost(cells[anchor]).unwrap_or(0);
-            }
-        }
-        if let Some(&last) = cells.last()
-            && waypoints.last() != Some(&last)
-        {
-            waypoints.push(last);
-        }
-        waypoints
+        shortcut_cells(&self.cells, |cell| passable_cost(grid, cell, options))
     }
+}
+
+/// [`Path::shortcut`] over `cells`, with `cost` giving the cost of entering a cell or
+/// `None` if it is impassable.
+pub(super) fn shortcut_cells(
+    cells: &[UVec2],
+    mut cost: impl FnMut(UVec2) -> Option<u8>,
+) -> Vec<UVec2> {
+    let Some(&first) = cells.first() else {
+        return Vec::new();
+    };
+    let mut waypoints = vec![first];
+    let mut anchor = 0;
+    let mut bound = cost(first).unwrap_or(0);
+    let mut next = 1;
+    while next < cells.len() {
+        let bound_with_next = bound.max(cost(cells[next]).unwrap_or(0));
+        let adjacent = next == anchor + 1;
+        if adjacent || line_within(cells[anchor], cells[next], bound_with_next, &mut cost) {
+            bound = bound_with_next;
+            next += 1;
+        } else {
+            anchor = next - 1;
+            waypoints.push(cells[anchor]);
+            bound = cost(cells[anchor]).unwrap_or(0);
+        }
+    }
+    if let Some(&last) = cells.last()
+        && waypoints.last() != Some(&last)
+    {
+        waypoints.push(last);
+    }
+    waypoints
 }
 
 /// Whether the straight line between the centres of `from` and `to` touches only cells
@@ -59,12 +66,19 @@ impl Path {
 /// exactly through a cell corner, that includes both cells beside the corner, which
 /// the planner's diagonal moves also require to be passable.
 pub fn line_passable(grid: &Costmap, from: UVec2, to: UVec2, options: &PlanOptions) -> bool {
-    line_within(grid, from, to, options, u8::MAX)
+    line_within(from, to, u8::MAX, &mut |cell| {
+        passable_cost(grid, cell, options)
+    })
 }
 
 /// Whether every cell the line touches is passable with a cost of at most `bound`.
-fn line_within(grid: &Costmap, from: UVec2, to: UVec2, options: &PlanOptions, bound: u8) -> bool {
-    let ok = |cell: UVec2| passable_cost(grid, cell, options).is_some_and(|c| c <= bound);
+fn line_within(
+    from: UVec2,
+    to: UVec2,
+    bound: u8,
+    cost: &mut impl FnMut(UVec2) -> Option<u8>,
+) -> bool {
+    let mut ok = |cell: UVec2| cost(cell).is_some_and(|c| c <= bound);
     ok(from) && ok(to) && all_touched(from, to, ok)
 }
 
@@ -184,7 +198,11 @@ mod tests {
         });
         for pair in segments {
             assert!(
-                line_within(&g, pair[0], pair[1], &options(), COST_FREE),
+                line_within(pair[0], pair[1], COST_FREE, &mut |c| passable_cost(
+                    &g,
+                    c,
+                    &options()
+                )),
                 "{pair:?}"
             );
         }

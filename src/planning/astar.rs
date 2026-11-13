@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Highest cost below lethal; scales the per-cell penalty to `[0, cost_weight]`.
-const COST_SCALE: f32 = 252.0;
+pub(super) const COST_SCALE: f32 = 252.0;
 
 /// Largest effective [`PlanOptions::cost_weight`]. Larger finite weights and `+inf` are
 /// clamped to it, so step costs stay finite and every reachable cell stays reachable.
@@ -156,7 +156,7 @@ pub fn passable_cost(grid: &Costmap, cell: UVec2, options: &PlanOptions) -> Opti
 }
 
 /// `weight` limited to `0..=MAX_COST_WEIGHT`, with NaN as zero.
-fn effective_cost_weight(weight: f32) -> f32 {
+pub(super) fn effective_cost_weight(weight: f32) -> f32 {
     if weight.is_nan() {
         0.0
     } else {
