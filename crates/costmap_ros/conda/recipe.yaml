@@ -18,17 +18,16 @@ source:
 build:
   number: 0
   script:
-    - bash crates/costmap_ros/package.sh "$SRC_DIR/dist"
-    - mkdir -p "$PREFIX/lib" "$PREFIX/share"
-    - cp -r dist/costmap_ros/lib/costmap_ros "$PREFIX/lib/"
-    - cp -r dist/costmap_ros/share/costmap_ros "$PREFIX/share/"
-    - mkdir -p "$PREFIX/share/ament_index/resource_index/packages"
-    - touch "$PREFIX/share/ament_index/resource_index/packages/costmap_ros"
+    - cmake -S crates/costmap_ros -B build -G Ninja -DCOSTMAP_ROS_STANDALONE=ON
+    - cmake --build build
+    - cmake --install build --prefix "$PREFIX"
 
 requirements:
   build:
     - ${{ compiler('rust') }}
     - ${{ compiler('c') }}
+    - cmake
+    - ninja
   run:
     - ros-lyrical-launch-ros
     - ros-lyrical-rmw-zenoh-cpp
