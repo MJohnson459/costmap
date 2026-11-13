@@ -32,8 +32,8 @@ Given a pose topic instead (`pose_topic:=amcl_pose`) it is lower by 0.6 %.
 
 It fits a robot that:
 
-- runs Nav2 on `rmw_zenoh_cpp`. The nodes speak Zenoh directly, through
-  [Hiroz](https://github.com/ZettaScaleLabs/hiroz), and link no ROS library.
+- runs Nav2 on `rmw_zenoh_cpp`. The node speaks Zenoh directly, through
+  [Hiroz](https://github.com/ZettaScaleLabs/hiroz), and links no ROS library.
   A robot on a DDS middleware would need a bridge, which has not been tried;
 - has a map that costs too much to hold whole. `map_server` and every costmap
   with a `StaticLayer` each keep a copy, and planning on a global costmap
@@ -48,10 +48,10 @@ not run on a physical robot, on another Nav2 release, or beside AMCL.
 
 ## Install
 
-All three ways install the same files: `costmap_window_server`,
-`costmap_planner_server` and `costmap-from-ros-map` under `lib/costmap_ros`,
-and the launch file and behaviour tree under `share/costmap_ros`. Afterwards
-`ros2 pkg executables costmap_ros` lists the three programs.
+All three ways install the same files: `costmap_window_server` and
+`costmap-from-ros-map` under `lib/costmap_ros`, and the launch file and
+behaviour tree under `share/costmap_ros`. Afterwards
+`ros2 pkg executables costmap_ros` lists the two programs.
 
 ### A Debian package
 
@@ -344,9 +344,7 @@ window origin is a whole number of cells from the map origin, so Nav2 never
 sees a cell resampled.
 
 With `--routes`, which the launch file passes, the same process serves the
-routes described under [costmap_planner_server](#costmap_planner_server). The
-two then share one `/tf` subscription and one copy of the program: 51 MB and
-1.15 % of a core at rest, against 78 MB and 2.45 % as two processes.
+routes described under [Routes](#routes).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -360,16 +358,15 @@ two then share one `/tf` subscription and one copy of the program: 51 MB and
 | `--min-move-m` | 5 | movement that triggers a new window, metres |
 | `--keep-alive-s` | 0 | age at which the same window is sent again, seconds; 0 never sends it again |
 | `--routes` | off | also plan routes |
-| `--route-action`, `--route-topic`, `--robot-radius-m`, `--inflation-m` | | with `--routes`: as for `costmap_planner_server` |
+| `--route-action` | `compute_route_to_pose` | with `--routes`: action served |
+| `--route-topic` | `route` | with `--routes`: topic each route is also published on |
+| `--robot-radius-m` | 0.3 | with `--routes`: robot radius, metres; cells nearer an obstacle are impassable |
+| `--inflation-m` | 1.5 | with `--routes`: distance over which routes are pushed from obstacles, metres; at least the robot radius is used |
 
-### costmap_planner_server
+### Routes
 
-The routes on their own, for running them apart from the window. Its options
-other than `--map` are also `costmap_window_server`'s, with `--action` there
-named `--route-action`.
-
-Serves `nav2_msgs/action/ComputePathToPose` as `compute_route_to_pose` and
-publishes each route on `/route`.
+With `--routes` the node serves `nav2_msgs/action/ComputePathToPose` as
+`compute_route_to_pose` and publishes each route on `/route`.
 
 - A route starts at the goal's `start` pose when `use_start` is set, and at
   the latest `map -> base_link` transform otherwise. It passes through the
@@ -388,23 +385,13 @@ publishes each route on `/route`.
   a tile border, so it can cost more than the cheapest path on the map: at
   most 0.9 % more over 12 routes on the warehouse map.
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `--map` | required | ROS map YAML or cost GeoTIFF |
-| `--action` | `compute_route_to_pose` | action served |
-| `--route-topic` | `route` | topic each route is also published on |
-| `--map-frame` | `map` | frame of the map and of the routes |
-| `--base-frame` | `base_link` | robot frame |
-| `--robot-radius-m` | 0.3 | robot radius, metres; cells nearer an obstacle are impassable |
-| `--inflation-m` | 1.5 | distance over which routes are pushed from obstacles, metres; at least the robot radius is used |
-
-Started with `--action compute_path_to_pose --route-topic plan`, it answers
+Started with `--route-action compute_path_to_pose --route-topic plan`, it answers
 the action Nav2's stock trees call, and `planner_server` and the global
 costmap can be removed. The robot then drives the route itself. That suits
 only a robot that turns on the spot, is close to circular, and needs no
 costmap filters or sensed obstacles in its global plan.
 
-### Both programs
+### Notes
 
 - **Zenoh.** The session follows `rmw_zenoh_cpp`'s conventions: it connects to
   a router at `tcp/localhost:7447` and reads `ZENOH_SESSION_CONFIG_URI`,
@@ -449,7 +436,7 @@ at their defaults.
   window**, every `min_move_m`. Nav2 resets every layer of a costmap when it
   resizes. Keep sensor layers in the local costmap, or make the global one
   rolling.
-- **Robot pose.** From `/tf`, the nodes use the latest transform of each frame, with no
+- **Robot pose.** From `/tf`, the node uses the latest transform of each frame, with no
   interpolation to a common time and no history. That places a window, where
   a few centimetres do not matter. It is not a tf2 replacement.
 - **Every publish is a full window.** `map_msgs/OccupancyGridUpdate` patches a

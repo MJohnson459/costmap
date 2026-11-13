@@ -1,7 +1,7 @@
 <!--
   NavigateToPose for a map larger than Nav2's global costmap.
 
-  costmap_planner_server plans a route across the whole map. Nav2's own planner
+  costmap_window_server plans a route across the whole map. Nav2's own planner
   then plans, inside its rolling global costmap, to the point `distance_forward`
   metres along that route, and the controller follows that path. Nav2's
   planner, footprint, costmap filters and sensor layers all apply to the path

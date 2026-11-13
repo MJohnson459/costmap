@@ -7,8 +7,8 @@
 #
 # Uses the `build` environment of pixi.toml: colcon, ament_cmake, the ros2
 # command, rmw_zenoh_cpp and a Rust toolchain, without Nav2. It checks that:
-# - `ros2 pkg executables` lists the three programs,
-# - each node answers `--help` under `ros2 run`,
+# - `ros2 pkg executables` lists the two programs,
+# - the node answers `--help` under `ros2 run`,
 # - the behaviour tree is in the package's share directory,
 # - the installed binaries carry no debug information,
 # - `ros2 launch costmap_ros costmap.launch.py` on the warehouse ROS map
@@ -48,13 +48,11 @@ source install/setup.bash
 set -u
 
 programs="$(ros2 pkg executables costmap_ros)"
-for program in costmap_window_server costmap_planner_server costmap-from-ros-map; do
+for program in costmap_window_server costmap-from-ros-map; do
     grep -q "costmap_ros $program\$" <<<"$programs" || fail "ros2 pkg does not list $program"
 done
 ros2 run costmap_ros costmap_window_server --help | grep -q -- "--window-m" ||
     fail "ros2 run costmap_window_server --help"
-ros2 run costmap_ros costmap_planner_server --help | grep -q -- "--robot-radius-m" ||
-    fail "ros2 run costmap_planner_server --help"
 share="$(ros2 pkg prefix --share costmap_ros)"
 [[ -f "$share/behavior_trees/navigate_to_pose_on_route.xml" ]] ||
     fail "the behaviour tree is not installed in $share"

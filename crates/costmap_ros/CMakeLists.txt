@@ -20,8 +20,8 @@ if(DEFINED ENV{CARGO_BUILD_TARGET})
 else()
   set(BUILT "${CARGO_TARGET_DIR}/release")
 endif()
-# The two nodes, and the tool that writes a ROS map as a cost GeoTIFF.
-set(PROGRAMS costmap_window_server costmap_planner_server costmap-from-ros-map)
+# The node, and the tool that writes a ROS map as a cost GeoTIFF.
+set(PROGRAMS costmap_window_server costmap-from-ros-map)
 set(BIN_FLAGS "")
 foreach(program ${PROGRAMS})
   list(APPEND BIN_FLAGS --bin ${program})

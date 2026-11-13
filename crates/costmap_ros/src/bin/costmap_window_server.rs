@@ -8,8 +8,8 @@
 //! window goes out when the robot has moved `--min-move-m` since the last one,
 //! and `--keep-alive-s` after it if that is set.
 //!
-//! With `--routes` the process also plans routes across the whole map, as
-//! `costmap_planner_server` does, on the same source of the robot's pose.
+//! With `--routes` the process also plans routes across the whole map, on the
+//! same source of the robot's pose.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -76,7 +76,7 @@ struct Args {
     /// subscriber receives the last window either way.
     #[arg(long, default_value_t = 0.0)]
     keep_alive_s: f32,
-    /// Also plan routes across the whole map, as costmap_planner_server does.
+    /// Also plan routes across the whole map.
     #[arg(long)]
     routes: bool,
     /// With --routes: action the routes are served on.

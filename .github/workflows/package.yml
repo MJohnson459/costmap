@@ -45,7 +45,7 @@ jobs:
         run: |
           dpkg --info build/*.deb
           dpkg -x build/*.deb dist
-          for program in costmap_window_server costmap_planner_server costmap-from-ros-map; do
+          for program in costmap_window_server costmap-from-ros-map; do
             dist/opt/ros/lyrical/lib/costmap_ros/$program --help
           done
 
