@@ -1,7 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 project(costmap_ros NONE)
 
-find_package(ament_cmake REQUIRED)
+# ON installs what ROS needs to find the package without ament_cmake, so the
+# build needs CMake and a Rust toolchain and no ROS install. `cpack` then
+# writes the prefix as costmap_ros-VERSION-ARCH.tar.gz.
+option(COSTMAP_ROS_STANDALONE "Build without ament_cmake" OFF)
+if(NOT COSTMAP_ROS_STANDALONE)
+  find_package(ament_cmake REQUIRED)
+endif()
 
 # The nodes are Rust binaries. cargo builds them from the workspace this
 # package sits in, with the versions in the workspace's Cargo.lock.
@@ -41,4 +47,25 @@ foreach(program ${PROGRAMS})
 endforeach()
 install(DIRECTORY behavior_trees launch DESTINATION share/${PROJECT_NAME})
 
-ament_package()
+if(COSTMAP_ROS_STANDALONE)
+  # The parts of ament_package() that `ros2 run` and `ros2 launch` rely on:
+  # the manifest, the package's entry in the ament index, and a setup file at
+  # the path ament gives it.
+  install(FILES package.xml standalone/local_setup.bash
+    DESTINATION share/${PROJECT_NAME})
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ament_index/${PROJECT_NAME}" "")
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/ament_index/${PROJECT_NAME}"
+    DESTINATION share/ament_index/resource_index/packages)
+
+  file(READ package.xml PACKAGE_XML)
+  string(REGEX MATCH "<version>([^<]+)</version>" _ "${PACKAGE_XML}")
+  set(CPACK_GENERATOR TGZ)
+  set(CPACK_PACKAGE_FILE_NAME
+    "${PROJECT_NAME}-${CMAKE_MATCH_1}-${CMAKE_SYSTEM_PROCESSOR}")
+  # The archive holds one directory, costmap_ros.
+  set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/${PROJECT_NAME}")
+  include(CPack)
+else()
+  ament_package()
+endif()

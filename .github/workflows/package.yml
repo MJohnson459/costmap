@@ -29,12 +29,18 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> build/cargo"
 
       - name: Build the prefix
-        run: bash crates/costmap_ros/package.sh dist
+        run: |
+          cmake -S crates/costmap_ros -B build -DCOSTMAP_ROS_STANDALONE=ON
+          cmake --build build
+          cd build && cpack
 
       - name: Run the programs
         run: |
+          mkdir dist && tar -xzf build/costmap_ros-*.tar.gz -C dist
           for program in costmap_window_server costmap_planner_server costmap-from-ros-map; do
             dist/costmap_ros/lib/costmap_ros/$program --help
           done
@@ -42,7 +48,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: costmap_ros-${{ matrix.arch }}
-          path: dist/*.tar.gz
+          path: build/costmap_ros-*.tar.gz
           if-no-files-found: error
 
   conda:

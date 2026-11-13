@@ -60,7 +60,7 @@ later (Ubuntu 22.04). Nothing is compiled on the robot.
 ```sh
 sudo tar -xzf costmap_ros-0.3.0-aarch64.tar.gz -C /opt
 source /opt/ros/lyrical/setup.bash
-source /opt/costmap_ros/setup.bash
+source /opt/costmap_ros/share/costmap_ros/local_setup.bash
 ```
 
 ### colcon, from source
