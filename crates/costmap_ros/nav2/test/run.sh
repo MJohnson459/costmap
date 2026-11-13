@@ -56,9 +56,7 @@ source "$NAV2_DIR/lib.sh"
 
 log "building costmap_window_server and the GeoTIFF converter"
 cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap_ros \
-    --bin costmap_window_server
-cargo build -j 6 --release --quiet --manifest-path "$REPO/Cargo.toml" -p costmap-geo \
-    --bin costmap-from-ros-map
+    --bin costmap_window_server --bin costmap-from-ros-map
 SERVER="$REPO/target/release/costmap_window_server"
 if [[ -z "$SERVE_MAP" ]]; then
     "$REPO/target/release/costmap-from-ros-map" "$MAP" "$TIF" >/dev/null

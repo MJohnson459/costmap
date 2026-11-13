@@ -18,7 +18,6 @@ The library is an independent alternative to Nav2's [costmap_2d](https://github.
 | --- | --- | --- |
 | `costmap` (repository root) | build costmaps and plan on them in a Rust program | [Using the library](#using-the-library) |
 | [`costmap_ros`](crates/costmap_ros) | give Nav2 a map too large for `map_server`, with no change to Nav2 | [its README](crates/costmap_ros) |
-| [`costmap-geo`](crates/costmap-geo) | turn a drone survey or a ROS map into a cost GeoTIFF | [its README](crates/costmap-geo) |
 
 ## With Nav2
 
@@ -113,20 +112,13 @@ The examples open the [Rerun](https://rerun.io) viewer, which must be installed 
 
 ## Large maps
 
-A map of a field is larger than a robot's costmap and is georeferenced. The crates cover that case end to end:
+A cost GeoTIFF is read a piece at a time, so a map can be larger than memory.
 
-1. **Survey.** Process a drone survey with OpenDroneMap with `--dsm --dtm`. It writes an orthophoto, a surface model and a terrain model.
-2. **Cost map.** `costmap-from-ortho` turns those three rasters into a single-band `u8` cost GeoTIFF: obstacles from height above ground, graded cost from slope. See [`crates/costmap-geo`](crates/costmap-geo) for the rules, row crops and the keep-out polygon overrides.
-3. **Inspect and edit.** Open the cost GeoTIFF in QGIS. Value 0 is free, 254 lethal, 255 unknown.
-4. **Navigate.** Serve it to Nav2 with [`costmap_ros`](crates/costmap_ros), or load it with `CostGeoTiff` into a `TiledGrid` in a Rust program.
+- **From a ROS map:** `costmap-from-ros-map site.yaml site.tif`, installed with [`costmap_ros`](crates/costmap_ros).
+- **From a drone survey:** [`costmap-geo`](https://github.com/MJohnson459/costmap-geo) turns OpenDroneMap's orthophoto, surface model and terrain model into one.
+- **By hand:** open the file in QGIS. Value 0 is free, 254 lethal, 255 unknown.
 
-```bash
-cargo run --release -p costmap-geo --bin costmap-from-ortho -- \
-    --dsm odm_dem/dsm.tif --dtm odm_dem/dtm.tif \
-    --ortho odm_orthophoto/odm_orthophoto.tif --out cost.tif
-```
-
-A ROS map too large for `map_server` converts with `costmap-from-ros-map site.yaml site.tif`.
+Serve it to Nav2 with [`costmap_ros`](crates/costmap_ros), or load it with `CostGeoTiff` into a `TiledGrid` in a Rust program.
 
 ## Not here yet
 
