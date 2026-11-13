@@ -230,7 +230,7 @@ Requirements and limits:
 
 - Every node that talks to the servers runs `rmw_zenoh_cpp` (`RMW_IMPLEMENTATION=rmw_zenoh_cpp`). There is no DDS support.
 - The servers are plain binaries. They need no ROS install to build, and cannot be built by colcon or started with `ros2 run`.
-- The route is planned on a 0.25 m overview of the static map. A gap must be up to 1.08 m wide to stay open for a 0.3 m robot, so a doorway can read as closed.
+- The route is planned on the static map alone, at the map's resolution. The first start on a map builds a graph of it and stores it beside the raster.
 - It has run against Nav2 1.5.2 on ROS Lyrical with a simulated robot, not on a physical one.
 
 Two scripts run it against a real Nav2 from a [pixi](https://pixi.sh) environment:

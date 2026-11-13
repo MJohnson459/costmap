@@ -81,7 +81,7 @@ has not been run on a physical robot.
     `GeoTiffSource`, which reads a cost GeoTIFF chunk by chunk, implement it.
   - `republish`: when the server sends a new window.
   - `route`: `RoutePlanner`, which plans across a whole cost GeoTIFF on a
-    max-pooled overview of it.
+    graph of its tiles.
   - `nav2_msgs`: the `ComputePathToPose` action type, generated at build time
     from `msgs/nav2_msgs`. `hiroz-msgs` does not bundle Nav2's interfaces.
   - `tf`: a transform tree fed from `/tf` and `/tf_static`, and a resolver for
@@ -173,24 +173,35 @@ resampled.
 costmap_planner_server --map cost.tif
 ```
 
-At start it reads a max-pooled overview of the whole raster, one strip or tile
-at a time, and inflates it for the robot. It then serves an action of type
-`nav2_msgs/action/ComputePathToPose` under the name `compute_route_to_pose`,
-and publishes each route on `/route`.
+It plans on a tile graph of the raster: the cells where the border of each
+256-cell tile can be crossed, and the cost of travelling between them inside
+the tile, on costs inflated for the robot. The graph is built at the raster's
+own resolution, so a gap the robot fits through stays open. The server serves
+an action of type `nav2_msgs/action/ComputePathToPose` under the name
+`compute_route_to_pose`, and publishes each route on `/route`.
+
+The first start on a map builds the graph and stores it beside the raster as
+`cost.tif.tilegraph`. Later starts read that file. It is rebuilt when the
+raster, `--robot-radius-m` or `--inflation-m` changes. If the directory cannot
+be written, the server logs a warning and builds the graph at every start.
 
 - The route starts at the goal's `start` pose when `use_start` is set, and at
   the latest `map -> base_link` transform otherwise. It passes through the
   goal's `viapoints` in order.
-- It is planned with `costmap`'s A* on the overview, shortcut into straight
-  segments, and returned as poses at most 0.1 m apart that face along it.
-- A start or goal on an impassable overview cell moves to the nearest passable
-  one within 1 m.
+- It is planned through the graph's crossings, then through the cells of the
+  tiles it passes, shortcut into straight segments, and returned as poses at
+  most 0.1 m apart that face along it. Only those tiles are read from the file.
+- A start or goal on an impassable cell moves to the nearest passable one
+  within 1 m.
 - Poses must be in the map frame. A pose in another frame aborts the goal with
   `TF_ERROR`; the server does not transform goals.
 - Failures abort the goal with Nav2's error codes: `TF_ERROR`,
   `START_OCCUPIED`, `GOAL_OCCUPIED`, `NO_VALID_PATH`.
 - A goal cancelled while its route is being planned ends as cancelled.
 - There is one planner, so `planner_id` is not read.
+- A route passes through the graph's crossings, at most 32 cells apart along
+  a tile border, so it can cost more than the cheapest path on the map: at
+  most 0.9 % more over 12 routes on the warehouse map.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -199,23 +210,25 @@ and publishes each route on `/route`.
 | `--route-topic` | `route` | topic each route is also published on |
 | `--map-frame` | `map` | frame of the map and of the routes |
 | `--base-frame` | `base_link` | robot frame |
-| `--overview-m` | 0.25 | largest overview cell, metres |
 | `--robot-radius-m` | 0.3 | robot radius, metres |
 | `--inflation-m` | 1.5 | distance over which routes are pushed from obstacles, metres |
 
-On the 36 M-cell vineyard survey the overview is 694 x 816 cells at 0.24 m,
-read in 0.1 s, and a 99.9 m route takes up to 10 ms.
+On the 36 M-cell vineyard survey (5,547 x 6,525 cells at 0.03 m):
+
+| | |
+| --- | --- |
+| Graph | 3,324 crossings, 0.7 MB in memory and on disk |
+| First start | 5.5 s to build the graph, on 16 cores |
+| Later starts | under 0.01 s |
+| First 99.9 m route | 111 ms, of which most is reading 17 tiles from the file |
+| The same route asked for again | 5.6 ms |
+| Resident memory after planning | 13 MB |
+
+`cargo run --release -p costmap_ros --example plan_route -- --map cost.tif
+--start 53.5,30 --goal 100.1,80` measures these without ROS.
 
 What it does not do:
 
-- **Narrow gaps.** The overview keeps the worst cost in each block, so it
-  never opens a gap that is not there, but it can close one that is: an
-  obstacle that touches a block fills it. A gap must be up to two overview
-  cells wider than the robot to stay open. With the defaults (0.3 m radius,
-  0.24 m cells) that is 1.08 m, so a 0.9 m doorway can read as closed and the
-  goal aborts with `NO_VALID_PATH`. Lower `--overview-m` for such maps, at
-  four times the cells per halving. This is the reason the overview is a
-  stopgap: planning must find crossings at the map's own resolution.
 - **A route the robot can drive as it is.** The route is a line through free
   space for a robot that turns on the spot. Nav2's planner makes the path that
   is driven.
@@ -574,5 +587,5 @@ size does. At 50 Hz every number falls by a factor of 2 to 5, and the
   fixed map, and the window origin moves, so updates are not used.
 - Nav2 must run `rmw_zenoh_cpp`, and a Zenoh router must connect both sides.
 - `MapInfo` has no yaw, so maps with a rotated origin are rejected.
-- The route is planned on an overview of the static map. See
+- The route is planned on the static map alone. See
   [Planner server](#planner-server).

@@ -8,7 +8,7 @@
 //! - [`source`]: the [`MapSource`] trait that supplies windows of a map, for
 //!   dense maps in memory and tiled GeoTIFFs read on demand.
 //! - [`republish`]: when the window server publishes a new window.
-//! - [`route`]: routes across a whole cost GeoTIFF, planned on an overview.
+//! - [`route`]: routes across a whole cost GeoTIFF, planned on a graph of its tiles.
 //! - [`tf`]: a latest-value transform tree and its `/tf` listener.
 
 pub mod convert;
