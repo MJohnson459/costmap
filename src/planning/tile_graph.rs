@@ -200,7 +200,7 @@ impl<G: Borrow<Costmap>> TileSource for DenseTiles<G> {
             width: size.x,
             height: size.y,
             resolution: source.resolution,
-            origin: source.origin + min.as_dvec2() * source.resolution,
+            origin: source.lattice().cell_corner(min),
         };
         Costmap::from_vec(info, data)
     }

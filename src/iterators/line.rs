@@ -39,7 +39,11 @@ impl LineIterator {
         let dir = dir.normalize();
 
         // TODO: Support starting outside of the grid.
-        let start = grid.world_to_map_continuous(origin)?;
+        let start = grid.lattice().to_cells(origin);
+        if !grid.spans(start) {
+            return None;
+        }
+        let start = start.as_vec2();
 
         // We use ivecs internally as the steps can be negative.
         let cell = start.floor().as_ivec2();
@@ -200,9 +204,7 @@ impl<T> DenseGrid<T> {
 
         if let Some(endpoint) = endpoint_value {
             let end_world = origin + (dir * distance).as_dvec2();
-            if let Some(cell) = self.world_to_map(end_world) {
-                let _ = self.set(cell, endpoint);
-            }
+            let _ = self.set(self.lattice().cell_at(end_world), endpoint);
         }
     }
 }
