@@ -99,26 +99,10 @@ linux-64. It is not on a public channel.
 
 ### Not on the ROS build farm
 
-There is no `apt install ros-lyrical-costmap-ros` yet. The package does build
-as a `.deb` with the build farm's tools on Ubuntu 26.04, whose cargo is 1.93:
-
-```sh
-cd crates/costmap_ros
-bloom-generate rosdebian --os-name ubuntu --os-version resolute --ros-distro lyrical
-fakeroot debian/rules binary
-```
-
-That gives `ros-lyrical-costmap-ros_0.3.0-0resolute_amd64.deb`, 15 MB, which
-installs beside `ros-lyrical-rmw-zenoh-cpp` and needs only libc at run time.
-Two things stand between that and a release:
-
-- bloom releases a package from its own directory, and this one builds from
-  the Cargo workspace two directories up.
-- The build downloads about 460 crates from crates.io, and the build farm's
-  maintainers discourage builds that fetch dependencies.
-
-Ubuntu 24.04's cargo is older than the 1.92 the crates need, so ROS
-distributions on it are out either way.
+There is no `apt install ros-lyrical-costmap-ros`, and none is planned. The
+build fetches about 460 crates, which the build farm discourages, and only
+Ubuntu 26.04 has a new enough cargo. The tarball installs in one line on
+Ubuntu 22.04 or later.
 
 ## Replace map_server
 
