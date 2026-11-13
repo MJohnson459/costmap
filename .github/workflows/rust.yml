@@ -104,5 +104,5 @@ jobs:
           manifest-path: crates/costmap_ros/nav2/pixi.toml
           environments: build
 
-      - name: Build with colcon and start the nodes with ros2 launch
+      - name: Build with colcon and start the node with ros2 launch
         run: bash crates/costmap_ros/nav2/test/colcon.sh

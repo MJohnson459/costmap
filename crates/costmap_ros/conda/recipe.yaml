@@ -34,8 +34,7 @@ requirements:
 
 tests:
   - script:
-      - test -x "$PREFIX/lib/costmap_ros/costmap_window_server"
-      - "$PREFIX/lib/costmap_ros/costmap_planner_server --help"
+      - "$PREFIX/lib/costmap_ros/costmap_window_server --help"
 
 about:
   homepage: https://github.com/MJohnson459/costmap

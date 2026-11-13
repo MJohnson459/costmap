@@ -1,7 +1,7 @@
 # nav2
 
-Tests, a demo and a benchmark that run `costmap_window_server` and
-`costmap_planner_server` against a real ROS 2 and Nav2. This file says what
+Tests, a demo and a benchmark that run `costmap_window_server` against a
+real ROS 2 and Nav2. This file says what
 each checks, how to run it and what it measured.
 
 Nothing here is installed on a robot. CI runs `test/colcon.sh` and none of
@@ -57,14 +57,14 @@ It uses the `build` environment of `pixi.toml` (colcon, `ament_cmake`, the
 It links the repository into a scratch workspace, runs
 `colcon build --packages-select costmap_ros`, and checks that:
 
-- `ros2 pkg executables costmap_ros` lists the three programs;
+- `ros2 pkg executables costmap_ros` lists the two programs;
 - each node answers `--help` under `ros2 run`;
 - the behaviour tree is in the package's share directory;
 - the installed binaries carry no debug information;
 - `ros2 launch costmap_ros costmap.launch.py` on the warehouse ROS map starts
   the window server with routes, connected to a Zenoh router.
 
-The build takes 1 min 37 s on the machine below and installs two 24 MB nodes
+The build takes 1 min 37 s on the machine below and installs the 24 MB node
 and the 3.2 MB converter.
 
 ## Integration test
