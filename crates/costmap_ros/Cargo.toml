@@ -1,10 +1,11 @@
 [package]
 name = "costmap_ros"
-version = "0.3.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
 license = "MIT OR Apache-2.0"
 description = "Serves Nav2 a rolling window of a large map and routes across the whole of it, over Zenoh"
+repository = "https://github.com/MJohnson459/costmap"
 publish = false
 
 [dependencies]
@@ -14,16 +15,17 @@ costmap = { path = "../..", features = ["geotiff"] }
 ctrlc = { version = "3", features = ["termination"] }
 glam = "0.33"
 hiroz = { version = "0.2.1", default-features = false, features = ["lyrical", "rmw-zenoh"] }
-hiroz-msgs = { version = "0.2.1", default-features = false, features = ["lyrical", "nav_msgs", "tf2_msgs"] }
+hiroz-msgs = { version = "0.2.1", default-features = false, features = ["lyrical", "geometry_msgs", "nav_msgs", "tf2_msgs"] }
 thiserror = "2"
 tracing = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
-serde = { version = "1", features = ["derive"] }
-hiroz-cdr = "0.2.1"
-byteorder = "1"
+# Used by the message types build.rs generates into nav2_msgs.
 bytemuck = "1"
+byteorder = "1"
+hiroz-cdr = "0.2.1"
+serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 anyhow = "1"

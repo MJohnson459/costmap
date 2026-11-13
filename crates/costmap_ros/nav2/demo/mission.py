@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from cost_raster import load_geotiff  # noqa: E402
+from cost_raster import load_map  # noqa: E402
 
 LETHAL = 254
 POSE_RATE_HZ = 10.0
@@ -211,11 +211,13 @@ def track_clearance(raster, poses, radius):
     is capped at CLEARANCE_SEARCH_M.
     """
     cost, res = raster["expected"], raster["resolution"]
+    origin_x, origin_y = raster["origin"]
     reach = int(math.ceil(CLEARANCE_SEARCH_M / res))
     height, width = cost.shape
     violations = 0
     least = CLEARANCE_SEARCH_M
     for _, x, y, _ in poses:
+        x, y = x - origin_x, y - origin_y
         cx, cy = int(x / res), int(y / res)
         x0, x1 = max(cx - reach, 0), min(cx + reach + 1, width)
         y0, y1 = max(cy - reach, 0), min(cy + reach + 1, height)
@@ -234,7 +236,7 @@ def parse_waypoints(text):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--map", required=True, help="cost GeoTIFF the server serves")
+    parser.add_argument("--map", required=True, help="map the servers serve")
     parser.add_argument("--waypoints", required=True, help='"x,y x,y ..." in map metres')
     parser.add_argument("--out", required=True, help="directory for recording.npz")
     parser.add_argument("--robot-radius", type=float, default=0.3)
@@ -267,7 +269,7 @@ def main():
 
     poses = np.array(mission.poses)
     steps = np.hypot(np.diff(poses[:, 1]), np.diff(poses[:, 2]))
-    violations, least = track_clearance(load_geotiff(args.map), poses, args.robot_radius)
+    violations, least = track_clearance(load_map(args.map), poses, args.robot_radius)
     print(
         f"drove {steps.sum():.1f} m in {poses[-1, 0] - poses[0, 0]:.0f} s; "
         f"{len(mission.windows)} windows published; {len(mission.routes)} routes; {len(mission.plans)} plans"

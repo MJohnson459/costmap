@@ -6,7 +6,7 @@
 # The package installs into the environment's prefix, which is also its ament
 # prefix, so `ros2 run costmap_ros ...` finds the programs with no setup file.
 context:
-  version: "0.3.0"
+  version: "0.1.0"
 
 package:
   name: ros-lyrical-costmap-ros

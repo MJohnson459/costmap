@@ -2,20 +2,22 @@
 
 Integrates the velocity Nav2's controller publishes on /cmd_vel and publishes
 the resulting pose as odom -> base_link on /tf and as /odom. map -> odom is a
-static identity transform: the robot knows where it is, with no drift.
+static identity transform: the robot knows where it is, with no drift. It also
+publishes the pose in the map frame on /pose at 2 Hz.
 """
 
 import argparse
 import math
 
 import rclpy
-from geometry_msgs.msg import TransformStamped, TwistStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from tf2_msgs.msg import TFMessage
 
 RATE_HZ = 50.0
+POSE_RATE_HZ = 2.0
 # A command older than this stops the robot.
 CMD_TIMEOUT_S = 0.5
 
@@ -52,14 +54,27 @@ class SimRobot(Node):
         self.static_pub.publish(
             TFMessage(transforms=[transform("map", "odom", stamp, 0.0, 0.0, 0.0)])
         )
+        # The pose a localiser would publish, as AMCL does on amcl_pose.
+        self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, "/pose", static_qos)
         self.create_subscription(TwistStamped, "/cmd_vel", self.on_cmd, 10)
         self.create_timer(1.0 / RATE_HZ, self.step)
+        self.create_timer(1.0 / POSE_RATE_HZ, self.publish_pose)
         self.get_logger().info(f"sim: robot at ({x:.2f}, {y:.2f}), yaw {yaw:.2f}")
 
     def on_cmd(self, msg):
         self.v = msg.twist.linear.x
         self.w = msg.twist.angular.z
         self.cmd_at = self.get_clock().now()
+
+    def publish_pose(self):
+        msg = PoseWithCovarianceStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.pose.pose.position.x = self.x
+        msg.pose.pose.position.y = self.y
+        msg.pose.pose.orientation.z = math.sin(self.yaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(self.yaw / 2.0)
+        self.pose_pub.publish(msg)
 
     def step(self):
         now = self.get_clock().now()

@@ -21,20 +21,14 @@ import time
 
 import numpy as np
 import rclpy
-import yaml
 from geometry_msgs.msg import TransformStamped
 from nav2_msgs.msg import Costmap
-from PIL import Image
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from tf2_msgs.msg import TFMessage
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from cost_raster import geotiff_georef, load_geotiff  # noqa: E402
-
-LETHAL = 254
-FREE = 0
-UNKNOWN = 255
+from cost_raster import UNKNOWN, geotiff_georef, load_map  # noqa: E402
 
 # (x, y, yaw) in the map frame. Each step is 65 m, so the Nav2 window after a
 # move never overlaps the window published before it, for windows up to 100 m.
@@ -49,36 +43,6 @@ POSES = [
 
 TF_RATE_HZ = 20.0
 MAX_REPORTED_MISMATCHES = 5
-
-
-def load_fixture(yaml_path):
-    """Expected Nav2 cost of every fixture cell, row 0 at the bottom.
-
-    Follows nav2_map_server's trinary rule with the YAML's thresholds:
-    occupancy = (255 - grey) / 255 for an un-negated image, lethal above
-    occupied_thresh, free below free_thresh, unknown otherwise.
-    """
-    meta = yaml.safe_load(pathlib.Path(yaml_path).read_text())
-    if meta.get("mode", "trinary") != "trinary":
-        raise SystemExit(f"{yaml_path}: only trinary maps are supported by this check")
-    image_path = pathlib.Path(yaml_path).parent / meta["image"]
-    grey = np.asarray(Image.open(image_path).convert("L"), dtype=np.float64)
-    occupancy = grey / 255.0 if meta.get("negate", 0) else (255.0 - grey) / 255.0
-    costs = np.full(grey.shape, UNKNOWN, dtype=np.uint8)
-    costs[occupancy > meta.get("occupied_thresh", 0.65)] = LETHAL
-    costs[occupancy < meta.get("free_thresh", 0.196)] = FREE
-    origin = meta["origin"]
-    if origin[2] != 0:
-        raise SystemExit(f"{yaml_path}: rotated map origins are not supported")
-    classes = {FREE: 1, LETHAL: 0, UNKNOWN: 2}
-    return {
-        "expected": np.flipud(costs),
-        "klass": np.flipud(np.vectorize(classes.get, otypes=[np.uint8])(costs)),
-        "classes": ["lethal", "free", "unknown"],
-        "required": [["lethal"], ["free"]],
-        "resolution": float(meta["resolution"]),
-        "origin": (float(origin[0]), float(origin[1])),
-    }
 
 
 def expected_costs(fixture, costmap):
@@ -239,19 +203,18 @@ def main():
     ap.add_argument("--move-timeout", type=float, default=10.0)
     args = ap.parse_args()
 
-    is_tif = args.map.lower().endswith((".tif", ".tiff"))
     if args.print_resolution:
-        if is_tif:
-            print(f"{geotiff_georef(args.map)[0]:.9g}")
+        if args.map.lower().endswith((".yaml", ".yml")):
+            print(f"{load_map(args.map)['resolution']:.9g}")
         else:
-            print(f"{load_fixture(args.map)['resolution']:.9g}")
+            print(f"{geotiff_georef(args.map)[0]:.9g}")
         return 0
     if args.window_m is None:
         ap.error("--window-m is required")
     poses = POSES
     if args.poses:
         poses = [(float(x), float(y), 0.0) for x, y in (p.split(",") for p in args.poses.split())]
-    fixture = load_geotiff(args.map) if is_tif else load_fixture(args.map)
+    fixture = load_map(args.map)
     rclpy.init()
     robot = Robot(args, poses)
     robot.publish_pose()

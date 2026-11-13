@@ -387,13 +387,15 @@ mod tests {
 
         let mut map = CostGeoTiff::open(&averaged).unwrap();
         let overview = Overview::load(&mut map, route::DEFAULT_OVERVIEW_RESOLUTION_M).unwrap();
-        let reason = StreamReason::NotMaxPooled {
-            resampling: Some("AVERAGE".into()),
+        // Older GDAL does not record the resampling method on an overview.
+        let OverviewSource::Streamed {
+            factor: 4,
+            reason: StreamReason::NotMaxPooled { resampling },
+        } = &overview.source
+        else {
+            panic!("unexpected overview source: {:?}", overview.source);
         };
-        assert_eq!(
-            overview.source,
-            OverviewSource::Streamed { factor: 4, reason }
-        );
+        assert!(matches!(resampling.as_deref(), None | Some("AVERAGE")));
         let (start, goal) = (DVec2::new(180.0, 60.0), DVec2::new(220.0, 60.0));
         let route = overview.plan_route(start, goal).unwrap();
         let crossing = route

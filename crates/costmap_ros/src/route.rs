@@ -8,7 +8,7 @@
 //! through, so memory use does not grow with the raster.
 
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Instant, UNIX_EPOCH};
@@ -139,13 +139,17 @@ impl RawCosts for Costmap {
     }
 }
 
-/// Inflated tiles of a map, each read with enough of its surroundings that
-/// inflation gives what it would on the whole map.
+/// Inflated tiles of a map, each read with a margin as wide as inflation
+/// reaches, so every obstacle that raises a cost in the tile is in the window.
 struct InflatedTiles<R> {
     raw: R,
     layout: TileLayout,
     /// Cells read beyond each edge of a tile.
     margin: u32,
+    /// Distance from an obstacle that inflation reaches: `inflation_m`, or the
+    /// robot radius if that is larger, so cells the robot cannot occupy are
+    /// impassable whatever `inflation_m` is.
+    reach_m: f32,
     options: RouteOptions,
 }
 
@@ -156,10 +160,12 @@ impl<R: RawCosts> InflatedTiles<R> {
         resolution: f64,
         options: &RouteOptions,
     ) -> Result<Self, VoxelError> {
+        let reach_m = options.inflation_m.max(options.robot_radius_m);
         Ok(Self {
             raw,
             layout: TileLayout::new(size, options.graph.tile_cells)?,
-            margin: (f64::from(options.inflation_m) / resolution).ceil() as u32 + 1,
+            margin: (f64::from(reach_m) / resolution).ceil() as u32 + 1,
+            reach_m,
             options: *options,
         })
     }
@@ -170,11 +176,7 @@ impl<R: RawCosts> TileSource for InflatedTiles<R> {
         let (min, size) = (self.layout.tile_min(tile), self.layout.tile_size(tile));
         let low = min.as_ivec2() - IVec2::splat(self.margin as i32);
         let mut costs = self.raw.window(low, size + 2 * self.margin)?;
-        costs.inflate(
-            self.options.inflation_m,
-            self.options.robot_radius_m,
-            COST_SCALING,
-        );
+        costs.inflate(self.reach_m, self.options.robot_radius_m, COST_SCALING);
         crop(&costs, UVec2::splat(self.margin), size)
     }
 }
@@ -196,8 +198,9 @@ fn crop(grid: &Costmap, min: UVec2, size: UVec2) -> Result<Costmap, VoxelError> 
     Costmap::from_vec(info, data)
 }
 
-/// What a stored graph was built from: the raster's length and modification
-/// time, and the options that shape its costs.
+/// What a stored graph of a raster was built from: the raster's length,
+/// modification time, inode and inode change time, a hash of its first and
+/// last 64 KiB, and [`options_fingerprint`].
 fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
@@ -206,14 +209,73 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
         .unwrap_or_default();
     let mut bytes = GRAPH_MAGIC.to_vec();
     bytes.extend(metadata.len().to_le_bytes());
+    bytes.extend(ends_hash(map, metadata.len())?.to_le_bytes());
     bytes.extend(modified.as_nanos().to_le_bytes());
-    bytes.extend(options.robot_radius_m.to_le_bytes());
-    bytes.extend(options.inflation_m.to_le_bytes());
-    bytes.extend(COST_SCALING.to_le_bytes());
+    // A write changes the inode's change time even if the modification time
+    // is then set back, and a replaced file has another inode.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        bytes.extend(metadata.ino().to_le_bytes());
+        bytes.extend(metadata.ctime().to_le_bytes());
+        bytes.extend(metadata.ctime_nsec().to_le_bytes());
+    }
+    bytes.extend(options_fingerprint(options));
     Ok(bytes)
 }
 
-/// Where the graph of the raster at `map` is stored: beside it, with
+/// What a stored graph of a map held in memory was built from: the map's
+/// size and resolution, a hash of every cell, and [`options_fingerprint`].
+/// A ROS map's image and the thresholds in its YAML both show in the cells.
+fn costs_fingerprint(costs: &Costmap, options: &RouteOptions) -> Vec<u8> {
+    let info = costs.info();
+    let mut bytes = GRAPH_MAGIC.to_vec();
+    bytes.extend(b"cells");
+    bytes.extend(info.width.to_le_bytes());
+    bytes.extend(info.height.to_le_bytes());
+    bytes.extend(info.resolution.to_le_bytes());
+    bytes.extend(fnv1a(FNV_OFFSET, costs.as_slice()).to_le_bytes());
+    bytes.extend(options_fingerprint(options));
+    bytes
+}
+
+/// The options that shape a graph's costs, and this crate's version: a later
+/// version may inflate or place crossings differently.
+fn options_fingerprint(options: &RouteOptions) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend(options.robot_radius_m.to_le_bytes());
+    bytes.extend(options.inflation_m.to_le_bytes());
+    bytes.extend(COST_SCALING.to_le_bytes());
+    bytes.extend(env!("CARGO_PKG_VERSION").as_bytes());
+    bytes
+}
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// FNV-1a hash of `bytes`, continued from `hash`.
+fn fnv1a(hash: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(hash, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// FNV-1a hash of the first and last 64 KiB of the file at `path`, which hold
+/// a TIFF's header, its directory and its first and last strips or tiles. A
+/// raster written again with the same size and time differs there.
+fn ends_hash(path: &Path, length: u64) -> Result<u64, VoxelError> {
+    const SPAN: u64 = 64 * 1024;
+    let mut file = File::open(path)?;
+    let mut hash = FNV_OFFSET;
+    for start in [0, length.saturating_sub(SPAN)] {
+        file.seek(SeekFrom::Start(start))?;
+        let mut span = Vec::new();
+        (&mut file).take(SPAN).read_to_end(&mut span)?;
+        hash = fnv1a(hash, &span);
+    }
+    Ok(hash)
+}
+
+/// Where the graph of the map at `map` is stored: beside it, with
 /// `.tilegraph` added to its name.
 pub fn graph_path(map: &Path) -> PathBuf {
     let mut name = map.as_os_str().to_owned();
@@ -221,7 +283,7 @@ pub fn graph_path(map: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// The graph stored at `path`, if it was built from this raster with these
+/// The graph stored at `path`, if it was built from this map with these
 /// options.
 fn read_graph(path: &Path, fingerprint: &[u8], options: &RouteOptions) -> Option<TileGraph> {
     let mut input = BufReader::new(File::open(path).ok()?);
@@ -248,6 +310,36 @@ fn write_graph(path: &Path, fingerprint: &[u8], graph: &TileGraph) -> std::io::R
     fs::rename(&partial, path)
 }
 
+/// The graph stored beside `map` if `fingerprint` matches it; otherwise one
+/// built from `source` and stored there.
+fn stored_or_built(
+    map: &Path,
+    fingerprint: &[u8],
+    size: UVec2,
+    resolution: f64,
+    options: &RouteOptions,
+    source: &mut impl TileSource,
+) -> Result<TileGraph, VoxelError> {
+    let stored = graph_path(map);
+    if let Some(graph) = read_graph(&stored, fingerprint, options) {
+        info!("read the tile graph from {}", stored.display());
+        return Ok(graph);
+    }
+    let started = Instant::now();
+    let graph = TileGraph::build(size, resolution, options.graph, source)?;
+    info!(
+        "built the tile graph in {:.1} s",
+        started.elapsed().as_secs_f64()
+    );
+    if let Err(error) = write_graph(&stored, fingerprint, &graph) {
+        warn!(
+            "could not store the tile graph at {}: {error}",
+            stored.display()
+        );
+    }
+    Ok(graph)
+}
+
 /// Plans routes across a whole cost map.
 pub struct RoutePlanner {
     graph: TileGraph,
@@ -261,21 +353,47 @@ impl RoutePlanner {
     /// Plan on the map at `path`, chosen by extension.
     ///
     /// `.yaml` and `.yml` are a ROS map. It is held whole in memory, as
-    /// `nav2_map_server` holds it, and its graph is built at every start.
+    /// `nav2_map_server` holds it.
     ///
-    /// Anything else is read as a cost GeoTIFF, of which only the tiles a
-    /// route passes are held. Its graph is read from [`graph_path`] if the
-    /// file there was built from this raster with these options. Otherwise it
-    /// is built, which reads the whole raster twice, a few tiles at a time,
-    /// and stored there for the next start. If it cannot be stored, a warning
-    /// is logged and it is built again next time.
+    /// `.tif` and `.tiff` are a cost GeoTIFF, of which only the tiles a route
+    /// passes are held. Any other extension is an error.
+    ///
+    /// The graph is read from [`graph_path`] if the file there was built from
+    /// this map with these options. Otherwise it is built, which for a
+    /// GeoTIFF reads the whole raster twice, a few tiles at a time, and
+    /// stored there for the next start. If it cannot be stored, a warning is
+    /// logged and it is built again next time.
     pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
         let path = path.as_ref();
-        let extension = path.extension().and_then(|e| e.to_str());
-        if matches!(extension, Some(e) if e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
-        {
-            let occupancy = RosMapLoader::load_from_yaml(path)?;
-            return Self::from_costmap(costmap_from_occupancy(&occupancy)?, options);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
+        match extension.as_deref() {
+            Some("yaml" | "yml") => {
+                let occupancy = RosMapLoader::load_from_yaml(path)?;
+                let costs = costmap_from_occupancy(&occupancy)?;
+                let info = *costs.info();
+                let size = UVec2::new(info.width, info.height);
+                let fingerprint = costs_fingerprint(&costs, &options);
+                let mut source = InflatedTiles::new(costs, size, info.resolution, &options)?;
+                let graph = stored_or_built(
+                    path,
+                    &fingerprint,
+                    size,
+                    info.resolution,
+                    &options,
+                    &mut source,
+                )?;
+                return Ok(Self::new(graph, Box::new(source), info.origin, options));
+            }
+            Some("tif" | "tiff") => {}
+            _ => {
+                return Err(VoxelError::InvalidArgument(format!(
+                    "{}: unsupported extension; accepted: .yaml, .yml (ROS map), .tif, .tiff (cost GeoTIFF)",
+                    path.display()
+                )));
+            }
         }
         let map = CostGeoTiff::open(path)?;
         let (size, resolution) = (map.size(), map.resolution());
@@ -284,29 +402,8 @@ impl RoutePlanner {
             map,
         };
         let mut source = InflatedTiles::new(raw, size, resolution, &options)?;
-        let stored = graph_path(path);
         let fingerprint = fingerprint(path, &options)?;
-        let graph = match read_graph(&stored, &fingerprint, &options) {
-            Some(graph) => {
-                info!("read the tile graph from {}", stored.display());
-                graph
-            }
-            None => {
-                let started = Instant::now();
-                let graph = TileGraph::build(size, resolution, options.graph, &mut source)?;
-                info!(
-                    "built the tile graph in {:.1} s",
-                    started.elapsed().as_secs_f64()
-                );
-                if let Err(error) = write_graph(&stored, &fingerprint, &graph) {
-                    warn!(
-                        "could not store the tile graph at {}: {error}",
-                        stored.display()
-                    );
-                }
-                graph
-            }
-        };
+        let graph = stored_or_built(path, &fingerprint, size, resolution, &options, &mut source)?;
         Ok(Self::new(graph, Box::new(source), DVec2::ZERO, options))
     }
 
@@ -431,27 +528,40 @@ impl RoutePlanner {
             snap_m: self.options.snap_m,
         };
         let resolution = self.graph.resolution();
-        let centre = ((point - self.origin) / resolution).floor();
-        let size = self.graph.layout().size().as_dvec2();
-        if centre.cmplt(DVec2::ZERO).any() || centre.cmpge(size).any() {
+        let local = (point - self.origin) / resolution;
+        let size = self.graph.layout().size();
+        let reach = (self.options.snap_m / resolution).ceil();
+        if !local.is_finite()
+            || local.cmplt(DVec2::splat(-reach)).any()
+            || local.cmpgt(size.as_dvec2() + reach).any()
+        {
             return Err(blocked);
         }
-        let centre = centre.as_ivec2();
-        let reach = (self.options.snap_m / resolution).ceil() as i32;
-        let mut best: Option<(i64, UVec2)> = None;
+        let inside = |cell: IVec2| {
+            UVec2::try_from(cell)
+                .ok()
+                .filter(|c| c.x < size.x && c.y < size.y)
+        };
+        let centre = local.floor().as_ivec2();
+        if let Some(cell) = inside(centre)
+            && tiles.cost(cell)?.is_some()
+        {
+            return Ok(cell);
+        }
+        // The passable cell whose centre is nearest the point, within `snap_m`.
+        let reach = reach as i32;
+        let mut best: Option<(f64, UVec2)> = None;
         for dy in -reach..=reach {
             for dx in -reach..=reach {
-                let distance_sq = i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy);
-                if distance_sq > i64::from(reach) * i64::from(reach)
-                    || best.is_some_and(|(d, _)| distance_sq >= d)
-                {
-                    continue;
-                }
-                let Ok(cell) = UVec2::try_from(centre + IVec2::new(dx, dy)) else {
+                let Some(cell) = inside(centre + IVec2::new(dx, dy)) else {
                     continue;
                 };
+                let distance = (cell.as_dvec2() + 0.5).distance(local) * resolution;
+                if distance > self.options.snap_m || best.is_some_and(|(d, _)| distance >= d) {
+                    continue;
+                }
                 if tiles.cost(cell)?.is_some() {
-                    best = Some((distance_sq, cell));
+                    best = Some((distance, cell));
                 }
             }
         }
@@ -616,6 +726,49 @@ mod tests {
     }
 
     #[test]
+    fn a_start_just_outside_the_map_snaps_onto_it() {
+        let planner = walled_planner();
+        let start = DVec2::new(-0.4, 5.0);
+        let route = planner.plan(start, DVec2::new(2.0, 2.0)).unwrap();
+        assert_eq!(route.points[0], start);
+        let far = planner.plan(DVec2::new(-1.5, 5.0), DVec2::new(2.0, 2.0));
+        assert!(matches!(
+            far,
+            Err(RouteError::Blocked { name: "start", .. })
+        ));
+    }
+
+    #[test]
+    fn cells_inside_the_robot_radius_are_impassable_with_no_inflation() {
+        // 0.25 m cells; the wall along x = 10 m has a gap 0.5 m wide, which a
+        // 0.3 m robot does not fit through.
+        let info = MapInfo::square(80, 0.25);
+        let costs = Costmap::from_fn(info, |x, y| {
+            if x == 40 && !(40..42).contains(&y) {
+                COST_LETHAL
+            } else {
+                COST_FREE
+            }
+        });
+        let options = RouteOptions {
+            inflation_m: 0.0,
+            ..OPTIONS
+        };
+        let planner = RoutePlanner::from_costmap(costs, options).unwrap();
+        let (start, goal) = (DVec2::new(2.0, 10.0), DVec2::new(18.0, 10.0));
+        assert_eq!(
+            planner.plan(start, goal),
+            Err(RouteError::NoRoute { start, goal })
+        );
+    }
+
+    #[test]
+    fn an_unknown_map_extension_is_an_error() {
+        let opened = RoutePlanner::open("site.png", OPTIONS);
+        assert!(matches!(opened, Err(VoxelError::InvalidArgument(_))));
+    }
+
+    #[test]
     fn a_ros_map_is_planned_on_in_its_own_frame() {
         let dir = std::env::temp_dir().join(format!("costmap_route_yaml_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -645,6 +798,24 @@ mod tests {
         assert_eq!(route.points.last(), Some(&goal));
         let crossing = route.points.iter().find(|p| p.x >= 0.0).unwrap();
         assert!(crossing.y > 3.0, "crossed at {crossing}");
+
+        // The graph was stored, and the next start reads it.
+        let yaml = dir.join("map.yaml");
+        let costs = |yaml: &Path| {
+            costmap_from_occupancy(&RosMapLoader::load_from_yaml(yaml).unwrap()).unwrap()
+        };
+        let fingerprint = costs_fingerprint(&costs(&yaml), &OPTIONS);
+        assert!(read_graph(&graph_path(&yaml), &fingerprint, &OPTIONS).is_some());
+        let reopened = RoutePlanner::open(&yaml, OPTIONS).unwrap();
+        assert_eq!(reopened.plan(start, goal).unwrap(), route);
+
+        // One more wall cell in the image, and the stored graph no longer fits.
+        let mut pgm = fs::read(dir.join("map.pgm")).unwrap();
+        let last = pgm.len() - 1;
+        pgm[last] = 0;
+        fs::write(dir.join("map.pgm"), pgm).unwrap();
+        let changed = costs_fingerprint(&costs(&yaml), &OPTIONS);
+        assert!(read_graph(&graph_path(&yaml), &changed, &OPTIONS).is_none());
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -684,6 +855,20 @@ mod tests {
         };
         let other = fingerprint_of(&map, &wider);
         assert!(read_graph(&graph_path(&map), &other, &wider).is_none());
+
+        // The same bytes but for one, with the length and time kept.
+        let modified = fs::metadata(&map).unwrap().modified().unwrap();
+        let mut raster = fs::read(&map).unwrap();
+        let last = raster.len() - 1;
+        raster[last] ^= 0xff;
+        fs::write(&map, raster).unwrap();
+        File::options()
+            .write(true)
+            .open(&map)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert_ne!(fingerprint_of(&map, &OPTIONS), fingerprint);
         fs::remove_dir_all(&dir).unwrap();
     }
 

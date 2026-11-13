@@ -8,13 +8,17 @@
 //! - [`source`]: the [`MapSource`] trait that supplies windows of a map, for
 //!   dense maps in memory and tiled GeoTIFFs read on demand.
 //! - [`republish`]: when the window server publishes a new window.
-//! - [`route`]: routes across a whole cost GeoTIFF, planned on a graph of its tiles.
+//! - [`pose`]: the robot's pose, from `/tf` or from a pose topic.
+//! - [`route`]: routes across a whole map, planned on a graph of its tiles.
+//! - [`route_server`]: those routes served as Nav2's `ComputePathToPose` action.
 //! - [`tf`]: a latest-value transform tree and its `/tf` listener.
 
 pub mod convert;
 pub mod nav2_msgs;
+pub mod pose;
 pub mod republish;
 pub mod route;
+pub mod route_server;
 pub mod source;
 pub mod tf;
 
