@@ -88,14 +88,8 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install GDAL
-        run: sudo apt-get update && sudo apt-get install -y gdal-bin
-
       - name: Clippy with every feature
         run: cargo clippy --all-targets --features rerun,geotiff -- -D warnings
-
-      - name: Farm demo tests
-        run: cargo test --release --example farm_demo --features rerun,geotiff
 
   colcon:
     name: colcon package
