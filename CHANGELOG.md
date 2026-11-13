@@ -2,7 +2,7 @@
 
 Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 
-## 0.3.0
+## Unreleased
 
 ### Added
 

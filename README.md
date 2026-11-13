@@ -41,15 +41,19 @@ Measured against `nav2_map_server` with a global costmap of the whole map, on a 
 
 ## Using the library
 
+This README describes the repository, which is ahead of 0.2.0 on crates.io:
+planning, tiled maps and cost GeoTIFFs are not in a release yet. Until the
+next one, depend on the repository:
+
 ```toml
 [dependencies]
-costmap = "0.3"
+costmap = { git = "https://github.com/MJohnson459/costmap" }
 
 # Optional features
-costmap = { version = "0.3", features = ["rerun", "geotiff"] }
+costmap = { git = "https://github.com/MJohnson459/costmap", features = ["rerun", "geotiff"] }
 ```
 
-Upgrading from 0.2? See the [migration guide](MIGRATION.md) and the [changelog](CHANGELOG.md).
+Coming from 0.2? See the [migration guide](MIGRATION.md) and the [changelog](CHANGELOG.md).
 
 Load a map and cast a ray:
 

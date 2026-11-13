@@ -55,12 +55,21 @@ and the launch file and behaviour tree under `share/costmap_ros`. Afterwards
 
 ### A Debian package
 
-Each release from 0.3.0 carries `ros-lyrical-costmap-ros_VERSION_amd64.deb`
-and `ros-lyrical-costmap-ros_VERSION_arm64.deb`. Nothing is compiled on the
-robot.
+Each release will carry `ros-lyrical-costmap-ros_VERSION_amd64.deb` and
+`ros-lyrical-costmap-ros_VERSION_arm64.deb`, so nothing is compiled on the
+robot. No release carries them yet. Until one does, build the package with
+CMake and a Rust toolchain; no ROS install is needed:
 
 ```sh
-sudo apt install ./ros-lyrical-costmap-ros_0.3.0_arm64.deb
+cmake -S crates/costmap_ros -B build -DCOSTMAP_ROS_STANDALONE=ON
+cmake --build build
+(cd build && cpack)
+```
+
+Then install `build/ros-lyrical-costmap-ros_VERSION_ARCH.deb`:
+
+```sh
+sudo apt install ./ros-lyrical-costmap-ros_VERSION_arm64.deb
 source /opt/ros/lyrical/setup.bash
 ```
 
