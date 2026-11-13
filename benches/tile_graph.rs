@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use glam::UVec2;
+use glam::IVec2;
 
 use costmap::planning::{DenseTiles, Regions, TileCache, TileGraph, TileGraphOptions};
 use costmap::{Costmap, PlanOptions, RosMapLoader, costmap_from_occupancy, plan};
@@ -19,10 +19,10 @@ fn warehouse_costmap() -> Costmap {
 
 /// Start and goal pairs spread over the largest region, the first of them its
 /// row-major first and last cells.
-fn queries(grid: &Costmap, options: &PlanOptions) -> Vec<(UVec2, UVec2)> {
+fn queries(grid: &Costmap, options: &PlanOptions) -> Vec<(IVec2, IVec2)> {
     let regions = Regions::new(grid, options);
     let largest = regions.largest().expect("the map has passable cells");
-    let cells: Vec<UVec2> = regions.cells(largest).collect();
+    let cells: Vec<IVec2> = regions.cells(largest).collect();
     let pick = |i: usize| cells[i * (cells.len() - 1) / 16];
     let mut pairs = vec![(cells[0], cells[cells.len() - 1])];
     pairs.extend((1..8).map(|i| (pick(i), pick(16 - i))));

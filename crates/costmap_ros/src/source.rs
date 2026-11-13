@@ -157,7 +157,7 @@ mod tests {
             resolution: 0.5,
             origin: DVec2::new(-2.0, 1.0),
         };
-        Costmap::from_fn(info, |x, y| (10 * y + x) as u8)
+        Costmap::from_fn(info, |cell| (10 * cell.y + cell.x) as u8)
     }
 
     /// Value of the map cell under the centre of each window cell, or
@@ -186,7 +186,7 @@ mod tests {
             window.as_slice(),
             expected_by_world_position(&map, &window).as_slice()
         );
-        assert_eq!(window.get(UVec2::ZERO), Some(&22));
+        assert_eq!(window.get(glam::IVec2::ZERO), Some(&22));
     }
 
     #[test]

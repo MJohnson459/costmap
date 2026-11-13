@@ -121,11 +121,11 @@ fn create_funnel_costmap() -> DenseGrid<u8> {
     let left_at_top = 22u32;
     let right_at_top = 28u32;
 
-    DenseGrid::from_fn(info, |x, y| {
-        let t = y as f32 / (HEIGHT - 1).max(1) as f32;
-        let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as u32;
-        let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as u32;
-        if x < left_x || x > right_x {
+    DenseGrid::from_fn(info, |cell| {
+        let t = cell.y as f32 / (HEIGHT - 1).max(1) as f32;
+        let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as i32;
+        let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as i32;
+        if cell.x < left_x || cell.x > right_x {
             costmap::types::COST_LETHAL
         } else {
             COST_FREE

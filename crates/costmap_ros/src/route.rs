@@ -172,20 +172,20 @@ impl<R: RawCosts> InflatedTiles<R> {
 }
 
 impl<R: RawCosts> TileSource for InflatedTiles<R> {
-    fn tile(&mut self, tile: UVec2) -> Result<Costmap, VoxelError> {
+    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError> {
         let (min, size) = (self.layout.tile_min(tile), self.layout.tile_size(tile));
-        let low = min.as_ivec2() - IVec2::splat(self.margin as i32);
+        let low = min - IVec2::splat(self.margin as i32);
         let mut costs = self.raw.window(low, size + 2 * self.margin)?;
         costs.inflate(self.reach_m, self.options.robot_radius_m, COST_SCALING);
-        crop(&costs, UVec2::splat(self.margin), size)
+        crop(&costs, IVec2::splat(self.margin as i32), size)
     }
 }
 
 /// The `size` cells of `grid` from `min`.
-fn crop(grid: &Costmap, min: UVec2, size: UVec2) -> Result<Costmap, VoxelError> {
+fn crop(grid: &Costmap, min: IVec2, size: UVec2) -> Result<Costmap, VoxelError> {
     let width = grid.size().x as usize;
     let mut data = Vec::with_capacity(size.x as usize * size.y as usize);
-    for y in min.y..min.y + size.y {
+    for y in min.y..min.y + size.y as i32 {
         let row = y as usize * width + min.x as usize;
         data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
     }
@@ -521,7 +521,7 @@ impl RoutePlanner {
         tiles: &mut TileCache<Box<dyn TileSource + Send>>,
         point: DVec2,
         name: &'static str,
-    ) -> Result<UVec2, RouteError> {
+    ) -> Result<IVec2, RouteError> {
         let blocked = RouteError::Blocked {
             name,
             point,
@@ -538,9 +538,9 @@ impl RoutePlanner {
             return Err(blocked);
         }
         let inside = |cell: IVec2| {
-            UVec2::try_from(cell)
-                .ok()
-                .filter(|c| c.x < size.x && c.y < size.y)
+            let within =
+                cell.x >= 0 && cell.y >= 0 && (cell.x as u32) < size.x && (cell.y as u32) < size.y;
+            within.then_some(cell)
         };
         let centre = local.floor().as_ivec2();
         if let Some(cell) = inside(centre)
@@ -550,7 +550,7 @@ impl RoutePlanner {
         }
         // The passable cell whose centre is nearest the point, within `snap_m`.
         let reach = reach as i32;
-        let mut best: Option<(f64, UVec2)> = None;
+        let mut best: Option<(f64, IVec2)> = None;
         for dy in -reach..=reach {
             for dx in -reach..=reach {
                 let Some(cell) = inside(centre + IVec2::new(dx, dy)) else {
@@ -598,7 +598,7 @@ mod tests {
     /// 20 x 20 m at 0.25 m with a wall along x = 10 m, open only for y in 15..17 m.
     fn walled_planner() -> RoutePlanner {
         let info = MapInfo::square(80, 0.25);
-        planner(Costmap::from_fn(info, |x, y| {
+        planner(Costmap::from_fn(info, |IVec2 { x, y }| {
             if x == 40 && !(60..68).contains(&y) {
                 COST_LETHAL
             } else {
@@ -651,7 +651,10 @@ mod tests {
     #[test]
     fn an_endpoint_with_no_passable_cell_nearby_is_an_error() {
         let info = MapInfo::square(80, 0.25);
-        let costs = Costmap::from_fn(info, |x, _| if x < 40 { COST_LETHAL } else { COST_FREE });
+        let costs = Costmap::from_fn(
+            info,
+            |IVec2 { x, .. }| if x < 40 { COST_LETHAL } else { COST_FREE },
+        );
         let planner = planner(costs);
         let start = DVec2::new(2.0, 2.0);
         let err = planner.plan(start, DVec2::new(18.0, 2.0)).unwrap_err();
@@ -696,7 +699,10 @@ mod tests {
     #[test]
     fn a_closed_wall_gives_no_route() {
         let info = MapInfo::square(80, 0.25);
-        let costs = Costmap::from_fn(info, |x, _| if x == 40 { COST_LETHAL } else { COST_FREE });
+        let costs = Costmap::from_fn(
+            info,
+            |IVec2 { x, .. }| if x == 40 { COST_LETHAL } else { COST_FREE },
+        );
         let planner = planner(costs);
         let (start, goal) = (DVec2::new(2.0, 2.0), DVec2::new(18.0, 2.0));
         assert_eq!(
@@ -711,7 +717,7 @@ mod tests {
         // wide, which leaves the 0.3 m robot 0.15 m on each side.
         let info = MapInfo::square(400, 0.05);
         let doorway = 200..218;
-        let planner = planner(Costmap::from_fn(info, |x, y| {
+        let planner = planner(Costmap::from_fn(info, |IVec2 { x, y }| {
             if (200..203).contains(&x) && !doorway.contains(&y) {
                 COST_LETHAL
             } else {
@@ -743,7 +749,7 @@ mod tests {
         // 0.25 m cells; the wall along x = 10 m has a gap 0.5 m wide, which a
         // 0.3 m robot does not fit through.
         let info = MapInfo::square(80, 0.25);
-        let costs = Costmap::from_fn(info, |x, y| {
+        let costs = Costmap::from_fn(info, |IVec2 { x, y }| {
             if x == 40 && !(40..42).contains(&y) {
                 COST_LETHAL
             } else {
@@ -825,7 +831,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let map = dir.join("cost.tif");
         let info = MapInfo::square(100, 0.25);
-        let costs = Costmap::from_fn(info, |x, y| {
+        let costs = Costmap::from_fn(info, |IVec2 { x, y }| {
             if x == 50 && y > 10 {
                 COST_LETHAL
             } else {

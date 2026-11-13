@@ -136,7 +136,7 @@ mod tests {
                 .expect("layer should exist and be the right type");
             proj_layer
                 .source_mut()
-                .set(glam::UVec2::new(2, 2), 1.0)
+                .set(glam::IVec2::new(2, 2), 1.0)
                 .unwrap();
         }
 
@@ -145,12 +145,12 @@ mod tests {
 
         // Check that the master reflects the projected cost
         assert_eq!(
-            layered.master().get(glam::UVec2::new(2, 2)),
+            layered.master().get(glam::IVec2::new(2, 2)),
             Some(&COST_LETHAL)
         );
         // Other cells should remain free
         assert_eq!(
-            layered.master().get(glam::UVec2::new(0, 0)),
+            layered.master().get(glam::IVec2::new(0, 0)),
             Some(&COST_FREE)
         );
     }
@@ -209,7 +209,7 @@ mod tests {
             let proj_layer = layered.layer_mut::<ProjectionLayer<f32>>(proj_id).unwrap();
             proj_layer
                 .source_mut()
-                .set(glam::UVec2::new(2, 2), 1.0)
+                .set(glam::IVec2::new(2, 2), 1.0)
                 .unwrap();
         }
 
@@ -217,13 +217,13 @@ mod tests {
 
         // The projected lethal cost is present...
         assert_eq!(
-            layered.master().get(glam::UVec2::new(2, 2)),
+            layered.master().get(glam::IVec2::new(2, 2)),
             Some(&COST_LETHAL)
         );
         // ...and it seeds inflation: the adjacent cell gets a halo in (FREE, LETHAL).
         let neighbour = layered
             .master()
-            .get(glam::UVec2::new(3, 2))
+            .get(glam::IVec2::new(3, 2))
             .copied()
             .unwrap();
         assert!(
@@ -251,7 +251,7 @@ mod tests {
             let proj_layer = layered.layer_mut::<ProjectionLayer<f32>>(id).unwrap();
             proj_layer
                 .source_mut()
-                .set(glam::UVec2::new(1, 1), 0.5)
+                .set(glam::IVec2::new(1, 1), 0.5)
                 .unwrap();
         }
 
@@ -264,7 +264,7 @@ mod tests {
         // Verify data is cleared to fill_value
         {
             let proj_layer = layered.layer::<ProjectionLayer<f32>>(id).unwrap();
-            assert_eq!(proj_layer.source().get(glam::UVec2::new(1, 1)), Some(&0.0));
+            assert_eq!(proj_layer.source().get(glam::IVec2::new(1, 1)), Some(&0.0));
         }
     }
 
@@ -351,7 +351,7 @@ mod tests {
             .layer_mut::<ProjectionLayer<f32>>(id)
             .unwrap()
             .source_mut()
-            .set(glam::UVec2::new(3, 3), 1.0)
+            .set(glam::IVec2::new(3, 3), 1.0)
             .unwrap();
         layered.update_map(Pose2 {
             position: DVec2::new(2.5, 2.5),
@@ -359,7 +359,7 @@ mod tests {
         });
         // World (3.5,3.5) → cell (3,3) with origin (0,0).
         assert_eq!(
-            layered.master().get(glam::UVec2::new(3, 3)),
+            layered.master().get(glam::IVec2::new(3, 3)),
             Some(&COST_LETHAL)
         );
 
@@ -371,12 +371,12 @@ mod tests {
         });
         // World (3.5,3.5) now maps to cell (2,3) with origin (1,0).
         assert_eq!(
-            layered.master().get(glam::UVec2::new(2, 3)),
+            layered.master().get(glam::IVec2::new(2, 3)),
             Some(&COST_LETHAL)
         );
         // The old cell no longer holds the marked world location.
         assert_eq!(
-            layered.master().get(glam::UVec2::new(3, 3)),
+            layered.master().get(glam::IVec2::new(3, 3)),
             Some(&COST_FREE)
         );
     }

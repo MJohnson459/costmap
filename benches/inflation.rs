@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::{DVec2, UVec2};
+use glam::{DVec2, IVec2};
 
 use costmap::types::{Bounds, COST_FREE, COST_LETHAL, CellRegion, MapInfo, Pose2};
 use costmap::{Costmap, InflationConfig, Layer, LayeredCostmap, WavefrontInflationLayer};
@@ -26,23 +26,23 @@ fn grid_with_lethals(width: u32, height: u32, resolution: f64, pattern: LethalPa
     match pattern {
         LethalPattern::Empty => {}
         LethalPattern::SingleCenter => {
-            let cx = width / 2;
-            let cy = height / 2;
-            let _ = grid.set(UVec2::new(cx, cy), COST_LETHAL);
+            let cx = width as i32 / 2;
+            let cy = height as i32 / 2;
+            let _ = grid.set(IVec2::new(cx, cy), COST_LETHAL);
         }
         LethalPattern::Sparse(step) => {
             let step = step.max(1);
-            for y in (0..height).step_by(step as usize) {
-                for x in (0..width).step_by(step as usize) {
-                    let _ = grid.set(UVec2::new(x, y), COST_LETHAL);
+            for y in (0..height as i32).step_by(step as usize) {
+                for x in (0..width as i32).step_by(step as usize) {
+                    let _ = grid.set(IVec2::new(x, y), COST_LETHAL);
                 }
             }
         }
         LethalPattern::Dense(step) => {
             let step = step.max(1);
-            for y in (0..height).step_by(step as usize) {
-                for x in (0..width).step_by(step as usize) {
-                    let _ = grid.set(UVec2::new(x, y), COST_LETHAL);
+            for y in (0..height as i32).step_by(step as usize) {
+                for x in (0..width as i32).step_by(step as usize) {
+                    let _ = grid.set(IVec2::new(x, y), COST_LETHAL);
                 }
             }
         }
@@ -53,7 +53,7 @@ fn grid_with_lethals(width: u32, height: u32, resolution: f64, pattern: LethalPa
 
 /// Layer that sets a fixed set of cells to COST_LETHAL (for benchmarking inflation).
 struct StaticLethalsLayer {
-    positions: Vec<UVec2>,
+    positions: Vec<IVec2>,
     info: MapInfo,
 }
 
@@ -222,9 +222,9 @@ fn bench_inflation(c: &mut Criterion) {
             resolution: res_005,
             ..Default::default()
         };
-        let positions: Vec<UVec2> = (0..256)
+        let positions: Vec<IVec2> = (0..256)
             .step_by(32)
-            .flat_map(|y| (0..256).step_by(32).map(move |x| UVec2::new(x, y)))
+            .flat_map(|y| (0..256).step_by(32).map(move |x| IVec2::new(x, y)))
             .collect();
         let static_layer = StaticLethalsLayer { positions, info };
         let inflation_layer = WavefrontInflationLayer::new(InflationConfig {

@@ -26,7 +26,7 @@ use costmap::rerun_viz::{log_costmap, log_point3d};
 use costmap::types::{COST_FREE, Pose2};
 use costmap::{DenseGrid, MapInfo, MergePolicy, ProjectionLayer, cost_from_unit};
 use costmap::{InflationConfig, LayeredCostmap, WavefrontInflationLayer};
-use glam::{DVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, Vec2};
 
 // Simulation parameters
 const DELAY_MS: u64 = 100;
@@ -81,10 +81,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         {
             let proj = layered.layer_mut::<ProjectionLayer<f32>>(id).unwrap();
             let src = proj.source_mut();
-            let (w, h) = (src.size().x, src.size().y);
+            let (w, h) = (src.size().x as i32, src.size().y as i32);
             for y in 0..h {
                 for x in 0..w {
-                    let cell = UVec2::new(x, y);
+                    let cell = IVec2::new(x, y);
                     let world = src.map_to_world(cell);
                     // Impassable terrain band in world coords (x in [4.0, 4.5]).
                     // Traversability 1.0 projects to COST_LETHAL, which seeds inflation.

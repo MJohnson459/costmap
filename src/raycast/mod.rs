@@ -1,4 +1,4 @@
-use glam::UVec2;
+use glam::IVec2;
 
 pub mod dda;
 pub mod grid_step;
@@ -7,7 +7,7 @@ mod utils;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct RayHit2D {
     /// Grid cell that contains the first hit.
-    pub cell: UVec2,
+    pub cell: IVec2,
     /// Distance from the ray origin to the cell boundary hit (world units).
     pub hit_distance: f32,
 }

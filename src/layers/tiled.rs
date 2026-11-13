@@ -57,12 +57,12 @@ impl TiledMapLayer {
     /// Dense copy of the tiles under `region` of a master described by `info`.
     fn region_window(&self, info: &MapInfo, region: CellRegion) -> Option<DenseGrid<u8>> {
         let size = region.max.saturating_sub(region.min);
-        if size.x == 0 || size.y == 0 {
+        if size.x <= 0 || size.y <= 0 {
             return None;
         }
         let window_info = MapInfo {
-            width: size.x,
-            height: size.y,
+            width: size.x as u32,
+            height: size.y as u32,
             resolution: info.resolution,
             origin: info.origin + region.min.as_dvec2() * info.resolution,
         };
@@ -134,7 +134,7 @@ fn merge_row(policy: MergePolicy, master: &mut [u8], source: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use glam::{DVec2, IVec2, UVec2};
+    use glam::{DVec2, IVec2};
 
     use super::*;
     use crate::{
@@ -157,7 +157,7 @@ mod tests {
         LayeredCostmap::new(MapInfo::square(width, 1.0), COST_FREE, false)
     }
 
-    fn lethal_cells(layered: &LayeredCostmap) -> Vec<UVec2> {
+    fn lethal_cells(layered: &LayeredCostmap) -> Vec<IVec2> {
         layered
             .master()
             .indexed_iter()
@@ -185,7 +185,7 @@ mod tests {
         layered.add_layer(layer_with(grid)).unwrap();
         layered.update_map(Pose2::default());
 
-        assert_eq!(lethal_cells(&layered), [UVec2::new(5, 7)]);
+        assert_eq!(lethal_cells(&layered), [IVec2::new(5, 7)]);
     }
 
     #[test]
@@ -196,16 +196,16 @@ mod tests {
         grid.set(IVec2::new(17, 3), COST_LETHAL);
 
         let mut layered = fixed_master(40);
-        layered.master_mut().set(UVec2::new(35, 35), 77).unwrap();
+        layered.master_mut().set(IVec2::new(35, 35), 77).unwrap();
         layered.add_layer(layer_with(grid)).unwrap();
         layered.update_map(Pose2::default());
 
         let master = layered.master();
-        assert_eq!(master[UVec2::new(0, 0)], 40);
-        assert_eq!(master[UVec2::new(31, 15)], 40);
-        assert_eq!(master[UVec2::new(17, 3)], COST_LETHAL);
-        assert_eq!(master[UVec2::new(32, 0)], COST_FREE);
-        assert_eq!(master[UVec2::new(0, 16)], COST_FREE);
+        assert_eq!(master[IVec2::new(0, 0)], 40);
+        assert_eq!(master[IVec2::new(31, 15)], 40);
+        assert_eq!(master[IVec2::new(17, 3)], COST_LETHAL);
+        assert_eq!(master[IVec2::new(32, 0)], COST_FREE);
+        assert_eq!(master[IVec2::new(0, 16)], COST_FREE);
     }
 
     #[test]
@@ -237,8 +237,8 @@ mod tests {
         layered.update_map(Pose2::default());
 
         let master = layered.master();
-        assert_eq!(master[UVec2::new(2, 2)], 10);
-        assert_eq!(master[UVec2::new(3, 3)], 33);
+        assert_eq!(master[IVec2::new(2, 2)], 10);
+        assert_eq!(master[IVec2::new(3, 3)], 33);
     }
 
     #[test]
@@ -248,7 +248,7 @@ mod tests {
         grid.set(IVec2::new(2, 2), 50);
 
         let mut layered = fixed_master(8);
-        layered.master_mut().set(UVec2::new(2, 2), 90).unwrap();
+        layered.master_mut().set(IVec2::new(2, 2), 90).unwrap();
         layered
             .add_layer(Box::new(TiledMapLayer::new(
                 Arc::new(grid),
@@ -258,7 +258,7 @@ mod tests {
         // The master is reset to free inside the update region before layers run,
         // so the pre-set 90 is gone and the layer stamps 50 everywhere known.
         layered.update_map(Pose2::default());
-        assert_eq!(layered.master()[UVec2::new(2, 2)], 50);
+        assert_eq!(layered.master()[IVec2::new(2, 2)], 50);
     }
 
     #[test]
@@ -272,12 +272,12 @@ mod tests {
         assert_eq!(Arc::as_ptr(layer.grid()), before);
 
         layered.update_map(Pose2::default());
-        assert_eq!(layered.master()[UVec2::new(3, 3)], COST_LETHAL);
+        assert_eq!(layered.master()[IVec2::new(3, 3)], COST_LETHAL);
 
         let layer = layered.layer_mut::<TiledMapLayer>(id).unwrap();
         layer.grid_mut().remove_chunk(IVec2::ZERO);
         layered.update_map(Pose2::default());
-        assert_eq!(layered.master()[UVec2::new(3, 3)], COST_FREE);
+        assert_eq!(layered.master()[IVec2::new(3, 3)], COST_FREE);
     }
 
     #[test]
@@ -299,7 +299,7 @@ mod tests {
 
         layer.update_costs(
             &mut master,
-            CellRegion::new(UVec2::new(3, 4), UVec2::new(6, 5)),
+            CellRegion::new(IVec2::new(3, 4), IVec2::new(6, 5)),
         );
 
         let stamped: Vec<_> = master
@@ -309,7 +309,7 @@ mod tests {
             .collect();
         assert_eq!(
             stamped,
-            [UVec2::new(3, 4), UVec2::new(4, 4), UVec2::new(5, 4)]
+            [IVec2::new(3, 4), IVec2::new(4, 4), IVec2::new(5, 4)]
         );
     }
 
@@ -342,9 +342,9 @@ mod tests {
             let master = layered.master();
             let expected = master.world_to_map(obstacle_centre).unwrap();
             assert_eq!(lethal_cells(&layered), [expected], "robot at x={robot_x}");
-            let beside = master[expected + UVec2::X];
+            let beside = master[expected + IVec2::X];
             assert!(beside > COST_FREE && beside < COST_LETHAL, "halo {beside}");
-            assert_eq!(master[UVec2::new(0, 0)], COST_FREE);
+            assert_eq!(master[IVec2::new(0, 0)], COST_FREE);
         }
     }
 

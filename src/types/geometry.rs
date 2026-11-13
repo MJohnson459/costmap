@@ -1,6 +1,6 @@
 //! Geometric and spatial types used across the grid and costmap APIs.
 
-use glam::{DVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, Vec2};
 
 /// Robot pose in world coordinates (meters).
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -56,21 +56,21 @@ impl Bounds {
     }
 }
 
-/// Update window in cell indices. Region is [min.x, max.x) x [min.y, max.y).
+/// Update window in cell positions. Region is [min.x, max.x) x [min.y, max.y).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellRegion {
-    pub min: UVec2,
-    pub max: UVec2,
+    pub min: IVec2,
+    pub max: IVec2,
 }
 
 impl CellRegion {
-    pub fn new(min: UVec2, max: UVec2) -> Self {
+    pub fn new(min: IVec2, max: IVec2) -> Self {
         Self { min, max }
     }
 
     /// Returns true if the cell position is inside this region (half-open bounds).
     #[inline]
-    pub fn contains(&self, pos: UVec2) -> bool {
+    pub fn contains(&self, pos: IVec2) -> bool {
         pos.x >= self.min.x && pos.x < self.max.x && pos.y >= self.min.y && pos.y < self.max.y
     }
 }

@@ -472,10 +472,10 @@ mod tests {
         assert_eq!(window.info().origin, g.cell_origin(min));
         assert_eq!(window.info().resolution, 0.5);
         for (pos, value) in window.indexed_iter() {
-            assert_eq!(value, g.get(min + pos.as_ivec2()), "at {pos}");
+            assert_eq!(value, g.get(min + pos), "at {pos}");
         }
-        assert_eq!(window[UVec2::new(0, 8)], COST_UNKNOWN);
-        assert_eq!(window[UVec2::new(10, 0)], pattern(IVec2::new(5, -6)));
+        assert_eq!(window[IVec2::new(0, 8)], COST_UNKNOWN);
+        assert_eq!(window[IVec2::new(10, 0)], pattern(IVec2::new(5, -6)));
     }
 
     #[test]
@@ -483,9 +483,9 @@ mod tests {
         let mut g = grid(8);
         g.set(IVec2::splat(i32::MAX), 7);
         let window = g.window(IVec2::splat(i32::MAX - 1), UVec2::splat(4));
-        assert_eq!(window[UVec2::new(1, 1)], 7);
-        assert_eq!(window[UVec2::new(2, 2)], COST_UNKNOWN);
-        assert_eq!(window[UVec2::new(3, 0)], COST_UNKNOWN);
+        assert_eq!(window[IVec2::new(1, 1)], 7);
+        assert_eq!(window[IVec2::new(2, 2)], COST_UNKNOWN);
+        assert_eq!(window[IVec2::new(3, 0)], COST_UNKNOWN);
     }
 
     #[test]
@@ -494,7 +494,7 @@ mod tests {
         let cell = IVec2::new(-3, 12);
         g.set(cell, 42);
         let window = g.window_centered(g.cell_center(cell), UVec2::new(7, 5));
-        assert_eq!(window[UVec2::new(3, 2)], 42);
+        assert_eq!(window[IVec2::new(3, 2)], 42);
     }
 
     #[test]
@@ -506,7 +506,7 @@ mod tests {
             resolution: 0.5,
             origin: g.cell_origin(IVec2::new(-9, -4)),
         };
-        let source = DenseGrid::from_fn(info, |x, y| pattern(IVec2::new(x as i32, y as i32)));
+        let source = DenseGrid::from_fn(info, pattern);
         g.write_window(&source).unwrap();
 
         let back = g.window(IVec2::new(-9, -4), UVec2::new(20, 13));
@@ -539,8 +539,8 @@ mod tests {
         let mut target = DenseGrid::filled(info, 99u8);
         g.read_into(&mut target).unwrap();
         // The origin snaps to cell (1, 2), so cell (2, 3) lands at (1, 1).
-        assert_eq!(target[UVec2::new(1, 1)], 11);
-        assert_eq!(target[UVec2::new(0, 0)], COST_UNKNOWN);
+        assert_eq!(target[IVec2::new(1, 1)], 11);
+        assert_eq!(target[IVec2::new(0, 0)], COST_UNKNOWN);
     }
 
     #[test]

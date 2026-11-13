@@ -217,7 +217,7 @@ mod tests {
         window
             .indexed_iter()
             .map(|(cell, _)| {
-                let c = first + cell.as_ivec2();
+                let c = first + cell;
                 let inside =
                     c.x >= 0 && c.y >= 0 && c.x < MAP_CELLS.x as i32 && c.y < MAP_CELLS.y as i32;
                 if inside {
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(window.info().origin, DVec2::new(145.0, 45.0));
         assert_eq!(window.info().resolution, RESOLUTION);
         assert_eq!(window.as_slice(), expected(&window).as_slice());
-        assert_eq!(window.get(UVec2::ZERO), Some(&pattern(290, 90)));
+        assert_eq!(window.get(IVec2::ZERO), Some(&pattern(290, 90)));
     }
 
     #[test]

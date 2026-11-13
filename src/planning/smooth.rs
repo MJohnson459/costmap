@@ -5,7 +5,7 @@
 //! the straight line between its ends. [`Path::shortcut`] replaces runs of cells with
 //! straight segments wherever that is as safe as the run it replaces.
 
-use glam::{I64Vec2, UVec2};
+use glam::{I64Vec2, IVec2};
 
 use crate::Costmap;
 
@@ -21,7 +21,7 @@ impl Path {
     /// and last cells are always waypoints.
     ///
     /// Lines are traced as in [`line_passable`].
-    pub fn shortcut(&self, grid: &Costmap, options: &PlanOptions) -> Vec<UVec2> {
+    pub fn shortcut(&self, grid: &Costmap, options: &PlanOptions) -> Vec<IVec2> {
         shortcut_cells(&self.cells, |cell| passable_cost(grid, cell, options))
     }
 }
@@ -29,9 +29,9 @@ impl Path {
 /// [`Path::shortcut`] over `cells`, with `cost` giving the cost of entering a cell or
 /// `None` if it is impassable.
 pub(super) fn shortcut_cells(
-    cells: &[UVec2],
-    mut cost: impl FnMut(UVec2) -> Option<u8>,
-) -> Vec<UVec2> {
+    cells: &[IVec2],
+    mut cost: impl FnMut(IVec2) -> Option<u8>,
+) -> Vec<IVec2> {
     let Some(&first) = cells.first() else {
         return Vec::new();
     };
@@ -65,7 +65,7 @@ pub(super) fn shortcut_cells(
 /// Every cell whose closed square the line meets is tested. Where the line passes
 /// exactly through a cell corner, that includes both cells beside the corner, which
 /// the planner's diagonal moves also require to be passable.
-pub fn line_passable(grid: &Costmap, from: UVec2, to: UVec2, options: &PlanOptions) -> bool {
+pub fn line_passable(grid: &Costmap, from: IVec2, to: IVec2, options: &PlanOptions) -> bool {
     line_within(from, to, u8::MAX, &mut |cell| {
         passable_cost(grid, cell, options)
     })
@@ -73,12 +73,12 @@ pub fn line_passable(grid: &Costmap, from: UVec2, to: UVec2, options: &PlanOptio
 
 /// Whether every cell the line touches is passable with a cost of at most `bound`.
 fn line_within(
-    from: UVec2,
-    to: UVec2,
+    from: IVec2,
+    to: IVec2,
     bound: u8,
-    cost: &mut impl FnMut(UVec2) -> Option<u8>,
+    cost: &mut impl FnMut(IVec2) -> Option<u8>,
 ) -> bool {
-    let mut ok = |cell: UVec2| cost(cell).is_some_and(|c| c <= bound);
+    let mut ok = |cell: IVec2| cost(cell).is_some_and(|c| c <= bound);
     ok(from) && ok(to) && all_touched(from, to, ok)
 }
 
@@ -90,12 +90,12 @@ fn line_within(
 /// after `i` and `j` crossings of each, so comparing `(2i + 1) dy` with `(2j + 1) dx`
 /// orders the crossings and equality is a corner. Every touched cell lies between
 /// `from` and `to`, so inside any grid holding both.
-fn all_touched(from: UVec2, to: UVec2, mut ok: impl FnMut(UVec2) -> bool) -> bool {
+fn all_touched(from: IVec2, to: IVec2, mut ok: impl FnMut(IVec2) -> bool) -> bool {
     let delta = to.as_i64vec2() - from.as_i64vec2();
     let (span, step) = (delta.abs(), delta.signum());
     let mut cell = from.as_i64vec2();
     let mut crossed = I64Vec2::ZERO;
-    let at = |c: I64Vec2| c.as_uvec2();
+    let at = |c: I64Vec2| c.as_ivec2();
     while crossed.cmplt(span).any() {
         let x_next = (2 * crossed.x + 1) * span.y;
         let y_next = (2 * crossed.y + 1) * span.x;
@@ -135,8 +135,8 @@ mod tests {
         Costmap::filled(MapInfo::square(width.max(height), 1.0), COST_FREE)
     }
 
-    fn cell(x: u32, y: u32) -> UVec2 {
-        UVec2::new(x, y)
+    fn cell(x: i32, y: i32) -> IVec2 {
+        IVec2::new(x, y)
     }
 
     fn options() -> PlanOptions {
@@ -190,12 +190,9 @@ mod tests {
         let waypoints = path.shortcut(&g, &options());
         assert!(waypoints.len() < path.cells.len());
         // Neighbouring waypoints are a planner step, which may pass a costly cell's corner.
-        let segments = waypoints.windows(2).filter(|pair| {
-            (pair[0].as_ivec2() - pair[1].as_ivec2())
-                .abs()
-                .max_element()
-                > 1
-        });
+        let segments = waypoints
+            .windows(2)
+            .filter(|pair| (pair[0] - pair[1]).abs().max_element() > 1);
         for pair in segments {
             assert!(
                 line_within(pair[0], pair[1], COST_FREE, &mut |c| passable_cost(
@@ -211,7 +208,7 @@ mod tests {
     /// Whether the segment between the centres of `from` and `to` meets the square of
     /// `cell`: the closed square, or only its interior. Exact: in doubled coordinates
     /// every point involved is an integer.
-    fn segment_meets(from: UVec2, to: UVec2, cell: UVec2, closed: bool) -> bool {
+    fn segment_meets(from: IVec2, to: IVec2, cell: IVec2, closed: bool) -> bool {
         let (a, b) = (from.as_i64vec2() * 2 + 1, to.as_i64vec2() * 2 + 1);
         let (lo, hi) = (cell.as_i64vec2() * 2, cell.as_i64vec2() * 2 + 2);
         let apart = if closed {
@@ -254,12 +251,12 @@ mod tests {
         while checked < 5000 {
             let mut g = grid(SIDE, SIDE);
             for _ in 0..12 {
-                let c = cell(rng.below(SIDE), rng.below(SIDE));
+                let c = cell(rng.below(SIDE) as i32, rng.below(SIDE) as i32);
                 g.set(c, COST_LETHAL).unwrap();
             }
             for _ in 0..50 {
-                let from = cell(rng.below(SIDE), rng.below(SIDE));
-                let to = cell(rng.below(SIDE), rng.below(SIDE));
+                let from = cell(rng.below(SIDE) as i32, rng.below(SIDE) as i32);
+                let to = cell(rng.below(SIDE) as i32, rng.below(SIDE) as i32);
                 let free_where = |closed: bool| {
                     g.indexed_iter()
                         .filter(|&(c, _)| segment_meets(from, to, c, closed))

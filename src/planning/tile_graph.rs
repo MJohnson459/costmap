@@ -20,7 +20,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 
-use glam::UVec2;
+use glam::{IVec2, UVec2};
 
 use crate::{
     Costmap, MapInfo,
@@ -118,35 +118,37 @@ impl TileLayout {
     }
 
     /// The tile holding `cell`.
-    pub fn tile_of(&self, cell: UVec2) -> UVec2 {
-        cell / self.tile_cells
+    pub fn tile_of(&self, cell: IVec2) -> IVec2 {
+        cell.div_euclid(IVec2::splat(self.tile_cells as i32))
     }
 
     /// The lowest cell of `tile`.
-    pub fn tile_min(&self, tile: UVec2) -> UVec2 {
-        tile * self.tile_cells
+    pub fn tile_min(&self, tile: IVec2) -> IVec2 {
+        tile * self.tile_cells as i32
     }
 
     /// Size of `tile` in cells.
-    pub fn tile_size(&self, tile: UVec2) -> UVec2 {
-        (self.size - self.tile_min(tile)).min(UVec2::splat(self.tile_cells))
+    pub fn tile_size(&self, tile: IVec2) -> UVec2 {
+        (self.size.as_ivec2() - self.tile_min(tile))
+            .min(IVec2::splat(self.tile_cells as i32))
+            .as_uvec2()
     }
 
-    fn contains(&self, cell: UVec2) -> bool {
-        cell.x < self.size.x && cell.y < self.size.y
+    fn contains(&self, cell: IVec2) -> bool {
+        (cell.x as u32) < self.size.x && (cell.y as u32) < self.size.y
     }
 
     fn tile_count(&self) -> usize {
         self.tiles().x as usize * self.tiles().y as usize
     }
 
-    fn index(&self, tile: UVec2) -> usize {
+    fn index(&self, tile: IVec2) -> usize {
         tile.y as usize * self.tiles().x as usize + tile.x as usize
     }
 
-    fn tile_at(&self, index: usize) -> UVec2 {
+    fn tile_at(&self, index: usize) -> IVec2 {
         let across = self.tiles().x as usize;
-        UVec2::new((index % across) as u32, (index / across) as u32)
+        IVec2::new((index % across) as i32, (index / across) as i32)
     }
 }
 
@@ -155,11 +157,11 @@ pub trait TileSource {
     /// Costs of `tile`: a grid of [`TileLayout::tile_size`] cells whose cell `(0, 0)` is
     /// [`TileLayout::tile_min`]. The costs are planned on as given, so a source inflates
     /// them first if the robot needs clearance, using cells beyond the tile's edge.
-    fn tile(&mut self, tile: UVec2) -> Result<Costmap, VoxelError>;
+    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError>;
 }
 
 impl<S: TileSource + ?Sized> TileSource for Box<S> {
-    fn tile(&mut self, tile: UVec2) -> Result<Costmap, VoxelError> {
+    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError> {
         (**self).tile(tile)
     }
 }
@@ -178,10 +180,10 @@ impl<G: Borrow<Costmap>> DenseTiles<G> {
 }
 
 impl<G: Borrow<Costmap>> TileSource for DenseTiles<G> {
-    fn tile(&mut self, tile: UVec2) -> Result<Costmap, VoxelError> {
+    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError> {
         let grid = self.grid.borrow();
         let tiles = self.layout.tiles();
-        if tile.x >= tiles.x || tile.y >= tiles.y {
+        if tile.x < 0 || tile.y < 0 || tile.x as u32 >= tiles.x || tile.y as u32 >= tiles.y {
             return Err(VoxelError::OutOfBounds(format!(
                 "tile {tile} is outside the {tiles} tiles of the map"
             )));
@@ -189,7 +191,7 @@ impl<G: Borrow<Costmap>> TileSource for DenseTiles<G> {
         let (min, size) = (self.layout.tile_min(tile), self.layout.tile_size(tile));
         let width = grid.size().x as usize;
         let mut data = Vec::with_capacity(size.x as usize * size.y as usize);
-        for y in min.y..min.y + size.y {
+        for y in min.y..min.y + size.y as i32 {
             let row = y as usize * width + min.x as usize;
             data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
         }
@@ -215,7 +217,7 @@ impl TileCosts {
     fn fetch(
         source: &mut impl TileSource,
         layout: &TileLayout,
-        tile: UVec2,
+        tile: IVec2,
         options: &PlanOptions,
     ) -> Result<Self, VoxelError> {
         let grid = source.tile(tile)?;
@@ -239,24 +241,24 @@ impl TileCosts {
         Ok(Self { size, costs })
     }
 
-    fn index(&self, local: UVec2) -> usize {
+    fn index(&self, local: IVec2) -> usize {
         local.y as usize * self.size.x as usize + local.x as usize
     }
 
-    fn local(&self, index: usize) -> UVec2 {
+    fn local(&self, index: usize) -> IVec2 {
         let width = self.size.x as usize;
-        UVec2::new((index % width) as u32, (index / width) as u32)
+        IVec2::new((index % width) as i32, (index / width) as i32)
     }
 
-    fn column(&self, x: u32) -> Vec<u8> {
-        (0..self.size.y)
-            .map(|y| self.costs[self.index(UVec2::new(x, y))])
+    fn column(&self, x: i32) -> Vec<u8> {
+        (0..self.size.y as i32)
+            .map(|y| self.costs[self.index(IVec2::new(x, y))])
             .collect()
     }
 
-    fn row(&self, y: u32) -> Vec<u8> {
-        (0..self.size.x)
-            .map(|x| self.costs[self.index(UVec2::new(x, y))])
+    fn row(&self, y: i32) -> Vec<u8> {
+        (0..self.size.x as i32)
+            .map(|x| self.costs[self.index(IVec2::new(x, y))])
             .collect()
     }
 }
@@ -285,8 +287,8 @@ impl Steps {
     }
 
     /// Octile distance in metres: a lower bound on the cost between cells `d` apart.
-    fn octile(&self, a: UVec2, b: UVec2) -> f32 {
-        let d = (a.as_ivec2() - b.as_ivec2()).abs();
+    fn octile(&self, a: IVec2, b: IVec2) -> f32 {
+        let d = (a - b).abs();
         let (long, short) = (d.x.max(d.y) as f32, d.x.min(d.y) as f32);
         (long - short) * self.length_m[0] + short * self.length_m[1]
     }
@@ -446,7 +448,7 @@ impl Search {
 /// A crossing cell on a tile's border.
 #[derive(Debug, Clone, PartialEq)]
 struct Node {
-    cell: UVec2,
+    cell: IVec2,
     tile: u32,
     /// Position of this node among its tile's nodes.
     slot: u32,
@@ -541,9 +543,9 @@ impl TileGraph {
             let tile = TileCosts::fetch(source, &layout, layout.tile_at(index), &options.plan)?;
             edges.push(Edges {
                 west: tile.column(0),
-                east: tile.column(tile.size.x - 1),
+                east: tile.column(tile.size.x as i32 - 1),
                 south: tile.row(0),
-                north: tile.row(tile.size.y - 1),
+                north: tile.row(tile.size.y as i32 - 1),
             });
         }
 
@@ -561,26 +563,26 @@ impl TileGraph {
         let tiles = layout.tiles();
         for index in 0..count {
             let tile = layout.tile_at(index);
-            let (min, size) = (layout.tile_min(tile), layout.tile_size(tile));
-            if tile.x + 1 < tiles.x {
+            let (min, size) = (layout.tile_min(tile), layout.tile_size(tile).as_ivec2());
+            if tile.x + 1 < tiles.x as i32 {
                 let east = index + 1;
                 let (near, far) = (&edges[index].east, &edges[east].west);
                 for p in crossings(near, far, spacing) {
-                    let y = min.y + p as u32;
+                    let y = min.y + p as i32;
                     graph.link(
-                        (index, UVec2::new(min.x + size.x - 1, y), near[p]),
-                        (east, UVec2::new(min.x + size.x, y), far[p]),
+                        (index, IVec2::new(min.x + size.x - 1, y), near[p]),
+                        (east, IVec2::new(min.x + size.x, y), far[p]),
                     );
                 }
             }
-            if tile.y + 1 < tiles.y {
+            if tile.y + 1 < tiles.y as i32 {
                 let north = index + tiles.x as usize;
                 let (near, far) = (&edges[index].north, &edges[north].south);
                 for p in crossings(near, far, spacing) {
-                    let x = min.x + p as u32;
+                    let x = min.x + p as i32;
                     graph.link(
-                        (index, UVec2::new(x, min.y + size.y - 1), near[p]),
-                        (north, UVec2::new(x, min.y + size.y), far[p]),
+                        (index, IVec2::new(x, min.y + size.y - 1), near[p]),
+                        (north, IVec2::new(x, min.y + size.y), far[p]),
                     );
                 }
             }
@@ -636,7 +638,7 @@ impl TileGraph {
     }
 
     /// Add a node on each side of a border, given as (tile, cell, cost of the cell).
-    fn link(&mut self, a: (usize, UVec2, u8), b: (usize, UVec2, u8)) {
+    fn link(&mut self, a: (usize, IVec2, u8), b: (usize, IVec2, u8)) {
         let first = self.nodes.len() as u32;
         for (id, partner, (tile, cell, _), entered) in
             [(first, first + 1, a, b.2), (first + 1, first, b, a.2)]
@@ -680,14 +682,10 @@ impl TileGraph {
         }
         out.write_all(&self.resolution.to_le_bytes())?;
         for node in &self.nodes {
-            for value in [
-                node.cell.x,
-                node.cell.y,
-                node.tile,
-                node.slot,
-                node.partner,
-                node.cross.to_bits(),
-            ] {
+            for value in [node.cell.x, node.cell.y] {
+                out.write_all(&value.to_le_bytes())?;
+            }
+            for value in [node.tile, node.slot, node.partner, node.cross.to_bits()] {
                 out.write_all(&value.to_le_bytes())?;
             }
         }
@@ -751,7 +749,7 @@ impl TileGraph {
         let mut tile_nodes = vec![Vec::new(); count];
         for id in 0..node_count {
             let node = Node {
-                cell: UVec2::new(word()?, word()?),
+                cell: IVec2::new(word()? as i32, word()? as i32),
                 tile: word()?,
                 slot: word()?,
                 partner: word()?,
@@ -773,7 +771,7 @@ impl TileGraph {
         // Each node's partner is the node on the adjacent cell across a tile border.
         for (id, node) in nodes.iter().enumerate() {
             let partner = &nodes[node.partner as usize];
-            let apart = (node.cell.as_ivec2() - partner.cell.as_ivec2()).abs();
+            let apart = (node.cell - partner.cell).abs();
             if partner.partner as usize != id || partner.tile == node.tile || apart.x + apart.y != 1
             {
                 return Err(invalid("a node's partner is not across its tile border"));
@@ -842,8 +840,8 @@ impl TileGraph {
     /// from, or if `tiles` was made for another graph.
     pub fn plan<S: TileSource>(
         &self,
-        start: UVec2,
-        goal: UVec2,
+        start: IVec2,
+        goal: IVec2,
         tiles: &mut TileCache<S>,
     ) -> Result<Option<Path>, VoxelError> {
         tiles.check(self)?;
@@ -964,7 +962,7 @@ impl TileGraph {
         goal_tile: usize,
         to_goal: &[f32],
         direct: f32,
-        goal: UVec2,
+        goal: IVec2,
     ) -> Option<Vec<u32>> {
         let goal_id = self.nodes.len();
         let mut best = vec![f32::INFINITY; goal_id + 1];
@@ -1041,8 +1039,8 @@ impl TileGraph {
         tiles: &mut TileCache<S>,
         search: &mut Search,
         tile_index: usize,
-        from: UVec2,
-        to: UVec2,
+        from: IVec2,
+        to: IVec2,
     ) -> Result<Stretch, VoxelError> {
         if from == to {
             return Ok(Stretch {
@@ -1084,7 +1082,7 @@ impl TileGraph {
         &self,
         path: &Path,
         tiles: &mut TileCache<S>,
-    ) -> Result<Vec<UVec2>, VoxelError> {
+    ) -> Result<Vec<IVec2>, VoxelError> {
         tiles.check(self)?;
         let mut failure = None;
         let waypoints = shortcut_cells(&path.cells, |cell| match tiles.cost(cell) {
@@ -1103,7 +1101,7 @@ impl TileGraph {
 
 /// Part of a path: its cells after the first, and the cost of entering them.
 struct Stretch {
-    cells: Vec<UVec2>,
+    cells: Vec<IVec2>,
     cost: f32,
 }
 
@@ -1127,7 +1125,7 @@ pub struct TileCache<S> {
     /// Paths found between two nodes of one tile, by their ids.
     stretches: HashMap<(u32, u32), Arc<Stretch>>,
     /// The last goal and the cost to it from each node of its tile, by slot.
-    to_goal: Option<(UVec2, Arc<[f32]>)>,
+    to_goal: Option<(IVec2, Arc<[f32]>)>,
     fetched: usize,
 }
 
@@ -1193,7 +1191,7 @@ impl<S: TileSource> TileCache<S> {
     }
 
     /// Cost of entering `cell`, or `None` if it is impassable or outside the map.
-    pub fn cost(&mut self, cell: UVec2) -> Result<Option<u8>, VoxelError> {
+    pub fn cost(&mut self, cell: IVec2) -> Result<Option<u8>, VoxelError> {
         if !self.layout.contains(cell) {
             return Ok(None);
         }
@@ -1239,8 +1237,8 @@ mod tests {
         }
     }
 
-    fn cell(x: u32, y: u32) -> UVec2 {
-        UVec2::new(x, y)
+    fn cell(x: i32, y: i32) -> IVec2 {
+        IVec2::new(x, y)
     }
 
     fn graph_of(grid: &Costmap, options: TileGraphOptions) -> TileGraph {
@@ -1251,8 +1249,8 @@ mod tests {
     fn plan_on(
         grid: &Costmap,
         graph: &TileGraph,
-        start: UVec2,
-        goal: UVec2,
+        start: IVec2,
+        goal: IVec2,
     ) -> (Option<Path>, usize) {
         let source = DenseTiles::new(grid, graph.options().tile_cells).unwrap();
         let mut tiles = TileCache::new(source, graph, 64);
@@ -1261,7 +1259,7 @@ mod tests {
     }
 
     /// Asserts `path` is a valid plan on `grid` and returns the sum of its step costs.
-    fn check_path(grid: &Costmap, path: &Path, start: UVec2, goal: UVec2) -> f32 {
+    fn check_path(grid: &Costmap, path: &Path, start: IVec2, goal: IVec2) -> f32 {
         let options = OPTIONS.plan;
         assert_eq!(path.cells.first(), Some(&start));
         assert_eq!(path.cells.last(), Some(&goal));
@@ -1297,8 +1295,8 @@ mod tests {
             let mut grid = Costmap::filled(info(width, height), COST_FREE);
             for _ in 0..rng.below(14) {
                 // Walls with gaps, graded cells and specks.
-                let (x, y) = (rng.below(width), rng.below(height));
-                let length = rng.below(20);
+                let (x, y) = (rng.below(width) as i32, rng.below(height) as i32);
+                let length = rng.below(20) as i32;
                 let across = rng.below(2) == 0;
                 let value = if rng.below(4) == 0 {
                     60 + rng.below(150) as u8
@@ -1311,15 +1309,15 @@ mod tests {
                     } else {
                         cell(x, y + i)
                     };
-                    if c.x < width && c.y < height && rng.below(9) != 0 {
+                    if c.x < width as i32 && c.y < height as i32 && rng.below(9) != 0 {
                         grid.set(c, value).unwrap();
                     }
                 }
             }
             let graph = graph_of(&grid, OPTIONS);
             for _ in 0..40 {
-                let start = cell(rng.below(width), rng.below(height));
-                let goal = cell(rng.below(width), rng.below(height));
+                let start = cell(rng.below(width) as i32, rng.below(height) as i32);
+                let goal = cell(rng.below(width) as i32, rng.below(height) as i32);
                 let whole = plan(&grid, start, goal, &OPTIONS.plan);
                 let (tiled, _) = plan_on(&grid, &graph, start, goal);
                 assert_eq!(whole.is_some(), tiled.is_some(), "{start} -> {goal}");
@@ -1343,8 +1341,8 @@ mod tests {
     fn a_gap_one_cell_wide_on_a_tile_border_is_kept() {
         // A wall along the border between the tiles at x = 7 and x = 8, two cells
         // thick, open at one cell.
-        let grid = Costmap::from_fn(info(24, 24), |x, y| {
-            if (x == 7 || x == 8) && y != 13 {
+        let grid = Costmap::from_fn(info(24, 24), |p| {
+            if (p.x == 7 || p.x == 8) && p.y != 13 {
                 COST_LETHAL
             } else {
                 COST_FREE
@@ -1362,8 +1360,8 @@ mod tests {
     fn a_path_may_leave_the_tile_its_ends_share() {
         // A wall splits tile (0, 0) from top to bottom; the way round is through the
         // tile to the north.
-        let grid = Costmap::from_fn(info(16, 16), |x, y| {
-            if x == 4 && y < 8 {
+        let grid = Costmap::from_fn(info(16, 16), |p| {
+            if p.x == 4 && p.y < 8 {
                 COST_LETHAL
             } else {
                 COST_FREE
@@ -1426,8 +1424,8 @@ mod tests {
 
     #[test]
     fn a_small_cache_reads_tiles_again_and_plans_the_same_path() {
-        let grid = Costmap::from_fn(info(64, 64), |x, y| {
-            if x % 16 == 5 && y % 11 != 0 {
+        let grid = Costmap::from_fn(info(64, 64), |p| {
+            if p.x % 16 == 5 && p.y % 11 != 0 {
                 COST_LETHAL
             } else {
                 COST_FREE
@@ -1445,11 +1443,11 @@ mod tests {
 
     #[test]
     fn a_repeated_plan_is_the_same_path_and_reads_no_more_tiles() {
-        let grid = Costmap::from_fn(info(64, 64), |x, y| {
-            if x % 16 == 5 && y % 11 != 0 {
+        let grid = Costmap::from_fn(info(64, 64), |p| {
+            if p.x % 16 == 5 && p.y % 11 != 0 {
                 COST_LETHAL
             } else {
-                ((x * 3 + y) % 50) as u8
+                ((p.x * 3 + p.y) % 50) as u8
             }
         });
         let graph = graph_of(&grid, OPTIONS);
@@ -1470,11 +1468,11 @@ mod tests {
 
     #[test]
     fn a_stored_graph_reads_back_and_plans_the_same_path() {
-        let grid = Costmap::from_fn(info(40, 30), |x, y| {
-            if x % 9 == 4 && y % 7 != 0 {
+        let grid = Costmap::from_fn(info(40, 30), |p| {
+            if p.x % 9 == 4 && p.y % 7 != 0 {
                 COST_LETHAL
             } else {
-                (x + y) as u8
+                (p.x + p.y) as u8
             }
         });
         let graph = graph_of(&grid, OPTIONS);
