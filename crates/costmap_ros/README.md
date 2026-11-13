@@ -311,17 +311,28 @@ logs the corner's coordinates at start. It does no reprojection.
 **The route graph.** Routes are planned on a graph of the map:
 where each 256-cell tile's border can be crossed, and what it costs to travel
 between crossings, on costs inflated for the robot. It is built at the map's
-own resolution, so a doorway the robot fits through stays open. For a GeoTIFF
-the first start builds the graph (5.5 s for 36 M cells on 16 cores) and
-stores it beside the raster as `site.tif.tilegraph` (0.7 MB); later starts
-read it. It is rebuilt when `--robot-radius-m`, `--inflation-m` or this
-package's version changes, or when the raster is written or replaced: its
-length, modification time, inode and inode change time are compared, with a
-hash of its first and last 64 KiB. A copy of the raster on another machine
-therefore builds its own graph. If the directory cannot be written, the
-node logs a warning and builds the graph at every start. For a ROS map the graph is built at every
-start: 4.4 s for the 30.5 M-cell warehouse map, with the node's memory
-peaking at 150 MB.
+own resolution, so a doorway the robot fits through stays open.
+
+The first start on a map builds the graph and stores it beside the map, as
+`site.tif.tilegraph` or `site.yaml.tilegraph`; later starts read it.
+
+| | First start | Later starts | Stored graph |
+| --- | --- | --- | --- |
+| Vineyard GeoTIFF, 36 M cells | 5.5 s | no build | 0.7 MB |
+| Warehouse ROS map, 30.5 M cells | 4.5 s | 0.5 s, most of it loading the map | 1.0 MB |
+
+Times are on 16 cores. The graph is rebuilt when `--robot-radius-m`,
+`--inflation-m` or this package's version changes, or when the map does:
+
+- **GeoTIFF:** the raster's length, modification time, inode and inode change
+  time are compared, with a hash of its first and last 64 KiB. A copy of the
+  raster on another machine therefore builds its own graph.
+- **ROS map:** the map's size, resolution and a hash of every cell are
+  compared, so a change to the image or to the thresholds in the YAML counts
+  and a copy on another machine does not.
+
+If the directory cannot be written, the node logs a warning and builds the
+graph at every start.
 
 ## Node reference
 

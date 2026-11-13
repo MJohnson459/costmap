@@ -198,9 +198,9 @@ fn crop(grid: &Costmap, min: UVec2, size: UVec2) -> Result<Costmap, VoxelError> 
     Costmap::from_vec(info, data)
 }
 
-/// What a stored graph was built from: the raster's length, modification
-/// time, inode and inode change time, a hash of its first and last 64 KiB, the
-/// options that shape its costs, and this crate's version.
+/// What a stored graph of a raster was built from: the raster's length,
+/// modification time, inode and inode change time, a hash of its first and
+/// last 64 KiB, and [`options_fingerprint`].
 fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
@@ -220,12 +220,43 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
         bytes.extend(metadata.ctime().to_le_bytes());
         bytes.extend(metadata.ctime_nsec().to_le_bytes());
     }
+    bytes.extend(options_fingerprint(options));
+    Ok(bytes)
+}
+
+/// What a stored graph of a map held in memory was built from: the map's
+/// size and resolution, a hash of every cell, and [`options_fingerprint`].
+/// A ROS map's image and the thresholds in its YAML both show in the cells.
+fn costs_fingerprint(costs: &Costmap, options: &RouteOptions) -> Vec<u8> {
+    let info = costs.info();
+    let mut bytes = GRAPH_MAGIC.to_vec();
+    bytes.extend(b"cells");
+    bytes.extend(info.width.to_le_bytes());
+    bytes.extend(info.height.to_le_bytes());
+    bytes.extend(info.resolution.to_le_bytes());
+    bytes.extend(fnv1a(FNV_OFFSET, costs.as_slice()).to_le_bytes());
+    bytes.extend(options_fingerprint(options));
+    bytes
+}
+
+/// The options that shape a graph's costs, and this crate's version: a later
+/// version may inflate or place crossings differently.
+fn options_fingerprint(options: &RouteOptions) -> Vec<u8> {
+    let mut bytes = Vec::new();
     bytes.extend(options.robot_radius_m.to_le_bytes());
     bytes.extend(options.inflation_m.to_le_bytes());
     bytes.extend(COST_SCALING.to_le_bytes());
-    // A later version may inflate or place crossings differently.
     bytes.extend(env!("CARGO_PKG_VERSION").as_bytes());
-    Ok(bytes)
+    bytes
+}
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
+/// FNV-1a hash of `bytes`, continued from `hash`.
+fn fnv1a(hash: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(hash, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 /// FNV-1a hash of the first and last 64 KiB of the file at `path`, which hold
@@ -234,19 +265,17 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
 fn ends_hash(path: &Path, length: u64) -> Result<u64, VoxelError> {
     const SPAN: u64 = 64 * 1024;
     let mut file = File::open(path)?;
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let mut hash = FNV_OFFSET;
     for start in [0, length.saturating_sub(SPAN)] {
         file.seek(SeekFrom::Start(start))?;
         let mut span = Vec::new();
         (&mut file).take(SPAN).read_to_end(&mut span)?;
-        for byte in span {
-            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
-        }
+        hash = fnv1a(hash, &span);
     }
     Ok(hash)
 }
 
-/// Where the graph of the raster at `map` is stored: beside it, with
+/// Where the graph of the map at `map` is stored: beside it, with
 /// `.tilegraph` added to its name.
 pub fn graph_path(map: &Path) -> PathBuf {
     let mut name = map.as_os_str().to_owned();
@@ -254,7 +283,7 @@ pub fn graph_path(map: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// The graph stored at `path`, if it was built from this raster with these
+/// The graph stored at `path`, if it was built from this map with these
 /// options.
 fn read_graph(path: &Path, fingerprint: &[u8], options: &RouteOptions) -> Option<TileGraph> {
     let mut input = BufReader::new(File::open(path).ok()?);
@@ -281,6 +310,36 @@ fn write_graph(path: &Path, fingerprint: &[u8], graph: &TileGraph) -> std::io::R
     fs::rename(&partial, path)
 }
 
+/// The graph stored beside `map` if `fingerprint` matches it; otherwise one
+/// built from `source` and stored there.
+fn stored_or_built(
+    map: &Path,
+    fingerprint: &[u8],
+    size: UVec2,
+    resolution: f64,
+    options: &RouteOptions,
+    source: &mut impl TileSource,
+) -> Result<TileGraph, VoxelError> {
+    let stored = graph_path(map);
+    if let Some(graph) = read_graph(&stored, fingerprint, options) {
+        info!("read the tile graph from {}", stored.display());
+        return Ok(graph);
+    }
+    let started = Instant::now();
+    let graph = TileGraph::build(size, resolution, options.graph, source)?;
+    info!(
+        "built the tile graph in {:.1} s",
+        started.elapsed().as_secs_f64()
+    );
+    if let Err(error) = write_graph(&stored, fingerprint, &graph) {
+        warn!(
+            "could not store the tile graph at {}: {error}",
+            stored.display()
+        );
+    }
+    Ok(graph)
+}
+
 /// Plans routes across a whole cost map.
 pub struct RoutePlanner {
     graph: TileGraph,
@@ -294,14 +353,16 @@ impl RoutePlanner {
     /// Plan on the map at `path`, chosen by extension.
     ///
     /// `.yaml` and `.yml` are a ROS map. It is held whole in memory, as
-    /// `nav2_map_server` holds it, and its graph is built at every start.
+    /// `nav2_map_server` holds it.
     ///
     /// `.tif` and `.tiff` are a cost GeoTIFF, of which only the tiles a route
-    /// passes are held. Any other extension is an error. Its graph is read from [`graph_path`] if the
-    /// file there was built from this raster with these options. Otherwise it
-    /// is built, which reads the whole raster twice, a few tiles at a time,
-    /// and stored there for the next start. If it cannot be stored, a warning
-    /// is logged and it is built again next time.
+    /// passes are held. Any other extension is an error.
+    ///
+    /// The graph is read from [`graph_path`] if the file there was built from
+    /// this map with these options. Otherwise it is built, which for a
+    /// GeoTIFF reads the whole raster twice, a few tiles at a time, and
+    /// stored there for the next start. If it cannot be stored, a warning is
+    /// logged and it is built again next time.
     pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
         let path = path.as_ref();
         let extension = path
@@ -311,7 +372,20 @@ impl RoutePlanner {
         match extension.as_deref() {
             Some("yaml" | "yml") => {
                 let occupancy = RosMapLoader::load_from_yaml(path)?;
-                return Self::from_costmap(costmap_from_occupancy(&occupancy)?, options);
+                let costs = costmap_from_occupancy(&occupancy)?;
+                let info = *costs.info();
+                let size = UVec2::new(info.width, info.height);
+                let fingerprint = costs_fingerprint(&costs, &options);
+                let mut source = InflatedTiles::new(costs, size, info.resolution, &options)?;
+                let graph = stored_or_built(
+                    path,
+                    &fingerprint,
+                    size,
+                    info.resolution,
+                    &options,
+                    &mut source,
+                )?;
+                return Ok(Self::new(graph, Box::new(source), info.origin, options));
             }
             Some("tif" | "tiff") => {}
             _ => {
@@ -328,29 +402,8 @@ impl RoutePlanner {
             map,
         };
         let mut source = InflatedTiles::new(raw, size, resolution, &options)?;
-        let stored = graph_path(path);
         let fingerprint = fingerprint(path, &options)?;
-        let graph = match read_graph(&stored, &fingerprint, &options) {
-            Some(graph) => {
-                info!("read the tile graph from {}", stored.display());
-                graph
-            }
-            None => {
-                let started = Instant::now();
-                let graph = TileGraph::build(size, resolution, options.graph, &mut source)?;
-                info!(
-                    "built the tile graph in {:.1} s",
-                    started.elapsed().as_secs_f64()
-                );
-                if let Err(error) = write_graph(&stored, &fingerprint, &graph) {
-                    warn!(
-                        "could not store the tile graph at {}: {error}",
-                        stored.display()
-                    );
-                }
-                graph
-            }
-        };
+        let graph = stored_or_built(path, &fingerprint, size, resolution, &options, &mut source)?;
         Ok(Self::new(graph, Box::new(source), DVec2::ZERO, options))
     }
 
@@ -745,6 +798,24 @@ mod tests {
         assert_eq!(route.points.last(), Some(&goal));
         let crossing = route.points.iter().find(|p| p.x >= 0.0).unwrap();
         assert!(crossing.y > 3.0, "crossed at {crossing}");
+
+        // The graph was stored, and the next start reads it.
+        let yaml = dir.join("map.yaml");
+        let costs = |yaml: &Path| {
+            costmap_from_occupancy(&RosMapLoader::load_from_yaml(yaml).unwrap()).unwrap()
+        };
+        let fingerprint = costs_fingerprint(&costs(&yaml), &OPTIONS);
+        assert!(read_graph(&graph_path(&yaml), &fingerprint, &OPTIONS).is_some());
+        let reopened = RoutePlanner::open(&yaml, OPTIONS).unwrap();
+        assert_eq!(reopened.plan(start, goal).unwrap(), route);
+
+        // One more wall cell in the image, and the stored graph no longer fits.
+        let mut pgm = fs::read(dir.join("map.pgm")).unwrap();
+        let last = pgm.len() - 1;
+        pgm[last] = 0;
+        fs::write(dir.join("map.pgm"), pgm).unwrap();
+        let changed = costs_fingerprint(&costs(&yaml), &OPTIONS);
+        assert!(read_graph(&graph_path(&yaml), &changed, &OPTIONS).is_none());
         fs::remove_dir_all(&dir).unwrap();
     }
 
