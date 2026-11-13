@@ -47,14 +47,12 @@ Positions in the world frame, map resolution and map extents are now `f64` (`gla
 | `Pose2::position` | `Vec2` | `DVec2` |
 | `Bounds::min`, `max` | `Vec2` | `DVec2` |
 | `Footprint::transform` | `Vec<Vec2>` | `Vec<DVec2>` |
-| `map_to_world`, `map_to_world_continuous` | return `Vec2` | return `DVec2` |
-| `world_to_map`, `world_to_map_continuous` | take `Vec2` | take `DVec2` |
 | `resize_map`, `update_origin`, `update_center` | `f32`, `Vec2` | `f64`, `DVec2` |
 | `raycast_dda`, `raycast_grid_step`, `line` | `origin: Vec2` | `origin: DVec2` |
 | `polygon`, `polygon_value` | `&[Vec2]` | `&[DVec2]` |
 | `RosMapMetadata::resolution`, `origin` | `f32`, `Vec3` | `f64`, `DVec3` |
 
-Unchanged: `Pose2::yaw`, `Footprint::points` (robot frame), ray `dir` and `max_t`, `RayHit2D::hit_distance`, `InflationConfig`, and the cell-space `Vec2` that `world_to_map_continuous` returns and `map_to_world_continuous` takes.
+Unchanged: `Pose2::yaw`, `Footprint::points` (robot frame), ray `dir` and `max_t`, `RayHit2D::hit_distance`, and `InflationConfig`. The world-to-cell conversions moved to `Lattice`; see [Cell conversions go through `Lattice`](#cell-conversions-go-through-lattice).
 
 Most call sites change a constructor and nothing else:
 
@@ -74,8 +72,6 @@ A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsign
 | Item | 0.2 | 0.3 |
 | --- | --- | --- |
 | `get`, `get_mut`, `set`, `get_unchecked`, `get_unchecked_mut`, `grid[cell]` | take `UVec2` | take `IVec2` |
-| `map_to_world` | takes `UVec2` | takes `IVec2` |
-| `world_to_map` | returns `Option<UVec2>` | returns `Option<IVec2>` |
 | `indexed_iter`, `indexed_iter_mut` | yield `(UVec2, _)` | yield `(IVec2, _)` |
 | `reset_map` | `lower`, `upper: UVec2` | `lower`, `upper: IVec2` |
 | `from_fn` (was `new_with`) | `f(x: u32, y: u32)` | `f(cell: IVec2)` |
@@ -97,6 +93,26 @@ let cost = grid.get(UVec2::new(5, 2));
 // 0.3
 let grid = Costmap::from_fn(info, |cell| if cell.x == 5 { COST_LETHAL } else { COST_FREE });
 let cost = grid.get(IVec2::new(5, 2));
+```
+
+### Cell conversions go through `Lattice`
+
+A `Lattice` places a grid's cells in the world: `anchor` is the lower-left corner of cell (0, 0) and `resolution` the cell size in metres. `DenseGrid::lattice`, `MapInfo::lattice` and `TiledGrid::lattice` return one. Its methods are Nav2's `worldToMap` and `mapToWorld` under names that say what they return. The `DenseGrid` conversion methods are removed.
+
+| 0.2 | 0.3 |
+| --- | --- |
+| `grid.world_to_map(p)` | `grid.lattice().cell_at(p)`, then `grid.get(cell)` |
+| `grid.map_to_world(cell)` | `grid.lattice().cell_center(cell)` |
+| `grid.world_to_map_continuous(p)` | `grid.lattice().to_cells(p)`, a `DVec2` |
+| `grid.map_to_world_continuous(v)` | `grid.lattice().from_cells(v)`, takes a `DVec2` |
+
+`cell_at` returns a cell for every position, rounding toward negative infinity; `get` returns `None` for a cell outside the grid, where `world_to_map` returned `None`. `to_cells` does no bounds check: where `world_to_map_continuous` returned `None`, test the result against `[0, size())` on each axis. `lattice().cell_corner(cell)` gives the lower-left corner of a cell.
+
+```rust
+// 0.2
+let cost = grid.world_to_map(position).and_then(|cell| grid.get(cell));
+// 0.3
+let cost = grid.get(grid.lattice().cell_at(position));
 ```
 
 ### `LayeredCostmap::add_layer` returns a `Result`

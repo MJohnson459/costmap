@@ -4,7 +4,7 @@ use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     DenseGrid,
-    types::{COST_UNKNOWN, MapInfo, VoxelError},
+    types::{COST_UNKNOWN, Lattice, MapInfo, VoxelError},
 };
 
 /// Largest allowed chunk edge. Keeps `chunk_size * chunk_size` and chunk-local
@@ -151,19 +151,11 @@ impl<T: Clone> TiledGrid<T> {
         local.y as usize * self.chunk_size as usize + local.x as usize
     }
 
-    /// Cell containing the local-frame position `pos` (floor, so negative positions round down).
-    pub fn world_to_cell(&self, pos: DVec2) -> IVec2 {
-        (pos / self.resolution).floor().as_ivec2()
-    }
-
-    /// Lower-left corner of `cell` in the local frame.
-    pub fn cell_origin(&self, cell: IVec2) -> DVec2 {
-        cell.as_dvec2() * self.resolution
-    }
-
-    /// Centre of `cell` in the local frame.
-    pub fn cell_center(&self, cell: IVec2) -> DVec2 {
-        self.cell_origin(cell) + DVec2::splat(0.5 * self.resolution)
+    /// Where the cells sit in the local frame: cell `(0, 0)` has its lower-left
+    /// corner at the frame's origin.
+    #[inline]
+    pub fn lattice(&self) -> Lattice {
+        Lattice::new(DVec2::ZERO, self.resolution)
     }
 
     /// Coordinate of the chunk containing `cell`.
@@ -247,7 +239,7 @@ impl<T: Clone> TiledGrid<T> {
 
     /// Copy the cells `[min_cell, min_cell + size)` into a dense grid.
     ///
-    /// The grid's origin is `cell_origin(min_cell)` and its resolution matches this
+    /// The grid's origin is `lattice().cell_corner(min_cell)` and its resolution matches this
     /// grid. Cells in absent chunks, and cells beyond the `i32` cell range, hold the
     /// fill value, which is also the returned grid's fill value.
     pub fn window(&self, min_cell: IVec2, size: UVec2) -> DenseGrid<T> {
@@ -255,7 +247,7 @@ impl<T: Clone> TiledGrid<T> {
             width: size.x,
             height: size.y,
             resolution: self.resolution,
-            origin: self.cell_origin(min_cell),
+            origin: self.lattice().cell_corner(min_cell),
         };
         let mut grid = DenseGrid::filled(info, self.fill.clone());
         self.copy_out(min_cell, size, grid.as_mut_slice());
@@ -264,7 +256,7 @@ impl<T: Clone> TiledGrid<T> {
 
     /// Like [`window`](Self::window), covering `size` cells with the cell containing `center` in the middle.
     pub fn window_centered(&self, center: DVec2, size: UVec2) -> DenseGrid<T> {
-        let min_cell = self.world_to_cell(center) - (size / 2).as_ivec2();
+        let min_cell = self.lattice().cell_at(center) - (size / 2).as_ivec2();
         self.window(min_cell, size)
     }
 
@@ -434,11 +426,11 @@ mod tests {
 
     #[test]
     fn world_cell_conversions() {
-        let g = grid(16);
-        assert_eq!(g.world_to_cell(DVec2::new(0.49, -0.01)), IVec2::new(0, -1));
-        assert_eq!(g.world_to_cell(DVec2::new(-0.5, 0.5)), IVec2::new(-1, 1));
-        assert_eq!(g.cell_origin(IVec2::new(-2, 3)), DVec2::new(-1.0, 1.5));
-        assert_eq!(g.cell_center(IVec2::new(-2, 3)), DVec2::new(-0.75, 1.75));
+        let l = grid(16).lattice();
+        assert_eq!(l.cell_at(DVec2::new(0.49, -0.01)), IVec2::new(0, -1));
+        assert_eq!(l.cell_at(DVec2::new(-0.5, 0.5)), IVec2::new(-1, 1));
+        assert_eq!(l.cell_corner(IVec2::new(-2, 3)), DVec2::new(-1.0, 1.5));
+        assert_eq!(l.cell_center(IVec2::new(-2, 3)), DVec2::new(-0.75, 1.75));
     }
 
     #[test]
@@ -469,7 +461,7 @@ mod tests {
         let size = UVec2::new(11, 9);
         let window = g.window(min, size);
 
-        assert_eq!(window.info().origin, g.cell_origin(min));
+        assert_eq!(window.info().origin, g.lattice().cell_corner(min));
         assert_eq!(window.info().resolution, 0.5);
         for (pos, value) in window.indexed_iter() {
             assert_eq!(value, g.get(min + pos), "at {pos}");
@@ -493,7 +485,7 @@ mod tests {
         let mut g = grid(8);
         let cell = IVec2::new(-3, 12);
         g.set(cell, 42);
-        let window = g.window_centered(g.cell_center(cell), UVec2::new(7, 5));
+        let window = g.window_centered(g.lattice().cell_center(cell), UVec2::new(7, 5));
         assert_eq!(window[IVec2::new(3, 2)], 42);
     }
 
@@ -504,7 +496,7 @@ mod tests {
             width: 20,
             height: 13,
             resolution: 0.5,
-            origin: g.cell_origin(IVec2::new(-9, -4)),
+            origin: g.lattice().cell_corner(IVec2::new(-9, -4)),
         };
         let source = DenseGrid::from_fn(info, pattern);
         g.write_window(&source).unwrap();

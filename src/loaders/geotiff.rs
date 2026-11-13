@@ -49,7 +49,7 @@ use tiff::{
 
 use crate::{
     tiled::{GeoReference, TiledGrid, max_known},
-    types::{COST_UNKNOWN, VoxelError},
+    types::{COST_UNKNOWN, Lattice, VoxelError},
 };
 
 /// Target uncompressed strip size when writing.
@@ -943,7 +943,7 @@ pub fn write_cost_geotiff_region(
     let resolution = grid.resolution();
     // The lower-left corner is computed from the cell index so the tiepoint
     // does not pick up rounding at large offsets.
-    let lower_left = georef.anchor + min_cell.as_dvec2() * resolution;
+    let lower_left = Lattice::new(georef.anchor, resolution).cell_corner(min_cell);
     let top_left = lower_left + DVec2::new(0.0, f64::from(size.y) * resolution);
 
     let mut file = BufWriter::new(File::create(path)?);

@@ -23,11 +23,10 @@ impl PolygonIterator {
             return None;
         }
         let info = grid.info();
-        let resolution = info.resolution;
-        let origin = info.origin;
+        let lattice = info.lattice();
         let map_points = points
             .iter()
-            .map(|p| ((*p - origin) / resolution).as_vec2())
+            .map(|p| lattice.to_cells(*p).as_vec2())
             .collect();
         Some(Self::new_map(map_points, info.width, info.height))
     }

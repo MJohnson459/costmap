@@ -16,7 +16,7 @@
 //! - With the `rerun` feature, `rerun_viz` logs grids to the Rerun viewer.
 //!
 //! World positions, resolutions and extents are `f64`; quantities local to a grid or
-//! a robot are `f32`.
+//! a robot are `f32`. A grid's [`Lattice`] converts between world positions and cells.
 
 pub mod costmap;
 pub mod grid;
@@ -50,4 +50,4 @@ pub use planning::{
     line_passable, plan,
 };
 pub use tiled::{GeoReference, TiledGrid};
-pub use types::{MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
+pub use types::{Lattice, MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
