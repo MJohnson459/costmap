@@ -64,7 +64,7 @@ impl TiledMapLayer {
             width: size.x as u32,
             height: size.y as u32,
             resolution: info.resolution,
-            origin: info.origin + region.min.as_dvec2() * info.resolution,
+            origin: info.lattice().cell_corner(region.min),
         };
         let mut window = DenseGrid::filled(window_info, COST_UNKNOWN);
         self.grid.read_into(&mut window).ok()?;
@@ -86,9 +86,10 @@ impl Layer for TiledMapLayer {
     /// [`LayeredCostmap`](crate::LayeredCostmap) clips the bounds to the master.
     fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
         let current = self.grid.loaded_cell_bounds();
+        let lattice = self.grid.lattice();
         for (min, max) in [current, self.previous_extent].into_iter().flatten() {
-            bounds.expand_to_include(self.grid.cell_origin(min));
-            bounds.expand_to_include(self.grid.cell_origin(max));
+            bounds.expand_to_include(lattice.cell_corner(min));
+            bounds.expand_to_include(lattice.cell_corner(max));
         }
         self.previous_extent = current;
     }
@@ -321,7 +322,7 @@ mod tests {
         }
         let obstacle = IVec2::new(40, 3);
         grid.set(obstacle, COST_LETHAL);
-        let obstacle_centre = grid.cell_center(obstacle);
+        let obstacle_centre = grid.lattice().cell_center(obstacle);
 
         let mut layered = LayeredCostmap::new(MapInfo::square(20, 1.0), COST_FREE, true);
         layered.add_layer(layer_with(grid)).unwrap();
@@ -340,7 +341,7 @@ mod tests {
             layered.update_map(Pose2::new(DVec2::new(robot_x, 3.0), 0.0));
 
             let master = layered.master();
-            let expected = master.world_to_map(obstacle_centre).unwrap();
+            let expected = master.lattice().cell_at(obstacle_centre);
             assert_eq!(lethal_cells(&layered), [expected], "robot at x={robot_x}");
             let beside = master[expected + IVec2::X];
             assert!(beside > COST_FREE && beside < COST_LETHAL, "halo {beside}");

@@ -2,18 +2,19 @@
 //!
 //! ## Coordinate frames
 //!
-//! - **Map coordinates**: Cell positions (IVec2) or continuous (Vec2) in the grid.
-//!   Extents are UVec2.
+//! - **Map coordinates**: Cell positions (IVec2) or continuous positions in cell
+//!   units in the grid. Extents are UVec2.
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
+//!   [`DenseGrid::lattice`] converts between the two.
 
-use glam::{DVec2, IVec2, USizeVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, USizeVec2, UVec2};
 use std::{
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
 };
 
-use crate::types::{MapInfo, VoxelError};
+use crate::types::{Lattice, MapInfo, VoxelError};
 
 /// A bounded grid that stores every cell, row-major from cell (0, 0), placed in the
 /// world by a [`MapInfo`]. [`TiledGrid`](crate::TiledGrid) is the sparse counterpart
@@ -216,34 +217,19 @@ impl<T> DenseGrid<T> {
         Ok(())
     }
 
-    /// Map (cell) → world. Returns the cell center.
+    /// Where the cells sit in the world. [`Lattice::cell_at`] gives a cell for any
+    /// position; [`Self::get`] or [`Self::contains`] tells whether it is in the grid.
     #[inline]
-    pub fn map_to_world(&self, cell: IVec2) -> DVec2 {
-        self.info.origin + (cell.as_dvec2() + DVec2::splat(0.5)) * self.info.resolution
+    pub fn lattice(&self) -> Lattice {
+        self.info.lattice()
     }
 
-    /// Map (continuous) → world. For integer coords, returns the cell's lower-left corner.
+    /// Whether `cells`, a position in cell units from cell (0, 0)'s corner (see
+    /// [`Lattice::to_cells`]), lies in `[0, size)` on both axes. NaN coordinates pass.
     #[inline]
-    pub fn map_to_world_continuous(&self, pos: Vec2) -> DVec2 {
-        self.info.origin + pos.as_dvec2() * self.info.resolution
-    }
-
-    /// World → map (cell). Returns `None` if out of bounds.
-    #[inline]
-    pub fn world_to_map(&self, pos: DVec2) -> Option<IVec2> {
-        let mp = self.world_to_map_continuous(pos)?;
-        Some(IVec2::new(mp.x as i32, mp.y as i32))
-    }
-
-    /// World → map (continuous). Returns `None` if out of bounds.
-    #[inline]
-    pub fn world_to_map_continuous(&self, pos: DVec2) -> Option<Vec2> {
-        let cell = (pos - self.info.origin) / self.info.resolution;
+    pub(crate) fn spans(&self, cells: DVec2) -> bool {
         let size = self.size().as_dvec2();
-        if cell.x < 0.0 || cell.y < 0.0 || cell.x >= size.x || cell.y >= size.y {
-            return None;
-        }
-        Some(cell.as_vec2())
+        !(cells.x < 0.0 || cells.y < 0.0 || cells.x >= size.x || cells.y >= size.y)
     }
 
     /// All cells as a slice in row-major order, starting at cell (0, 0).
@@ -353,10 +339,8 @@ impl<T> DenseGrid<T> {
     where
         T: Clone,
     {
-        let resolution = self.info.resolution;
-
-        let old_origin = self.info.origin;
-        let cell_offset = ((origin - old_origin) / resolution).floor().as_ivec2();
+        let lattice = self.lattice();
+        let cell_offset = lattice.cell_at(origin);
         let grid_size = USizeVec2::new(self.info.width as usize, self.info.height as usize);
 
         let overlap_min = cell_offset.clamp(IVec2::ZERO, grid_size.as_ivec2());
@@ -378,7 +362,7 @@ impl<T> DenseGrid<T> {
 
         self.data = new_data;
 
-        self.info.origin = old_origin + cell_offset.as_dvec2() * resolution;
+        self.info.origin = lattice.cell_corner(cell_offset);
     }
 
     /// Updates the origin based on the desired center of the map.
@@ -433,8 +417,10 @@ mod tests {
     use super::*;
 
     fn world_to_map_to_world(grid: &DenseGrid<i8>, pos: DVec2) -> DVec2 {
-        let map_pos = grid.world_to_map_continuous(pos).unwrap();
-        grid.map_to_world_continuous(map_pos)
+        let lattice = grid.lattice();
+        let map_pos = lattice.to_cells(pos);
+        assert!(grid.spans(map_pos));
+        lattice.from_cells(map_pos.as_vec2().as_dvec2())
     }
 
     #[test]

@@ -182,8 +182,9 @@ impl LayeredCostmap {
 /// clip to its edge.
 fn clip_to_cells(bounds: Bounds, info: &MapInfo) -> Option<CellRegion> {
     let size = DVec2::new(info.width as f64, info.height as f64);
-    let lower = ((bounds.min - info.origin) / info.resolution).floor();
-    let upper = ((bounds.max - info.origin) / info.resolution).floor() + DVec2::ONE;
+    let lattice = info.lattice();
+    let lower = lattice.to_cells(bounds.min).floor();
+    let upper = lattice.to_cells(bounds.max).floor() + DVec2::ONE;
     let min = lower.clamp(DVec2::ZERO, size).as_ivec2();
     let max = upper.clamp(DVec2::ZERO, size).as_ivec2();
     (min.x < max.x && min.y < max.y).then_some(CellRegion { min, max })

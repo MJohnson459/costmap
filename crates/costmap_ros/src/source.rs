@@ -166,9 +166,9 @@ mod tests {
         window
             .indexed_iter()
             .map(|(cell, _)| {
-                let world = window.map_to_world(cell);
-                map.world_to_map(world)
-                    .and_then(|m| map.get(m).copied())
+                let world = window.lattice().cell_center(cell);
+                map.get(map.lattice().cell_at(world))
+                    .copied()
                     .unwrap_or(COST_UNKNOWN)
             })
             .collect()

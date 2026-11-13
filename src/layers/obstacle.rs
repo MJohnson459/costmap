@@ -22,8 +22,8 @@ use crate::{
 };
 
 /// Distance, in cells, that a clipped ray start is kept inside the grid edge.
-/// `DenseGrid::world_to_map_continuous` rejects the upper edge itself, and the world
-/// round trip of a point on that edge can land on either side of it.
+/// [`LineIterator`] rejects a start on the upper edge itself, and the world round
+/// trip of a point on that edge can land on either side of it.
 const CLIP_MARGIN_CELLS: f32 = 0.01;
 
 /// Configuration for an [`ObstacleLayer`].
@@ -171,11 +171,12 @@ impl ObstacleLayer {
             return;
         };
         let resolution = self.grid.info().resolution;
+        let lattice = self.grid.lattice();
         for (cell, stamp) in stamps.indexed_iter_mut() {
             if stamp.is_some_and(|t| now_s - t > f64::from(decay_s)) {
                 *stamp = None;
                 let _ = self.grid.set(cell, COST_UNKNOWN);
-                touch(&mut self.touched, self.grid.map_to_world(cell), resolution);
+                touch(&mut self.touched, lattice.cell_center(cell), resolution);
             }
         }
     }
@@ -216,7 +217,8 @@ impl ObstacleLayer {
 
     /// Mark the cell containing `end` lethal, if it lies inside the grid.
     fn mark_hit(&mut self, end: DVec2, stamp_s: f64) {
-        if let Some(cell) = self.grid.world_to_map(end) {
+        let cell = self.grid.lattice().cell_at(end);
+        if self.grid.contains(cell) {
             self.set_cell(cell, COST_LETHAL, Some(stamp_s));
             touch(&mut self.touched, end, self.grid.info().resolution);
         }
@@ -304,7 +306,8 @@ fn clip_segment(info: &MapInfo, origin: DVec2, end: DVec2) -> Option<(DVec2, DVe
     let margin = Vec2::splat(CLIP_MARGIN_CELLS);
     let entry = (a + delta * t_in).clamp(margin, size - margin);
     let exit = a + delta * t_out;
-    let to_world = |cell: Vec2| info.origin + cell.as_dvec2() * info.resolution;
+    let lattice = info.lattice();
+    let to_world = |cell: Vec2| lattice.from_cells(cell.as_dvec2());
     Some((to_world(entry), to_world(exit)))
 }
 
@@ -788,8 +791,8 @@ mod tests {
             .unwrap();
         let obstacle = DVec2::new(15.5, 10.5);
         let lethal_at = |layered: &LayeredCostmap, world: DVec2| {
-            let cell = layered.master().world_to_map(world);
-            cell.and_then(|c| layered.master().get(c).copied())
+            let cell = layered.master().lattice().cell_at(world);
+            layered.master().get(cell).copied()
         };
 
         layered.update_map(Pose2::new(DVec2::new(10.0, 10.0), 0.0));
@@ -839,7 +842,7 @@ mod tests {
             .unwrap()
             .insert_beams(robot.position, [hit(obstacle.x, obstacle.y)], 0.0);
         layered.update_map(robot);
-        let cell = layered.master().world_to_map(obstacle).unwrap();
+        let cell = layered.master().lattice().cell_at(obstacle);
         assert_eq!(layered.master().get(cell), Some(&COST_LETHAL));
     }
 

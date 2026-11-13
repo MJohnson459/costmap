@@ -73,7 +73,7 @@ fn patterned_grid(resolution: f64, chunk_size: u32, min: IVec2, size: UVec2) -> 
         width: size.x,
         height: size.y,
         resolution,
-        origin: grid.cell_origin(min),
+        origin: grid.lattice().cell_corner(min),
     };
     let source = DenseGrid::from_fn(info, |cell| pattern(min + cell));
     grid.write_window(&source).unwrap();
@@ -168,8 +168,8 @@ fn georeference_survives_at_utm_scale() {
     let (min, max) = grid.loaded_cell_bounds().unwrap();
     for original in [min, max - 1, IVec2::new(0, 0), IVec2::new(7, -3)] {
         let shifted = original - min;
-        let expected = UTM_17N.to_projected(grid.cell_center(original));
-        let actual = georef.to_projected(reread.cell_center(shifted));
+        let expected = UTM_17N.to_projected(grid.lattice().cell_center(original));
+        let actual = georef.to_projected(reread.lattice().cell_center(shifted));
         assert!(
             (expected - actual).abs().max_element() < 1e-3,
             "{original}: {expected} vs {actual}"
@@ -455,7 +455,7 @@ fn gdal_reads_flipped_values_at_projected_coordinates() {
         if expected == UNKNOWN {
             continue;
         }
-        let projected = UTM_17N.to_projected(grid.cell_center(cell));
+        let projected = UTM_17N.to_projected(grid.lattice().cell_center(cell));
         let output = Command::new("gdallocationinfo")
             .args(["-valonly", "-geoloc"])
             .arg(&path)
@@ -584,7 +584,7 @@ fn blocky_noise_grid(side: u32, seed: u64) -> TiledGrid<u8> {
         width: side,
         height: side,
         resolution: 1.0,
-        origin: grid.cell_origin(IVec2::ZERO),
+        origin: grid.lattice().cell_corner(IVec2::ZERO),
     };
     let source = DenseGrid::from_fn(info, |cell| {
         let UVec2 { x, y } = cell.as_uvec2();
@@ -1011,7 +1011,7 @@ fn open_accepts_pixels_within_a_hundredth_of_a_cell_and_matches_gdal() {
     let mut mismatches = 0;
     for i in 0..400_i32 {
         let cell = IVec2::new((i * 37) % 400, (i * 101 + i / 7) % 300);
-        let projected = georef.to_projected(reread.cell_center(cell));
+        let projected = georef.to_projected(reread.lattice().cell_center(cell));
         let output = Command::new("gdallocationinfo")
             .args(["-valonly", "-geoloc"])
             .arg(&nearly_square)
