@@ -295,7 +295,7 @@ The GeoTIFF's lower-left corner is the YAML origin. Its `map` frame starts at
 that corner, so it equals the YAML map's frame only when the origin is (0, 0);
 otherwise `map` coordinates shift by the origin.
 
-[`costmap-from-ortho`](../costmap-geo) writes cost GeoTIFFs from drone
+[`costmap-from-ortho`](https://github.com/MJohnson459/costmap-geo) writes cost GeoTIFFs from drone
 surveys. For those the `map` frame is the raster's lower-left corner, x east
 and y north. A robot localised in projected coordinates (RTK GNSS in UTM,
 say) needs a static transform from that frame to `map`; the window server

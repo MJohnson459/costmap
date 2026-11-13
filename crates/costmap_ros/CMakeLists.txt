@@ -35,7 +35,7 @@ add_custom_target(cargo_build ALL
     CARGO_PROFILE_RELEASE_DEBUG=false
     CARGO_PROFILE_RELEASE_STRIP=true
     ${CARGO} build --release --locked
-      --package costmap_ros --package costmap-geo ${BIN_FLAGS}
+      --package costmap_ros ${BIN_FLAGS}
       --manifest-path "${WORKSPACE}/Cargo.toml"
       --target-dir "${CARGO_TARGET_DIR}"
   USES_TERMINAL

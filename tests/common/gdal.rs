@@ -1,6 +1,5 @@
 //! Helpers for tests that call the GDAL command-line tools.
 //!
-//! Shared by the `costmap` and `costmap-geo` test crates through `#[path]` modules.
 
 use std::{path::Path, process::Command};
 

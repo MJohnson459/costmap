@@ -1920,19 +1920,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "costmap-geo"
-version = "0.1.0"
-dependencies = [
- "clap",
- "costmap",
- "glam 0.33.12",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tiff 0.11.3",
-]
-
-[[package]]
 name = "costmap_ros"
 version = "0.1.0"
 dependencies = [
