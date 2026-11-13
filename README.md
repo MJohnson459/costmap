@@ -37,7 +37,7 @@ Measured against `nav2_map_server` with a global costmap of the whole map, on a 
 | Plan of a 99 m trip, median | 311 ms | 5.2 ms |
 | CPU at rest, share of one core | 2.65 % | 3.05 %, or 2.05 % with a pose topic |
 
-[`crates/costmap_ros`](crates/costmap_ros) has the install routes (release tarball, colcon, conda), the five steps to replace `map_server`, and the limits.
+[`crates/costmap_ros`](crates/costmap_ros) has the install routes (Debian package, colcon, conda), the five steps to replace `map_server`, and the limits.
 
 ## Using the library
 

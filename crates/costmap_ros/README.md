@@ -103,10 +103,10 @@ linux-64. It is not on a public channel.
 
 ### Not on the ROS build farm
 
-There is no `apt install ros-lyrical-costmap-ros`, and none is planned. The
-build fetches about 460 crates, which the build farm discourages, and only
-Ubuntu 26.04 has a new enough cargo. The tarball installs in one line on
-Ubuntu 22.04 or later.
+The package is not in the ROS apt repository, and no build-farm release is
+planned. The build fetches about 460 crates, which the build farm discourages,
+and only Ubuntu 26.04 has a new enough cargo. The Debian package above
+installs in one line.
 
 ## Replace map_server
 
