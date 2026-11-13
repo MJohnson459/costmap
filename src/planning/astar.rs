@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::f32::consts::SQRT_2;
 
-use glam::{DVec2, IVec2, UVec2};
+use glam::{DVec2, IVec2};
 
 use crate::{
     Costmap, DenseGrid,
@@ -60,7 +60,7 @@ impl Default for PlanOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Path {
     /// Cells from start to goal inclusive; consecutive cells are 8-neighbours.
-    pub cells: Vec<UVec2>,
+    pub cells: Vec<IVec2>,
     /// Sum of the step costs described at [`PlanOptions::cost_weight`].
     pub cost: f32,
 }
@@ -85,7 +85,7 @@ impl Path {
 /// Returns `None` if either cell is outside the grid or impassable, or if no path
 /// exists. A diagonal move is allowed only when both cells it passes between are
 /// passable. `start == goal` yields a one-cell path of cost 0.
-pub fn plan(grid: &Costmap, start: UVec2, goal: UVec2, options: &PlanOptions) -> Option<Path> {
+pub fn plan(grid: &Costmap, start: IVec2, goal: IVec2, options: &PlanOptions) -> Option<Path> {
     passable_cost(grid, start, options)?;
     passable_cost(grid, goal, options)?;
     if start == goal {
@@ -106,7 +106,7 @@ pub fn plan(grid: &Costmap, start: UVec2, goal: UVec2, options: &PlanOptions) ->
 /// One move of [`plan`] to a neighbouring cell.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Move {
-    pub cell: UVec2,
+    pub cell: IVec2,
     /// Step length in cells: 1 or √2.
     pub length_cells: f32,
     /// Cost of entering `cell`, as in [`passable_cost`].
@@ -118,7 +118,7 @@ pub struct Move {
 /// are passable, so the cells these moves connect are exactly the cells `plan` can join.
 pub fn moves<'a>(
     grid: &'a Costmap,
-    cell: UVec2,
+    cell: IVec2,
     options: &'a PlanOptions,
 ) -> impl Iterator<Item = Move> + 'a {
     let cost_at = move |offset: IVec2| {
@@ -140,15 +140,15 @@ pub fn moves<'a>(
 }
 
 /// `cell` moved by `offset`, or `None` if that leaves the grid.
-fn offset_cell(grid: &Costmap, cell: UVec2, offset: IVec2) -> Option<UVec2> {
-    let moved = UVec2::try_from(cell.as_ivec2() + offset).ok()?;
-    (moved.x < grid.size().x && moved.y < grid.size().y).then_some(moved)
+fn offset_cell(grid: &Costmap, cell: IVec2, offset: IVec2) -> Option<IVec2> {
+    let moved = cell + offset;
+    grid.contains(moved).then_some(moved)
 }
 
 /// Cost of entering `cell`, or `None` if it is outside the grid or impassable.
 /// Unknown cells are tested before the threshold because [`COST_UNKNOWN`] is
 /// numerically above every lethal threshold.
-pub fn passable_cost(grid: &Costmap, cell: UVec2, options: &PlanOptions) -> Option<u8> {
+pub fn passable_cost(grid: &Costmap, cell: IVec2, options: &PlanOptions) -> Option<u8> {
     match *grid.get(cell)? {
         COST_UNKNOWN => options.allow_unknown.then_some(COST_FREE),
         cost => (cost < options.lethal_threshold).then_some(cost),
@@ -224,25 +224,25 @@ impl<'a> Search<'a> {
         }
     }
 
-    fn index(&self, cell: UVec2) -> usize {
+    fn index(&self, cell: IVec2) -> usize {
         cell.y as usize * self.grid.size().x as usize + cell.x as usize
     }
 
-    fn cell(&self, index: usize) -> UVec2 {
+    fn cell(&self, index: usize) -> IVec2 {
         let width = self.grid.size().x as usize;
-        UVec2::new((index % width) as u32, (index / width) as u32)
+        IVec2::new((index % width) as i32, (index / width) as i32)
     }
 
     /// Octile distance to `goal` in metres. Admissible and consistent because
     /// every step costs at least its length.
-    fn heuristic(&self, cell: UVec2, goal: UVec2) -> f32 {
-        let d = (cell.as_ivec2() - goal.as_ivec2()).abs();
+    fn heuristic(&self, cell: IVec2, goal: IVec2) -> f32 {
+        let d = (cell - goal).abs();
         let (long, short) = (d.x.max(d.y) as f32, d.x.min(d.y) as f32);
         (long - short + SQRT_2 * short) * self.grid.info().resolution as f32
     }
 
     /// Neighbours of `cell` reachable in one move, with the cost of the move.
-    fn neighbours(&self, cell: UVec2) -> impl Iterator<Item = (UVec2, f32)> + '_ {
+    fn neighbours(&self, cell: IVec2) -> impl Iterator<Item = (IVec2, f32)> + '_ {
         let resolution = self.grid.info().resolution as f32;
         moves(self.grid, cell, self.options).map(move |step| {
             let length_m = step.length_cells * resolution;
@@ -250,7 +250,7 @@ impl<'a> Search<'a> {
         })
     }
 
-    fn run(&self, start: UVec2, goal: UVec2) -> Option<Solution> {
+    fn run(&self, start: IVec2, goal: IVec2) -> Option<Solution> {
         let cells = self.grid.size().x as usize * self.grid.size().y as usize;
         let mut best_g = vec![f32::INFINITY; cells];
         let mut parent = vec![NO_PARENT; cells];
@@ -296,9 +296,9 @@ impl<'a> Search<'a> {
 
 impl Solution {
     /// Cells from `start` to `goal`, found by following parent links back from `goal`.
-    fn trace(&self, start: UVec2, goal: UVec2) -> Vec<UVec2> {
-        let index_of = |c: UVec2| c.y as usize * self.width + c.x as usize;
-        let cell = |i: usize| UVec2::new((i % self.width) as u32, (i / self.width) as u32);
+    fn trace(&self, start: IVec2, goal: IVec2) -> Vec<IVec2> {
+        let index_of = |c: IVec2| c.y as usize * self.width + c.x as usize;
+        let cell = |i: usize| IVec2::new((i % self.width) as i32, (i / self.width) as i32);
         let start_index = index_of(start);
         let mut index = index_of(goal);
         let mut cells = vec![goal];
@@ -327,12 +327,12 @@ mod tests {
         Costmap::filled(info, value)
     }
 
-    fn set(grid: &mut Costmap, x: u32, y: u32, value: u8) {
-        grid.set(UVec2::new(x, y), value).unwrap();
+    fn set(grid: &mut Costmap, x: i32, y: i32, value: u8) {
+        grid.set(IVec2::new(x, y), value).unwrap();
     }
 
-    fn cell(x: u32, y: u32) -> UVec2 {
-        UVec2::new(x, y)
+    fn cell(x: i32, y: i32) -> IVec2 {
+        IVec2::new(x, y)
     }
 
     fn path_cost(grid: &Costmap, path: &Path, options: &PlanOptions) -> f32 {
@@ -547,7 +547,7 @@ mod tests {
         let path = plan(&g, cell(0, 0), cell(29, 29), &options).unwrap();
 
         for pair in path.cells.windows(2) {
-            let step = pair[0].as_ivec2() - pair[1].as_ivec2();
+            let step = pair[0] - pair[1];
             assert!(step.abs().max_element() == 1, "{pair:?}");
         }
         assert_relative_eq!(path.cost, path_cost(&g, &path, &options), epsilon = 1e-3);

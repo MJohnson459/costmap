@@ -1,8 +1,8 @@
-use glam::{DVec2, IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, Vec2};
 
 use crate::DenseGrid;
 
-/// An iterator that steps along each cell in a line returning the cell index
+/// An iterator that steps along each cell in a line returning the cell
 /// and the distance along the line to the cell [LineStep].
 pub struct LineIterator {
     max_t_grid: f32,
@@ -21,8 +21,8 @@ pub struct LineIterator {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LineStep {
-    /// The cell index
-    pub cell: UVec2,
+    /// The cell
+    pub cell: IVec2,
     /// The distance along the line to the cell
     pub t: f32,
 }
@@ -70,7 +70,7 @@ impl Iterator for LineIterator {
         if self.emit_start {
             self.emit_start = false;
             return Some(LineStep {
-                cell: self.cell.as_uvec2(),
+                cell: self.cell,
                 t: 0.0,
             });
         }
@@ -95,10 +95,7 @@ impl Iterator for LineIterator {
             return None;
         }
 
-        Some(LineStep {
-            cell: self.cell.as_uvec2(),
-            t,
-        })
+        Some(LineStep { cell: self.cell, t })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -230,12 +227,11 @@ fn axis_params(start: f32, dir: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use approx::assert_relative_eq;
-    use glam::UVec2;
 
     use super::*;
     use crate::types::{FREE, OCCUPIED};
 
-    fn test_grid(occupied: Option<UVec2>, resolution: f64, origin: DVec2) -> DenseGrid<i8> {
+    fn test_grid(occupied: Option<IVec2>, resolution: f64, origin: DVec2) -> DenseGrid<i8> {
         let width = 5;
         let height = 5;
         let mut data = vec![FREE; width * height];
@@ -256,7 +252,7 @@ mod tests {
 
     #[test]
     fn hit_positive() {
-        let goal = UVec2::new(4, 1);
+        let goal = IVec2::new(4, 1);
         let grid = test_grid(Some(goal), 1.0, DVec2::ZERO);
         let dir = goal.as_vec2().normalize();
 
@@ -277,7 +273,7 @@ mod tests {
 
     #[test]
     fn hit_negative_x() {
-        let goal = UVec2::new(0, 1);
+        let goal = IVec2::new(0, 1);
         let grid = test_grid(Some(goal), 1.0, DVec2::ZERO);
         let dir = Vec2::new(-3.9, 1.0).normalize();
         let hit = grid
@@ -289,7 +285,7 @@ mod tests {
 
     #[test]
     fn resolution_with_offset() {
-        let goal = UVec2::new(2, 4);
+        let goal = IVec2::new(2, 4);
         let grid = test_grid(Some(goal), 0.05, DVec2::new(-0.18, 0.0));
         let dir = Vec2::new(-1.0, 2.0).normalize();
         let hit = grid
@@ -302,7 +298,7 @@ mod tests {
     #[test]
     fn line_value_iterator_reads_values() {
         let mut grid = test_grid(None, 1.0, DVec2::ZERO);
-        grid.set(UVec2::new(2, 0), OCCUPIED).unwrap();
+        grid.set(IVec2::new(2, 0), OCCUPIED).unwrap();
 
         let dir = Vec2::new(1.0, 0.0);
         let values: Vec<i8> = LineValueIterator::new(&grid, DVec2::ZERO, dir, 4.0)
@@ -324,7 +320,7 @@ mod tests {
         }
 
         for x in 0..5 {
-            assert_eq!(grid.get(UVec2::new(x, 0)), Some(&OCCUPIED));
+            assert_eq!(grid.get(IVec2::new(x, 0)), Some(&OCCUPIED));
         }
     }
 }

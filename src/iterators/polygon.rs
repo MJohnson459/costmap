@@ -1,4 +1,4 @@
-use glam::{DVec2, IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, Vec2};
 
 use crate::DenseGrid;
 
@@ -105,12 +105,12 @@ impl PolygonIterator {
 }
 
 impl Iterator for PolygonIterator {
-    type Item = UVec2;
+    type Item = IVec2;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.has_span && self.cell.x <= self.x_end {
-                let cell = self.cell.as_uvec2();
+                let cell = self.cell;
                 self.cell.x += 1;
                 return Some(cell);
             }
@@ -192,7 +192,7 @@ impl<T> DenseGrid<T> {
 
 #[cfg(test)]
 mod tests {
-    use glam::{DVec2, UVec2};
+    use glam::{DVec2, IVec2};
 
     use super::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator};
     use crate::DenseGrid;
@@ -213,10 +213,10 @@ mod tests {
             DVec2::new(4.0, 3.0),
             DVec2::new(1.0, 3.0),
         ];
-        let cells: Vec<UVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
+        let cells: Vec<IVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
         assert!(!cells.is_empty());
-        assert!(cells.iter().any(|c| c == &glam::UVec2::new(1, 1)));
-        assert!(cells.iter().any(|c| c == &glam::UVec2::new(3, 2)));
+        assert!(cells.iter().any(|c| c == &glam::IVec2::new(1, 1)));
+        assert!(cells.iter().any(|c| c == &glam::IVec2::new(3, 2)));
     }
 
     #[test]
@@ -228,7 +228,7 @@ mod tests {
             ..Default::default()
         };
         let mut grid = DenseGrid::<u8>::new(info);
-        grid.set(UVec2::new(2, 2), 100).unwrap();
+        grid.set(IVec2::new(2, 2), 100).unwrap();
 
         let points = vec![
             DVec2::new(1.0, 1.0),
@@ -266,7 +266,7 @@ mod tests {
         }
 
         // Check that all cells in the polygon were set
-        let cells: Vec<UVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
+        let cells: Vec<IVec2> = PolygonIterator::new(&grid, &points).unwrap().collect();
         for cell in cells {
             assert_eq!(grid.get(cell), Some(&50));
         }

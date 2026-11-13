@@ -18,6 +18,7 @@ Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 
 - `Grid2d` is `DenseGrid`, with shorter constructor names. The old names are deprecated.
 - World positions, resolutions and extents are `f64`.
+- Cell positions are `IVec2`; sizes and counts of cells stay `UVec2`.
 - `LayeredCostmap::add_layer` returns a `Result`: a layer can reject a costmap it cannot work on.
 - `VoxelError` is non-exhaustive.
 - Grids are logged to Rerun as `GridMap` archetypes.

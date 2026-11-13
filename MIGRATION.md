@@ -67,6 +67,38 @@ let pose = Pose2::new(DVec2::new(5.0, 5.0), 0.0);
 
 To pass an `f32` vector where a world position is wanted, call `.as_dvec2()`; to go back, `.as_vec2()`.
 
+### Cell positions are `IVec2`
+
+A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsigned: `size()`, `resize_map` and `MapInfo::width`/`height` are unchanged.
+
+| Item | 0.2 | 0.3 |
+| --- | --- | --- |
+| `get`, `get_mut`, `set`, `get_unchecked`, `get_unchecked_mut`, `grid[cell]` | take `UVec2` | take `IVec2` |
+| `map_to_world` | takes `UVec2` | takes `IVec2` |
+| `world_to_map` | returns `Option<UVec2>` | returns `Option<IVec2>` |
+| `indexed_iter`, `indexed_iter_mut` | yield `(UVec2, _)` | yield `(IVec2, _)` |
+| `reset_map` | `lower`, `upper: UVec2` | `lower`, `upper: IVec2` |
+| `from_fn` (was `new_with`) | `f(x: u32, y: u32)` | `f(cell: IVec2)` |
+| `CellRegion::min`, `max`, `new`, `contains` | `UVec2` | `IVec2` |
+| `LineStep::cell` | `UVec2` | `IVec2` |
+| `PolygonIterator` | yields `UVec2` | yields `IVec2` |
+| `RayHit2D::cell` | `UVec2` | `IVec2` |
+
+The deprecated `new_with` still passes `(x, y)` as `u32`.
+
+The planning API, new in 0.3, uses `IVec2` for every cell: `plan`'s `start` and `goal`, `Path::cells`, `Path::shortcut`, `Move::cell`, `moves`, `passable_cost`, `line_passable`, `Regions::region` and `Regions::cells`. `TileGraph::plan`, `TileGraph::shortcut` and `TileCache::cost` do the same. Tile coordinates are positions too: `TileSource::tile` takes an `IVec2`, and `TileLayout::tile_of` and `tile_min` return one. `TileLayout::tile_size`, `tiles` and `size` stay `UVec2`.
+
+A cell outside the grid, including one with a negative coordinate, gets `None` from `get`. `DenseGrid::contains(cell)` tests the bounds alone.
+
+```rust
+// 0.2
+let grid = Costmap::new_with(info, |x, y| if x == 5 { COST_LETHAL } else { COST_FREE });
+let cost = grid.get(UVec2::new(5, 2));
+// 0.3
+let grid = Costmap::from_fn(info, |cell| if cell.x == 5 { COST_LETHAL } else { COST_FREE });
+let cost = grid.get(IVec2::new(5, 2));
+```
+
 ### `LayeredCostmap::add_layer` returns a `Result`
 
 `add_layer` calls the new `Layer::attach` and returns its error, so a layer that cannot work with the costmap is rejected when it is added.

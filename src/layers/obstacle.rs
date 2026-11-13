@@ -12,7 +12,7 @@
 //! must already be in the costmap's world frame. Callers transform sensor data
 //! (origin, beam endpoints, sensor pose) before inserting it.
 
-use glam::{DVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 use crate::{
     DenseGrid,
@@ -241,7 +241,7 @@ impl ObstacleLayer {
     }
 
     /// Write `cost` and the observation stamp; `None` drops the stamp.
-    fn set_cell(&mut self, cell: UVec2, cost: u8, stamp: Option<f64>) {
+    fn set_cell(&mut self, cell: IVec2, cost: u8, stamp: Option<f64>) {
         let _ = self.grid.set(cell, cost);
         if let Some(stamps) = self.stamps.as_mut() {
             let _ = stamps.set(cell, stamp);
@@ -410,8 +410,8 @@ mod tests {
         )
     }
 
-    fn cost(layer: &ObstacleLayer, x: u32, y: u32) -> u8 {
-        *layer.grid().get(UVec2::new(x, y)).unwrap()
+    fn cost(layer: &ObstacleLayer, x: i32, y: i32) -> u8 {
+        *layer.grid().get(IVec2::new(x, y)).unwrap()
     }
 
     fn hit(x: f64, y: f64) -> Beam {
@@ -429,7 +429,7 @@ mod tests {
     }
 
     fn full_region() -> CellRegion {
-        CellRegion::new(UVec2::ZERO, UVec2::splat(SIZE))
+        CellRegion::new(IVec2::ZERO, IVec2::splat(SIZE as i32))
     }
 
     fn observed_cells(layer: &ObstacleLayer) -> usize {
@@ -535,7 +535,7 @@ mod tests {
             if along_beam > 0.0 && (0.0..=1.0).contains(&along_wall) {
                 ranges.push(along_beam as f32);
                 let point = sensor + dir * along_beam;
-                hit_cells.insert((point / resolution).floor().as_uvec2());
+                hit_cells.insert((point / resolution).floor().as_ivec2());
             } else {
                 ranges.push(f32::INFINITY);
             }
@@ -563,9 +563,9 @@ mod tests {
         let mut master = Costmap::filled(info(), 77);
         layer.update_costs(&mut master, full_region());
 
-        assert_eq!(master.get(UVec2::new(10, 10)), Some(&77));
-        assert_eq!(master.get(UVec2::new(2, 5)), Some(&77));
-        assert_eq!(master.get(UVec2::new(3, 5)), Some(&COST_LETHAL));
+        assert_eq!(master.get(IVec2::new(10, 10)), Some(&77));
+        assert_eq!(master.get(IVec2::new(2, 5)), Some(&77));
+        assert_eq!(master.get(IVec2::new(3, 5)), Some(&COST_LETHAL));
     }
 
     #[test]
@@ -574,11 +574,11 @@ mod tests {
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let mut master = Costmap::filled(info(), COST_FREE);
-        master.set(UVec2::new(2, 5), COST_LETHAL).unwrap();
+        master.set(IVec2::new(2, 5), COST_LETHAL).unwrap();
         layer.update_costs(&mut master, full_region());
 
-        assert_eq!(master.get(UVec2::new(2, 5)), Some(&COST_LETHAL));
-        assert_eq!(master.get(UVec2::new(8, 5)), Some(&COST_LETHAL));
+        assert_eq!(master.get(IVec2::new(2, 5)), Some(&COST_LETHAL));
+        assert_eq!(master.get(IVec2::new(8, 5)), Some(&COST_LETHAL));
     }
 
     #[test]
@@ -593,10 +593,10 @@ mod tests {
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let mut master = Costmap::filled(info(), COST_FREE);
-        master.set(UVec2::new(2, 5), COST_LETHAL).unwrap();
+        master.set(IVec2::new(2, 5), COST_LETHAL).unwrap();
         layer.update_costs(&mut master, full_region());
 
-        assert_eq!(master.get(UVec2::new(2, 5)), Some(&COST_FREE));
+        assert_eq!(master.get(IVec2::new(2, 5)), Some(&COST_FREE));
     }
 
     #[test]
@@ -687,7 +687,7 @@ mod tests {
         let mut layer = ObstacleLayer::new(info(), config());
         layer.insert_beams(DVec2::new(25.5, 5.5), [hit(15.5, 5.5)], 0.0);
 
-        for x in 16..SIZE {
+        for x in 16..SIZE as i32 {
             assert_eq!(cost(&layer, x, 5), COST_FREE, "x={x}");
         }
         assert_eq!(cost(&layer, 15, 5), COST_LETHAL);
@@ -709,7 +709,7 @@ mod tests {
         };
         layer.insert_beams(DVec2::new(-10.5, 5.5), [across], 0.0);
 
-        for x in 0..SIZE {
+        for x in 0..SIZE as i32 {
             assert_eq!(cost(&layer, x, 5), COST_FREE, "x={x}");
         }
         assert_eq!(observed_cells(&layer), SIZE as usize);
@@ -881,7 +881,7 @@ mod tests {
         assert!(bounds.min.x <= 10.5 && bounds.max.x >= 14.5);
 
         let mut master = Costmap::filled(big, COST_FREE);
-        layer.update_costs(&mut master, CellRegion::new(UVec2::ZERO, UVec2::splat(100)));
+        layer.update_costs(&mut master, CellRegion::new(IVec2::ZERO, IVec2::splat(100)));
         let mut bounds = Bounds::empty();
         layer.update_bounds(robot, &mut bounds);
         assert!(bounds.is_empty());
@@ -899,7 +899,7 @@ mod tests {
         );
         layer.insert_beams(DVec2::new(40.5, 40.5), [hit(44.5, 40.5)], 0.0);
         let mut master = Costmap::filled(big, COST_FREE);
-        layer.update_costs(&mut master, CellRegion::new(UVec2::ZERO, UVec2::splat(100)));
+        layer.update_costs(&mut master, CellRegion::new(IVec2::ZERO, IVec2::splat(100)));
 
         layer.expire(5.0);
         let mut bounds = Bounds::empty();
@@ -947,7 +947,7 @@ mod tests {
         let mut master = Costmap::filled(other, 9);
         layer.update_costs(
             &mut master,
-            CellRegion::new(UVec2::ZERO, UVec2::splat(SIZE)),
+            CellRegion::new(IVec2::ZERO, IVec2::splat(SIZE as i32)),
         );
         assert!(master.as_slice().iter().all(|&c| c == 9));
     }

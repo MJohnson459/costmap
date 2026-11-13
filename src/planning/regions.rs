@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use glam::UVec2;
+use glam::IVec2;
 
 use crate::Costmap;
 
@@ -32,12 +32,12 @@ impl Regions {
     pub fn new(grid: &Costmap, options: &PlanOptions) -> Self {
         let width = grid.size().x;
         let cell = |index: usize| {
-            UVec2::new(
-                (index % width as usize) as u32,
-                (index / width as usize) as u32,
+            IVec2::new(
+                (index % width as usize) as i32,
+                (index / width as usize) as i32,
             )
         };
-        let index = |cell: UVec2| cell.y as usize * width as usize + cell.x as usize;
+        let index = |cell: IVec2| cell.y as usize * width as usize + cell.x as usize;
         let mut labels = vec![NONE; grid.as_slice().len()];
         let mut sizes = Vec::new();
         let mut queue = VecDeque::new();
@@ -69,8 +69,8 @@ impl Regions {
     }
 
     /// Region of `cell`, or `None` if it is outside the grid or impassable.
-    pub fn region(&self, cell: UVec2) -> Option<RegionId> {
-        if cell.x >= self.width {
+    pub fn region(&self, cell: IVec2) -> Option<RegionId> {
+        if cell.x < 0 || cell.y < 0 || cell.x as u32 >= self.width {
             return None;
         }
         let index = cell.y as usize * self.width as usize + cell.x as usize;
@@ -98,11 +98,11 @@ impl Regions {
     }
 
     /// The cells of `region` in row-major order.
-    pub fn cells(&self, region: RegionId) -> impl Iterator<Item = UVec2> + '_ {
+    pub fn cells(&self, region: RegionId) -> impl Iterator<Item = IVec2> + '_ {
         let width = self.width as usize;
         (self.labels.iter().enumerate())
             .filter(move |&(_, &label)| label == region.0)
-            .map(move |(index, _)| UVec2::new((index % width) as u32, (index / width) as u32))
+            .map(move |(index, _)| IVec2::new((index % width) as i32, (index / width) as i32))
     }
 }
 
@@ -118,8 +118,8 @@ mod tests {
     fn cells_touching_only_at_a_blocked_corner_are_separate_regions() {
         // Two free 3 x 3 blocks that touch only at a corner: the planner's diagonal move
         // between them needs both blocked cells beside it to be passable.
-        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |x, y| {
-            if (x < 3 && y < 3) || (x >= 3 && y >= 3) {
+        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |cell| {
+            if (cell.x < 3 && cell.y < 3) || (cell.x >= 3 && cell.y >= 3) {
                 COST_FREE
             } else {
                 COST_LETHAL
@@ -127,26 +127,26 @@ mod tests {
         });
         let options = PlanOptions::default();
         let regions = Regions::new(&grid, &options);
-        let (a, b) = (UVec2::new(2, 2), UVec2::new(3, 3));
+        let (a, b) = (IVec2::new(2, 2), IVec2::new(3, 3));
         assert_ne!(regions.region(a), regions.region(b));
         assert!(plan(&grid, a, b, &options).is_none());
         let lower = regions.region(a).unwrap();
         assert_eq!(regions.size(lower), 9);
         assert_eq!(regions.largest(), Some(lower));
-        assert_eq!(regions.region(UVec2::new(3, 0)), None);
-        assert_eq!(regions.region(UVec2::new(6, 0)), None);
+        assert_eq!(regions.region(IVec2::new(3, 0)), None);
+        assert_eq!(regions.region(IVec2::new(6, 0)), None);
     }
 
     #[test]
     fn largest_region_ignores_smaller_islands() {
         // Column 2 is a wall: a 2-wide island on the left, a 3-wide region on the right.
-        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |x, _| {
-            if x == 2 { COST_LETHAL } else { COST_FREE }
+        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |cell| {
+            if cell.x == 2 { COST_LETHAL } else { COST_FREE }
         });
         let regions = Regions::new(&grid, &PlanOptions::default());
         let largest = regions.largest().unwrap();
         assert_eq!(regions.size(largest), 18);
         assert!(regions.cells(largest).all(|cell| cell.x >= 3));
-        assert_eq!(regions.cells(largest).next(), Some(UVec2::new(3, 0)));
+        assert_eq!(regions.cells(largest).next(), Some(IVec2::new(3, 0)));
     }
 }

@@ -34,7 +34,7 @@ fn convert(args: &Args) -> Result<(), Box<dyn Error>> {
 
     let mut grid = TiledGrid::new(info.resolution, CHUNK_CELLS, COST_UNKNOWN)?;
     for (cell, &cost) in map.indexed_iter() {
-        grid.set(cell.as_ivec2(), cost);
+        grid.set(cell, cost);
     }
     let georef = GeoReference {
         epsg: None,

@@ -12,7 +12,7 @@
 //! trait so it can be used inside [`LayeredCostmap`](crate::LayeredCostmap).
 
 use bitvec::prelude::*;
-use glam::{IVec2, UVec2};
+use glam::IVec2;
 
 use crate::types::{
     Bounds, COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, CellRegion, MapInfo, Pose2,
@@ -138,10 +138,7 @@ impl Costmap {
             cost_scaling_factor,
             ..Default::default()
         });
-        inflation.update_costs(
-            self,
-            CellRegion::new(UVec2::ZERO, UVec2::new(self.size().x, self.size().y)),
-        );
+        inflation.update_costs(self, CellRegion::new(IVec2::ZERO, self.size().as_ivec2()));
     }
 }
 
@@ -149,12 +146,12 @@ impl Costmap {
 /// it was enqueued from (for cost lookup).
 #[derive(Debug, Clone, Copy)]
 struct CellData {
-    pos: UVec2,
-    src: UVec2,
+    pos: IVec2,
+    src: IVec2,
 }
 
 impl CellData {
-    fn new(pos: UVec2, src: UVec2) -> Self {
+    fn new(pos: IVec2, src: IVec2) -> Self {
         Self { pos, src }
     }
 }
@@ -278,7 +275,7 @@ impl WavefrontInflation {
     /// `seen` is a reusable buffer; it is resized to `width * height` if needed and cleared on use.
     pub fn inflate(&mut self, grid: &mut Costmap, region: CellRegion, options: InflateOptions) {
         let size = region.max.saturating_sub(region.min);
-        if size.x == 0 || size.y == 0 {
+        if size.x <= 0 || size.y <= 0 {
             return;
         }
 
@@ -311,7 +308,7 @@ impl WavefrontInflation {
                 }
 
                 if region.contains(cell.pos) {
-                    let delta = cell.pos.as_ivec2() - cell.src.as_ivec2();
+                    let delta = cell.pos - cell.src;
                     let cost = self.cost_lookup(delta);
                     let current = grid.get(cell.pos).copied().unwrap_or(COST_FREE);
 
@@ -334,13 +331,12 @@ impl WavefrontInflation {
                 }
 
                 for offset in CARDINAL_OFFSETS {
-                    let neighbour = cell.pos.as_ivec2() + offset;
-                    let neighbour = neighbour.as_uvec2();
-                    if neighbour.x < width && neighbour.y < height {
+                    let neighbour = cell.pos + offset;
+                    if (neighbour.x as u32) < width && (neighbour.y as u32) < height {
                         if self.is_seen(neighbour) {
                             continue;
                         }
-                        let delta = neighbour.as_ivec2() - cell.src.as_ivec2();
+                        let delta = neighbour - cell.src;
                         let dist = self.distance_lookup(delta);
                         if dist > self.radius {
                             continue;
@@ -402,17 +398,27 @@ impl WavefrontInflation {
             self.inflation_cells[level as usize].clear();
         }
 
-        let radius_cells = self.cell_inflation_radius();
-        let search_min = region.min.saturating_sub(UVec2::splat(radius_cells));
-        let search_max = (region.max + radius_cells).min(UVec2::new(grid.size().x, grid.size().y));
+        let radius_cells = self.cell_inflation_radius() as i32;
+        let search_min = region
+            .min
+            .saturating_sub(IVec2::splat(radius_cells))
+            .max(IVec2::ZERO);
+        let search_max = (region.max + radius_cells).min(grid.size().as_ivec2());
 
         let seeds = &mut self.inflation_cells[0];
-        for y in search_min.y..search_max.y {
-            for x in search_min.x..search_max.x {
-                let pos = UVec2::new(x, y);
-                let cost = grid.get(pos).copied().unwrap_or(COST_FREE);
-                if cost == COST_LETHAL || (options.inflate_around_unknown && cost == COST_UNKNOWN) {
-                    seeds.push(CellData::new(pos, pos));
+        if search_min.x < search_max.x {
+            // The search window lies inside the grid, so each of its rows is a slice.
+            let stride = grid.size().x as usize;
+            let columns = search_min.x as usize..search_max.x as usize;
+            for y in search_min.y..search_max.y {
+                let row = &grid.as_slice()[y as usize * stride..][columns.clone()];
+                for (x, &cost) in (search_min.x..).zip(row) {
+                    if cost == COST_LETHAL
+                        || (options.inflate_around_unknown && cost == COST_UNKNOWN)
+                    {
+                        let pos = IVec2::new(x, y);
+                        seeds.push(CellData::new(pos, pos));
+                    }
                 }
             }
         }
@@ -458,16 +464,20 @@ impl WavefrontInflation {
         (self.radius / self.resolution).ceil() as u32
     }
 
-    fn is_seen(&self, pos: UVec2) -> bool {
-        let idx = pos.as_usizevec2();
-        let index = idx.y * self.width + idx.x;
+    /// Offset of `pos` in `seen`. A cell outside the grid gives an offset past
+    /// its end. Going through `u32` zero-extends.
+    fn seen_index(&self, pos: IVec2) -> usize {
+        pos.y as u32 as usize * self.width + pos.x as u32 as usize
+    }
+
+    fn is_seen(&self, pos: IVec2) -> bool {
+        let index = self.seen_index(pos);
         index >= self.size || self.seen[index]
     }
 
     /// Mark a cell as seen, returning true if it was not already seen.
-    fn mark_seen(&mut self, pos: UVec2) -> bool {
-        let idx = pos.as_usizevec2();
-        let index = idx.y * self.width + idx.x;
+    fn mark_seen(&mut self, pos: IVec2) -> bool {
+        let index = self.seen_index(pos);
         if index >= self.size || self.seen[index] {
             return false;
         }
@@ -597,14 +607,14 @@ mod tests {
         let mut wavefront = WavefrontInflation::build(2.0, 0.0, dest.info().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
-            CellRegion::new(UVec2::ZERO, UVec2::new(5, 5)),
+            CellRegion::new(IVec2::ZERO, IVec2::new(5, 5)),
             InflateOptions::default(),
         );
 
-        assert_eq!(dest.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
-        assert!(dest.get(UVec2::new(3, 2)).copied().unwrap_or(0) > 0);
-        assert!(dest.get(UVec2::new(1, 2)).copied().unwrap_or(0) > 0);
-        assert_eq!(dest.get(UVec2::new(0, 0)).copied(), Some(COST_FREE));
+        assert_eq!(dest.get(IVec2::new(2, 2)).copied(), Some(COST_LETHAL));
+        assert!(dest.get(IVec2::new(3, 2)).copied().unwrap_or(0) > 0);
+        assert!(dest.get(IVec2::new(1, 2)).copied().unwrap_or(0) > 0);
+        assert_eq!(dest.get(IVec2::new(0, 0)).copied(), Some(COST_FREE));
     }
 
     #[test]
@@ -619,7 +629,7 @@ mod tests {
         let mut wavefront = WavefrontInflation::build(1.0, 2.0, dest.info().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
-            CellRegion::new(UVec2::ZERO, UVec2::new(10, 10)),
+            CellRegion::new(IVec2::ZERO, IVec2::new(10, 10)),
             InflateOptions::default(),
         );
 
@@ -648,7 +658,7 @@ mod tests {
                 bounds.expand_by(1.0);
             }
             fn update_costs(&mut self, master: &mut Costmap, _region: CellRegion) {
-                let _ = master.set(UVec2::new(2, 2), COST_LETHAL);
+                let _ = master.set(IVec2::new(2, 2), COST_LETHAL);
             }
         }
 
@@ -668,8 +678,8 @@ mod tests {
         });
 
         let m = layered.master();
-        assert_eq!(m.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
-        let near = m.get(UVec2::new(3, 2)).copied().unwrap_or(0);
+        assert_eq!(m.get(IVec2::new(2, 2)).copied(), Some(COST_LETHAL));
+        let near = m.get(IVec2::new(3, 2)).copied().unwrap_or(0);
         assert!(
             near > 0 && near < COST_LETHAL,
             "inflated cost should be in (0, LETHAL)"
@@ -689,15 +699,15 @@ mod tests {
         let mut wavefront = WavefrontInflation::build(1.2, 1.0, dest.info().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
-            CellRegion::new(UVec2::ZERO, UVec2::new(5, 5)),
+            CellRegion::new(IVec2::ZERO, IVec2::new(5, 5)),
             InflateOptions::default(),
         );
 
-        assert_eq!(dest.get(UVec2::new(0, 0)).copied(), Some(COST_UNKNOWN));
-        assert_eq!(dest.get(UVec2::new(1, 4)).copied(), Some(COST_UNKNOWN));
-        assert_eq!(dest.get(UVec2::new(0, 2)).copied(), Some(COST_FREE));
-        assert_eq!(dest.get(UVec2::new(4, 2)).copied(), Some(COST_LETHAL));
-        assert!(dest.get(UVec2::new(3, 2)).copied().unwrap_or(0) > COST_FREE);
+        assert_eq!(dest.get(IVec2::new(0, 0)).copied(), Some(COST_UNKNOWN));
+        assert_eq!(dest.get(IVec2::new(1, 4)).copied(), Some(COST_UNKNOWN));
+        assert_eq!(dest.get(IVec2::new(0, 2)).copied(), Some(COST_FREE));
+        assert_eq!(dest.get(IVec2::new(4, 2)).copied(), Some(COST_LETHAL));
+        assert!(dest.get(IVec2::new(3, 2)).copied().unwrap_or(0) > COST_FREE);
     }
 
     #[test]
@@ -720,7 +730,7 @@ mod tests {
                 bounds.expand_by(1.0);
             }
             fn update_costs(&mut self, master: &mut Costmap, _region: CellRegion) {
-                let _ = master.set(UVec2::new(2, 2), COST_LETHAL);
+                let _ = master.set(IVec2::new(2, 2), COST_LETHAL);
             }
         }
 
@@ -741,8 +751,8 @@ mod tests {
         });
 
         let m = layered.master();
-        assert_eq!(m.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
-        let near = m.get(UVec2::new(3, 2)).copied().unwrap_or(0);
+        assert_eq!(m.get(IVec2::new(2, 2)).copied(), Some(COST_LETHAL));
+        let near = m.get(IVec2::new(3, 2)).copied().unwrap_or(0);
         assert!(
             near > COST_FREE && near < COST_LETHAL,
             "inflate_unknown=true should overwrite unknown (3,2) with inflation cost, got {}",
@@ -770,7 +780,7 @@ mod tests {
                 bounds.expand_by(1.0);
             }
             fn update_costs(&mut self, master: &mut Costmap, _region: CellRegion) {
-                let _ = master.set(UVec2::new(2, 2), COST_UNKNOWN);
+                let _ = master.set(IVec2::new(2, 2), COST_UNKNOWN);
             }
         }
 
@@ -792,8 +802,8 @@ mod tests {
 
         let m = layered.master();
         // Seed cell gets the inflation cost at distance 0 (LETHAL), same as Nav2
-        assert_eq!(m.get(UVec2::new(2, 2)).copied(), Some(COST_LETHAL));
-        let near = m.get(UVec2::new(3, 2)).copied().unwrap_or(0);
+        assert_eq!(m.get(IVec2::new(2, 2)).copied(), Some(COST_LETHAL));
+        let near = m.get(IVec2::new(3, 2)).copied().unwrap_or(0);
         assert!(
             near > COST_FREE,
             "inflate_around_unknown=true should inflate from unknown seed, got {}",

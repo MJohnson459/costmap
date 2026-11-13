@@ -33,10 +33,10 @@ impl OccupancyGrid {
 
         loop {
             if utils::in_bounds(current, bounds) && utils::is_occupied(self, current) {
-                let center = self.map_to_world(current.as_uvec2());
+                let center = self.map_to_world(current);
                 let hit_distance = (center - origin).as_vec2().dot(dir).max(0.0);
                 return Some(RayHit2D {
-                    cell: current.as_uvec2(),
+                    cell: current,
                     hit_distance,
                 });
             }
@@ -62,12 +62,12 @@ impl OccupancyGrid {
 
 #[cfg(test)]
 mod tests {
-    use glam::UVec2;
+    use glam::IVec2;
 
     use super::*;
     use crate::types::{FREE, OCCUPIED};
 
-    fn test_grid(occupied: Option<UVec2>) -> OccupancyGrid {
+    fn test_grid(occupied: Option<IVec2>) -> OccupancyGrid {
         let width = 5;
         let height = 5;
         let mut data = vec![FREE; width * height];
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn hit_positive() {
-        let goal = UVec2::new(4, 1);
+        let goal = IVec2::new(4, 1);
         let grid = test_grid(Some(goal));
         let dir = Vec2::new(4.0, 1.0).normalize();
 

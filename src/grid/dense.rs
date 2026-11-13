@@ -2,7 +2,8 @@
 //!
 //! ## Coordinate frames
 //!
-//! - **Map coordinates**: Cell indices (UVec2) or continuous (Vec2) in the grid.
+//! - **Map coordinates**: Cell positions (IVec2) or continuous (Vec2) in the grid.
+//!   Extents are UVec2.
 //! - **World coordinates**: Physical coordinates in meters. The origin in [`MapInfo`]
 //!   gives the world coordinate of the lower-left corner of cell (0, 0).
 
@@ -47,15 +48,15 @@ impl<T> DenseGrid<T> {
         }
     }
 
-    /// Create a grid by calling `f(x, y)` for each cell in row-major order.
-    pub fn from_fn(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
+    /// Create a grid by calling `f(cell)` for each cell in row-major order.
+    pub fn from_fn(info: MapInfo, mut f: impl FnMut(IVec2) -> T) -> Self
     where
         T: Default,
     {
         let mut data = Vec::with_capacity((info.width as usize) * (info.height as usize));
-        for y in 0..info.height {
-            for x in 0..info.width {
-                data.push(f(x, y));
+        for y in 0..info.height as i32 {
+            for x in 0..info.width as i32 {
+                data.push(f(IVec2::new(x, y)));
             }
         }
         Self {
@@ -123,11 +124,11 @@ impl<T> DenseGrid<T> {
     }
 
     #[deprecated(since = "0.3.0", note = "renamed to `from_fn`")]
-    pub fn new_with(info: MapInfo, f: impl FnMut(u32, u32) -> T) -> Self
+    pub fn new_with(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
     where
         T: Default,
     {
-        Self::from_fn(info, f)
+        Self::from_fn(info, |cell| f(cell.x as u32, cell.y as u32))
     }
 
     pub fn info(&self) -> &MapInfo {
@@ -163,9 +164,9 @@ impl<T> DenseGrid<T> {
     ///
     /// # Safety
     ///
-    /// Caller must ensure `pos` is inside the grid: `pos.x < size().x` and `pos.y < size().y`.
+    /// Caller must ensure `pos` is inside the grid: see [`Self::contains`].
     #[inline]
-    pub unsafe fn get_unchecked(&self, pos: UVec2) -> &T {
+    pub unsafe fn get_unchecked(&self, pos: IVec2) -> &T {
         &self.data[self.index(pos)]
     }
 
@@ -173,32 +174,39 @@ impl<T> DenseGrid<T> {
     ///
     /// # Safety
     ///
-    /// Caller must ensure `pos` is inside the grid: `pos.x < size().x` and `pos.y < size().y`.
+    /// Caller must ensure `pos` is inside the grid: see [`Self::contains`].
     #[inline]
-    pub unsafe fn get_unchecked_mut(&mut self, pos: UVec2) -> &mut T {
+    pub unsafe fn get_unchecked_mut(&mut self, pos: IVec2) -> &mut T {
         let idx = self.index(pos);
         &mut self.data[idx]
     }
 
+    /// Whether `pos` is a cell of this grid.
     #[inline]
-    pub fn get(&self, pos: UVec2) -> Option<&T> {
-        if pos.x >= self.info.width || pos.y >= self.info.height {
+    pub fn contains(&self, pos: IVec2) -> bool {
+        // A negative coordinate is a large unsigned one, so one comparison per axis.
+        (pos.x as u32) < self.info.width && (pos.y as u32) < self.info.height
+    }
+
+    #[inline]
+    pub fn get(&self, pos: IVec2) -> Option<&T> {
+        if !self.contains(pos) {
             return None;
         }
         Some(unsafe { self.get_unchecked(pos) })
     }
 
     #[inline]
-    pub fn get_mut(&mut self, pos: UVec2) -> Option<&mut T> {
-        if pos.x >= self.info.width || pos.y >= self.info.height {
+    pub fn get_mut(&mut self, pos: IVec2) -> Option<&mut T> {
+        if !self.contains(pos) {
             return None;
         }
         Some(unsafe { self.get_unchecked_mut(pos) })
     }
 
     #[inline]
-    pub fn set(&mut self, pos: UVec2, value: T) -> Result<(), VoxelError> {
-        if pos.x >= self.info.width || pos.y >= self.info.height {
+    pub fn set(&mut self, pos: IVec2, value: T) -> Result<(), VoxelError> {
+        if !self.contains(pos) {
             return Err(VoxelError::OutOfBounds(format!(
                 "cell ({}, {}) out of bounds for map {}x{}",
                 pos.x, pos.y, self.info.width, self.info.height
@@ -208,9 +216,9 @@ impl<T> DenseGrid<T> {
         Ok(())
     }
 
-    /// Map (cell indices) → world. Returns the cell center.
+    /// Map (cell) → world. Returns the cell center.
     #[inline]
-    pub fn map_to_world(&self, cell: UVec2) -> DVec2 {
+    pub fn map_to_world(&self, cell: IVec2) -> DVec2 {
         self.info.origin + (cell.as_dvec2() + DVec2::splat(0.5)) * self.info.resolution
     }
 
@@ -220,11 +228,11 @@ impl<T> DenseGrid<T> {
         self.info.origin + pos.as_dvec2() * self.info.resolution
     }
 
-    /// World → map (cell indices). Returns `None` if out of bounds.
+    /// World → map (cell). Returns `None` if out of bounds.
     #[inline]
-    pub fn world_to_map(&self, pos: DVec2) -> Option<UVec2> {
+    pub fn world_to_map(&self, pos: DVec2) -> Option<IVec2> {
         let mp = self.world_to_map_continuous(pos)?;
-        Some(UVec2::new(mp.x as u32, mp.y as u32))
+        Some(IVec2::new(mp.x as i32, mp.y as i32))
     }
 
     /// World → map (continuous). Returns `None` if out of bounds.
@@ -267,27 +275,27 @@ impl<T> DenseGrid<T> {
     /// Iterate over all cells in row-major order, yielding `(cell, value)`.
     ///
     /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
-    pub fn indexed_iter(&self) -> impl Iterator<Item = (UVec2, &T)> {
+    pub fn indexed_iter(&self) -> impl Iterator<Item = (IVec2, &T)> {
         let width = self.info.width as usize;
         self.as_slice().iter().enumerate().map(move |(idx, v)| {
-            let x = (idx % width) as u32;
-            let y = (idx / width) as u32;
-            (UVec2::new(x, y), v)
+            let x = (idx % width) as i32;
+            let y = (idx / width) as i32;
+            (IVec2::new(x, y), v)
         })
     }
 
     /// Iterate over all cells in row-major order, yielding `(cell, value)` mutably.
     ///
     /// Order: `(0,0), (1,0), ... (width-1,0), (0,1), ...`
-    pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item = (UVec2, &mut T)> {
+    pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item = (IVec2, &mut T)> {
         let width = self.info.width as usize;
         self.as_mut_slice()
             .iter_mut()
             .enumerate()
             .map(move |(idx, v)| {
-                let x = (idx % width) as u32;
-                let y = (idx / width) as u32;
-                (UVec2::new(x, y), v)
+                let x = (idx % width) as i32;
+                let y = (idx / width) as i32;
+                (IVec2::new(x, y), v)
             })
     }
 
@@ -313,16 +321,17 @@ impl<T> DenseGrid<T> {
         self.data = vec![self.fill_value.clone(); size.x as usize * size.y as usize];
     }
 
-    pub fn reset_map(&mut self, lower: UVec2, upper: UVec2)
+    /// Reset the cells of `[lower, upper)` that lie in the grid to the fill value.
+    pub fn reset_map(&mut self, lower: IVec2, upper: IVec2)
     where
         T: Clone,
     {
+        let size = self.size().as_ivec2();
         let width = self.info.width;
-        let height = self.info.height;
-        let start_x = lower.x.min(width);
-        let end_x = upper.x.min(width);
-        let start_y = lower.y.min(height);
-        let end_y = upper.y.min(height);
+        let start_x = lower.x.clamp(0, size.x) as u32;
+        let end_x = upper.x.clamp(0, size.x) as u32;
+        let start_y = lower.y.clamp(0, size.y) as u32;
+        let end_y = upper.y.clamp(0, size.y) as u32;
 
         if start_x >= end_x || start_y >= end_y {
             return;
@@ -385,17 +394,19 @@ impl<T> DenseGrid<T> {
         self.update_origin(origin);
     }
 
+    /// Offset of an in-grid cell. Going through `u32` zero-extends; a cast
+    /// straight from `i32` would sign-extend.
     #[inline]
-    fn index(&self, pos: UVec2) -> usize {
-        (pos.y as usize) * (self.info.width as usize) + (pos.x as usize)
+    fn index(&self, pos: IVec2) -> usize {
+        (pos.y as u32 as usize) * (self.info.width as usize) + (pos.x as u32 as usize)
     }
 }
 
-impl<T> Index<UVec2> for DenseGrid<T> {
+impl<T> Index<IVec2> for DenseGrid<T> {
     type Output = T;
 
     #[inline]
-    fn index(&self, index: UVec2) -> &Self::Output {
+    fn index(&self, index: IVec2) -> &Self::Output {
         self.get(index).unwrap_or_else(|| {
             panic!(
                 "grid index ({}, {}) out of bounds for grid {}x{}",
@@ -405,9 +416,9 @@ impl<T> Index<UVec2> for DenseGrid<T> {
     }
 }
 
-impl<T> IndexMut<UVec2> for DenseGrid<T> {
+impl<T> IndexMut<IVec2> for DenseGrid<T> {
     #[inline]
-    fn index_mut(&mut self, index: UVec2) -> &mut Self::Output {
+    fn index_mut(&mut self, index: IVec2) -> &mut Self::Output {
         self.get_mut(index).unwrap_or_else(|| {
             panic!(
                 "grid index ({}, {}) out of bounds for grid",
@@ -486,11 +497,11 @@ mod tests {
         )
         .unwrap();
 
-        grid.set(UVec2::new(1, 1), 7).unwrap();
+        grid.set(IVec2::new(1, 1), 7).unwrap();
         grid.update_origin(DVec2::new(1.0, 0.0));
 
-        assert_eq!(grid.get(UVec2::new(0, 1)), Some(&7));
-        assert_eq!(grid.get(UVec2::new(1, 1)), Some(&0));
+        assert_eq!(grid.get(IVec2::new(0, 1)), Some(&7));
+        assert_eq!(grid.get(IVec2::new(1, 1)), Some(&0));
     }
 
     #[test]
@@ -506,10 +517,10 @@ mod tests {
         )
         .unwrap();
 
-        grid.set(UVec2::new(1, 1), 9).unwrap();
+        grid.set(IVec2::new(1, 1), 9).unwrap();
         grid.resize_map(UVec2::new(6, 6), 1.0, DVec2::new(1.0, 0.0));
 
-        assert_eq!(grid.get(UVec2::new(1, 1)), Some(&0));
+        assert_eq!(grid.get(IVec2::new(1, 1)), Some(&0));
     }
 
     #[test]
@@ -525,16 +536,16 @@ mod tests {
         )
         .unwrap();
 
-        let cells: Vec<(UVec2, u8)> = grid.indexed_iter().map(|(p, v)| (p, *v)).collect();
+        let cells: Vec<(IVec2, u8)> = grid.indexed_iter().map(|(p, v)| (p, *v)).collect();
         assert_eq!(
             cells,
             vec![
-                (UVec2::new(0, 0), 10),
-                (UVec2::new(1, 0), 11),
-                (UVec2::new(2, 0), 12),
-                (UVec2::new(0, 1), 20),
-                (UVec2::new(1, 1), 21),
-                (UVec2::new(2, 1), 22),
+                (IVec2::new(0, 0), 10),
+                (IVec2::new(1, 0), 11),
+                (IVec2::new(2, 0), 12),
+                (IVec2::new(0, 1), 20),
+                (IVec2::new(1, 1), 21),
+                (IVec2::new(2, 1), 22),
             ]
         );
     }
@@ -555,10 +566,10 @@ mod tests {
             *v = (pos.x + 10 * pos.y) as u8;
         }
 
-        assert_eq!(grid.get(UVec2::new(0, 0)), Some(&0));
-        assert_eq!(grid.get(UVec2::new(1, 0)), Some(&1));
-        assert_eq!(grid.get(UVec2::new(0, 1)), Some(&10));
-        assert_eq!(grid.get(UVec2::new(1, 1)), Some(&11));
+        assert_eq!(grid.get(IVec2::new(0, 0)), Some(&0));
+        assert_eq!(grid.get(IVec2::new(1, 0)), Some(&1));
+        assert_eq!(grid.get(IVec2::new(0, 1)), Some(&10));
+        assert_eq!(grid.get(IVec2::new(1, 1)), Some(&11));
     }
 
     #[test]

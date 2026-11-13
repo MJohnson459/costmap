@@ -184,8 +184,8 @@ fn clip_to_cells(bounds: Bounds, info: &MapInfo) -> Option<CellRegion> {
     let size = DVec2::new(info.width as f64, info.height as f64);
     let lower = ((bounds.min - info.origin) / info.resolution).floor();
     let upper = ((bounds.max - info.origin) / info.resolution).floor() + DVec2::ONE;
-    let min = lower.clamp(DVec2::ZERO, size).as_uvec2();
-    let max = upper.clamp(DVec2::ZERO, size).as_uvec2();
+    let min = lower.clamp(DVec2::ZERO, size).as_ivec2();
+    let max = upper.clamp(DVec2::ZERO, size).as_ivec2();
     (min.x < max.x && min.y < max.y).then_some(CellRegion { min, max })
 }
 
@@ -193,7 +193,7 @@ fn clip_to_cells(bounds: Bounds, info: &MapInfo) -> Option<CellRegion> {
 mod tests {
     use super::*;
     use crate::types::MapInfo;
-    use glam::UVec2;
+    use glam::IVec2;
 
     fn default_info() -> MapInfo {
         MapInfo {
@@ -264,8 +264,8 @@ mod tests {
             &default_info(),
         )
         .unwrap();
-        assert_eq!(region.min, UVec2::new(2, 2));
-        assert_eq!(region.max, UVec2::new(6, 4));
+        assert_eq!(region.min, IVec2::new(2, 2));
+        assert_eq!(region.max, IVec2::new(6, 4));
     }
 
     #[test]
@@ -275,8 +275,8 @@ mod tests {
             &default_info(),
         )
         .unwrap();
-        assert_eq!(region.min, UVec2::new(0, 8));
-        assert_eq!(region.max, UVec2::new(2, 10));
+        assert_eq!(region.min, IVec2::new(0, 8));
+        assert_eq!(region.max, IVec2::new(2, 10));
     }
 
     #[test]
@@ -306,10 +306,10 @@ mod tests {
         }
 
         let mut layered = LayeredCostmap::new(default_info(), 0, false);
-        layered.master_mut().set(UVec2::new(3, 3), 42).unwrap();
+        layered.master_mut().set(IVec2::new(3, 3), 42).unwrap();
         layered.add_layer(Box::new(FarLayer)).unwrap();
         layered.update_map(Pose2::new(DVec2::ZERO, 0.0));
 
-        assert_eq!(layered.master().get(UVec2::new(3, 3)), Some(&42));
+        assert_eq!(layered.master().get(IVec2::new(3, 3)), Some(&42));
     }
 }

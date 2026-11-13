@@ -75,7 +75,7 @@ fn patterned_grid(resolution: f64, chunk_size: u32, min: IVec2, size: UVec2) -> 
         resolution,
         origin: grid.cell_origin(min),
     };
-    let source = DenseGrid::from_fn(info, |x, y| pattern(min + IVec2::new(x as i32, y as i32)));
+    let source = DenseGrid::from_fn(info, |cell| pattern(min + cell));
     grid.write_window(&source).unwrap();
     grid
 }
@@ -586,7 +586,8 @@ fn blocky_noise_grid(side: u32, seed: u64) -> TiledGrid<u8> {
         resolution: 1.0,
         origin: grid.cell_origin(IVec2::ZERO),
     };
-    let source = DenseGrid::from_fn(info, |x, y| {
+    let source = DenseGrid::from_fn(info, |cell| {
+        let UVec2 { x, y } = cell.as_uvec2();
         let cell = u64::from(y) * u64::from(side) + u64::from(x);
         if mix(seed ^ cell.wrapping_mul(0x9e37_79b9)) % 20 == 0 {
             UNKNOWN
@@ -815,10 +816,9 @@ fn write_fence_map(path: &Path) {
         resolution: 0.1,
         origin: glam::DVec2::ZERO,
     };
-    grid.write_window(&DenseGrid::from_fn(
-        info,
-        |x, _| if x == 500 { 254 } else { 0 },
-    ))
+    grid.write_window(&DenseGrid::from_fn(info, |cell| {
+        if cell.x == 500 { 254 } else { 0 }
+    }))
     .unwrap();
     write_cost_geotiff_region(path, &grid, &UTM_17N, IVec2::ZERO, size.as_ivec2()).unwrap();
 }

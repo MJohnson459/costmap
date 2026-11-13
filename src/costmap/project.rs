@@ -3,7 +3,7 @@
 //! Allows any `DenseGrid<T>` with a projection closure `T → Option<u8>` to be merged
 //! into the master costmap using a specified merge policy.
 
-use glam::UVec2;
+use glam::IVec2;
 
 use crate::types::{COST_UNKNOWN, CellRegion};
 
@@ -57,7 +57,7 @@ pub fn project_into<T>(
 
     for y in region.min.y..region.max.y {
         for x in region.min.x..region.max.x {
-            let cell = UVec2::new(x, y);
+            let cell = IVec2::new(x, y);
 
             // Read from source and apply projection.
             let Some(src_val) = source.get(cell) else {
@@ -96,8 +96,8 @@ mod tests {
 
     fn default_region() -> CellRegion {
         CellRegion {
-            min: UVec2::new(0, 0),
-            max: UVec2::new(10, 10),
+            min: IVec2::new(0, 0),
+            max: IVec2::new(10, 10),
         }
     }
 
@@ -107,7 +107,7 @@ mod tests {
         let source = DenseGrid::<u8>::filled(default_info(), 200);
 
         // Set a specific value to verify it's not changed
-        master.set(UVec2::new(5, 5), 100).unwrap();
+        master.set(IVec2::new(5, 5), 100).unwrap();
 
         // Projection that always returns None
         project_into(
@@ -118,8 +118,8 @@ mod tests {
             |_| None,
         );
 
-        assert_eq!(master.get(UVec2::new(5, 5)), Some(&100));
-        assert_eq!(master.get(UVec2::new(0, 0)), Some(&COST_FREE));
+        assert_eq!(master.get(IVec2::new(5, 5)), Some(&100));
+        assert_eq!(master.get(IVec2::new(0, 0)), Some(&COST_FREE));
     }
 
     #[test]
@@ -128,8 +128,8 @@ mod tests {
         let source = DenseGrid::<u8>::filled(default_info(), 100);
 
         let region = CellRegion {
-            min: UVec2::new(2, 2),
-            max: UVec2::new(5, 5),
+            min: IVec2::new(2, 2),
+            max: IVec2::new(5, 5),
         };
 
         project_into(&mut master, &source, region, MergePolicy::Overwrite, |v| {
@@ -137,47 +137,47 @@ mod tests {
         });
 
         // Inside region
-        assert_eq!(master.get(UVec2::new(2, 2)), Some(&100));
-        assert_eq!(master.get(UVec2::new(4, 4)), Some(&100));
+        assert_eq!(master.get(IVec2::new(2, 2)), Some(&100));
+        assert_eq!(master.get(IVec2::new(4, 4)), Some(&100));
         // Outside region
-        assert_eq!(master.get(UVec2::new(0, 0)), Some(&COST_FREE));
-        assert_eq!(master.get(UVec2::new(9, 9)), Some(&COST_FREE));
+        assert_eq!(master.get(IVec2::new(0, 0)), Some(&COST_FREE));
+        assert_eq!(master.get(IVec2::new(9, 9)), Some(&COST_FREE));
     }
 
     #[test]
     fn test_project_into_max() {
         let mut master = Costmap::filled(default_info(), COST_FREE);
-        master.set(UVec2::new(3, 3), 50).unwrap();
-        master.set(UVec2::new(4, 4), 150).unwrap();
+        master.set(IVec2::new(3, 3), 50).unwrap();
+        master.set(IVec2::new(4, 4), 150).unwrap();
 
         let source = DenseGrid::<u8>::filled(default_info(), 100);
 
         let region = CellRegion {
-            min: UVec2::new(2, 2),
-            max: UVec2::new(5, 5),
+            min: IVec2::new(2, 2),
+            max: IVec2::new(5, 5),
         };
 
         project_into(&mut master, &source, region, MergePolicy::Max, |v| Some(*v));
 
         // 50 < 100 → update to 100
-        assert_eq!(master.get(UVec2::new(3, 3)), Some(&100));
+        assert_eq!(master.get(IVec2::new(3, 3)), Some(&100));
         // 150 > 100 → keep 150
-        assert_eq!(master.get(UVec2::new(4, 4)), Some(&150));
+        assert_eq!(master.get(IVec2::new(4, 4)), Some(&150));
         // COST_FREE (0) < 100 → update to 100
-        assert_eq!(master.get(UVec2::new(2, 2)), Some(&100));
+        assert_eq!(master.get(IVec2::new(2, 2)), Some(&100));
     }
 
     #[test]
     fn test_project_into_max_keep_unknown() {
         let mut master = Costmap::filled(default_info(), COST_UNKNOWN);
-        master.set(UVec2::new(3, 3), 50).unwrap();
-        master.set(UVec2::new(4, 4), 150).unwrap();
+        master.set(IVec2::new(3, 3), 50).unwrap();
+        master.set(IVec2::new(4, 4), 150).unwrap();
 
         let source = DenseGrid::<u8>::filled(default_info(), 100);
 
         let region = CellRegion {
-            min: UVec2::new(2, 2),
-            max: UVec2::new(5, 5),
+            min: IVec2::new(2, 2),
+            max: IVec2::new(5, 5),
         };
 
         project_into(
@@ -189,11 +189,11 @@ mod tests {
         );
 
         // 50 < 100 → update to 100
-        assert_eq!(master.get(UVec2::new(3, 3)), Some(&100));
+        assert_eq!(master.get(IVec2::new(3, 3)), Some(&100));
         // 150 > 100 → keep 150
-        assert_eq!(master.get(UVec2::new(4, 4)), Some(&150));
+        assert_eq!(master.get(IVec2::new(4, 4)), Some(&150));
         // COST_UNKNOWN → keep COST_UNKNOWN (do not update)
-        assert_eq!(master.get(UVec2::new(2, 2)), Some(&COST_UNKNOWN));
+        assert_eq!(master.get(IVec2::new(2, 2)), Some(&COST_UNKNOWN));
     }
 
     #[test]
@@ -208,14 +208,14 @@ mod tests {
             Some((*v * 254.0).round() as u8)
         });
 
-        assert_eq!(master.get(UVec2::new(5, 5)), Some(&127)); // 0.5 * 254 ≈ 127
+        assert_eq!(master.get(IVec2::new(5, 5)), Some(&127)); // 0.5 * 254 ≈ 127
     }
 
     #[test]
     fn test_project_into_respects_unknown_in_source() {
         let mut master = Costmap::filled(default_info(), COST_FREE);
         let mut source = DenseGrid::<u8>::filled(default_info(), 100);
-        source.set(UVec2::new(5, 5), COST_UNKNOWN).unwrap();
+        source.set(IVec2::new(5, 5), COST_UNKNOWN).unwrap();
 
         let region = default_region();
 
@@ -225,8 +225,8 @@ mod tests {
         });
 
         // COST_UNKNOWN cell should not be updated
-        assert_eq!(master.get(UVec2::new(5, 5)), Some(&COST_FREE));
+        assert_eq!(master.get(IVec2::new(5, 5)), Some(&COST_FREE));
         // Other cells should be updated
-        assert_eq!(master.get(UVec2::new(3, 3)), Some(&100));
+        assert_eq!(master.get(IVec2::new(3, 3)), Some(&100));
     }
 }

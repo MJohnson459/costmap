@@ -222,7 +222,7 @@ fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
         let y_grid = height - 1 - y_img;
         for x in 0..width {
             let value = grid
-                .get(glam::UVec2::new(x, y_grid))
+                .get(glam::IVec2::new(x as i32, y_grid as i32))
                 .copied()
                 .unwrap_or(UNKNOWN);
             cells.push(value as u8);
@@ -245,7 +245,7 @@ fn costmap_to_l_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
         let y_grid = height - 1 - y_img;
         for x in 0..width {
             let cost = grid
-                .get(glam::UVec2::new(x, y_grid))
+                .get(glam::IVec2::new(x as i32, y_grid as i32))
                 .copied()
                 .unwrap_or(COST_UNKNOWN);
             cells.push(cost_to_rviz_value(cost));
