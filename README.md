@@ -229,7 +229,7 @@ On a robot that already runs Nav2:
 Requirements and limits:
 
 - Every node that talks to the servers runs `rmw_zenoh_cpp` (`RMW_IMPLEMENTATION=rmw_zenoh_cpp`). There is no DDS support.
-- The servers are plain binaries. They need no ROS install to build, and cannot be built by colcon or started with `ros2 run`.
+- `costmap_ros` is a ROS package: colcon builds it, and `ros2 run` and `ros2 launch` start its nodes. It is not released on the ROS build farm; see its README for the three ways to install it.
 - The route is planned on the static map alone, at the map's resolution. The first start on a map builds a graph of it and stores it beside the raster.
 - It has run against Nav2 1.5.2 on ROS Lyrical with a simulated robot, not on a physical one.
 

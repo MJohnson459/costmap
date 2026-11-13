@@ -1,0 +1,44 @@
+# Conda package of costmap_ros for a RoboStack ROS Lyrical environment.
+#
+#   pixi exec rattler-build build --recipe crates/costmap_ros/conda/recipe.yaml \
+#       -c robostack-lyrical -c conda-forge --output-dir dist/conda
+#
+# The package installs into the environment's prefix, which is also its ament
+# prefix, so `ros2 run costmap_ros ...` finds the programs with no setup file.
+context:
+  version: "0.3.0"
+
+package:
+  name: ros-lyrical-costmap-ros
+  version: ${{ version }}
+
+source:
+  path: ../../..
+
+build:
+  number: 0
+  script:
+    - cmake -S crates/costmap_ros -B build -G Ninja -DCOSTMAP_ROS_STANDALONE=ON
+    - cmake --build build
+    - cmake --install build --prefix "$PREFIX"
+
+requirements:
+  build:
+    - ${{ compiler('rust') }}
+    - ${{ compiler('c') }}
+    - cmake
+    - ninja
+  run:
+    - ros-lyrical-launch-ros
+    - ros-lyrical-rmw-zenoh-cpp
+
+tests:
+  - script:
+      - test -x "$PREFIX/lib/costmap_ros/costmap_window_server"
+      - "$PREFIX/lib/costmap_ros/costmap_planner_server --help"
+
+about:
+  homepage: https://github.com/MJohnson459/costmap
+  repository: https://github.com/MJohnson459/costmap
+  license: MIT OR Apache-2.0
+  summary: Serves Nav2 a rolling window of a large map and routes across it, over Zenoh.

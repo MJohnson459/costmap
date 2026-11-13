@@ -1,4 +1,4 @@
-//! Plans routes across a whole cost GeoTIFF for Nav2.
+//! Plans routes across a whole map for Nav2.
 //!
 //! Nav2's own planner searches its global costmap, so it cannot reach a goal
 //! outside the window it holds. This node serves an action of the same type,
@@ -50,9 +50,11 @@ const ERROR_NO_VALID_PATH: u16 = 208;
 type PathPub = ZPub<Path, <Path as ZMessage>::Serdes>;
 
 #[derive(Debug, Parser)]
-#[command(about = "Plan routes for Nav2 across a whole cost GeoTIFF")]
+#[command(about = "Plan routes for Nav2 across a whole map")]
 struct Args {
-    /// Single-band u8 cost GeoTIFF; the map frame is at its lower-left corner.
+    /// Map file, chosen by extension: .yaml/.yml is a ROS map held in memory;
+    /// anything else is a single-band u8 cost GeoTIFF read a tile at a time,
+    /// with the map frame at its lower-left corner.
     #[arg(long)]
     map: PathBuf,
     /// Action to serve.
@@ -237,7 +239,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     };
     let loaded = Instant::now();
     let routes = RoutePlanner::open(&args.map, options)
-        .with_context(|| format!("opening GeoTIFF {}", args.map.display()))?;
+        .with_context(|| format!("opening map {}", args.map.display()))?;
     let graph = routes.graph();
     info!(
         "{} is {}x{} cells at {:.3} m; its tile graph has {} crossings in {:.1} MB, ready in {:.1} s",
