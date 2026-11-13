@@ -1,7 +1,7 @@
 name: Package
 
-# Builds what a robot installs: the costmap_ros install prefix as a tarball for
-# x86-64 and arm64, and the conda package for RoboStack. On a version tag the
+# Builds what a robot installs: the Debian package for x86-64 and arm64, and
+# the conda package for RoboStack. On a version tag the
 # files are attached to that tag's GitHub release.
 on:
   push:
@@ -13,8 +13,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  prefix:
-    name: Install prefix (${{ matrix.arch }})
+  deb:
+    name: Debian package (${{ matrix.arch }})
     strategy:
       matrix:
         include:
@@ -32,7 +32,7 @@ jobs:
         with:
           workspaces: ". -> build/cargo"
 
-      - name: Build the prefix
+      - name: Build the package
         run: |
           cmake -S crates/costmap_ros -B build -DCOSTMAP_ROS_STANDALONE=ON
           cmake --build build
@@ -40,15 +40,16 @@ jobs:
 
       - name: Run the programs
         run: |
-          mkdir dist && tar -xzf build/costmap_ros-*.tar.gz -C dist
+          dpkg --info build/*.deb
+          dpkg -x build/*.deb dist
           for program in costmap_window_server costmap_planner_server costmap-from-ros-map; do
-            dist/costmap_ros/lib/costmap_ros/$program --help
+            dist/opt/ros/lyrical/lib/costmap_ros/$program --help
           done
 
       - uses: actions/upload-artifact@v4
         with:
           name: costmap_ros-${{ matrix.arch }}
-          path: build/costmap_ros-*.tar.gz
+          path: build/*.deb
           if-no-files-found: error
 
   conda:
@@ -77,7 +78,7 @@ jobs:
   release:
     name: Attach to the release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [prefix, conda]
+    needs: [deb, conda]
     runs-on: ubuntu-latest
     permissions:
       contents: write

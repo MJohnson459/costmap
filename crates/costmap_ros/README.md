@@ -51,17 +51,22 @@ All three ways install the same files: the two nodes and
 behaviour tree under `share/costmap_ros`. Afterwards
 `ros2 pkg executables costmap_ros` lists the three programs.
 
-### A release tarball
+### A Debian package
 
-Each release from 0.3.0 carries `costmap_ros-VERSION-x86_64.tar.gz` and
-`costmap_ros-VERSION-aarch64.tar.gz`. The programs link only glibc, 2.35 or
-later (Ubuntu 22.04). Nothing is compiled on the robot.
+Each release from 0.3.0 carries `ros-lyrical-costmap-ros_VERSION_amd64.deb`
+and `ros-lyrical-costmap-ros_VERSION_arm64.deb`. Nothing is compiled on the
+robot.
 
 ```sh
-sudo tar -xzf costmap_ros-0.3.0-aarch64.tar.gz -C /opt
+sudo apt install ./ros-lyrical-costmap-ros_0.3.0_arm64.deb
 source /opt/ros/lyrical/setup.bash
-source /opt/costmap_ros/share/costmap_ros/local_setup.bash
 ```
+
+The package installs into `/opt/ros/lyrical` beside the distribution's own
+packages, and `apt` installs `ros-lyrical-launch-ros` and
+`ros-lyrical-rmw-zenoh-cpp` with it. `sudo apt remove ros-lyrical-costmap-ros`
+removes it. It is not in an apt repository, so `apt upgrade` does not update
+it.
 
 ### colcon, from source
 

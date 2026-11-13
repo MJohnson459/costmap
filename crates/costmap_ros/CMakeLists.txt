@@ -3,7 +3,7 @@ project(costmap_ros NONE)
 
 # ON installs what ROS needs to find the package without ament_cmake, so the
 # build needs CMake and a Rust toolchain and no ROS install. `cpack` then
-# writes the prefix as costmap_ros-VERSION-ARCH.tar.gz.
+# writes the prefix as a Debian package.
 option(COSTMAP_ROS_STANDALONE "Build without ament_cmake" OFF)
 if(NOT COSTMAP_ROS_STANDALONE)
   find_package(ament_cmake REQUIRED)
@@ -49,22 +49,28 @@ install(DIRECTORY behavior_trees launch DESTINATION share/${PROJECT_NAME})
 
 if(COSTMAP_ROS_STANDALONE)
   # The parts of ament_package() that `ros2 run` and `ros2 launch` rely on:
-  # the manifest, the package's entry in the ament index, and a setup file at
-  # the path ament gives it.
-  install(FILES package.xml standalone/local_setup.bash
-    DESTINATION share/${PROJECT_NAME})
+  # the manifest and the package's entry in the ament index.
+  install(FILES package.xml DESTINATION share/${PROJECT_NAME})
   file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ament_index/${PROJECT_NAME}" "")
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/ament_index/${PROJECT_NAME}"
     DESTINATION share/ament_index/resource_index/packages)
 
+  # `cpack` writes ros-DISTRO-costmap-ros_VERSION_ARCH.deb, which installs
+  # into /opt/ros/DISTRO beside the distribution's own packages.
+  set(ROS_DISTRO "lyrical" CACHE STRING "ROS distribution the .deb installs into")
   file(READ package.xml PACKAGE_XML)
   string(REGEX MATCH "<version>([^<]+)</version>" _ "${PACKAGE_XML}")
-  set(CPACK_GENERATOR TGZ)
-  set(CPACK_PACKAGE_FILE_NAME
-    "${PROJECT_NAME}-${CMAKE_MATCH_1}-${CMAKE_SYSTEM_PROCESSOR}")
-  # The archive holds one directory, costmap_ros.
-  set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
-  set(CPACK_PACKAGING_INSTALL_PREFIX "/${PROJECT_NAME}")
+  set(CPACK_GENERATOR DEB)
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/ros/${ROS_DISTRO}")
+  set(CPACK_PACKAGE_NAME "ros-${ROS_DISTRO}-costmap-ros")
+  set(CPACK_PACKAGE_VERSION "${CMAKE_MATCH_1}")
+  set(CPACK_PACKAGE_CONTACT "Michael Johnson <mjohnson459@gmail.com>")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "Serves Nav2 a window of a large map and routes across it, over Zenoh")
+  set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+  set(CPACK_DEBIAN_PACKAGE_SECTION misc)
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libc6 (>= 2.35), libgcc-s1, ros-${ROS_DISTRO}-launch-ros, ros-${ROS_DISTRO}-rmw-zenoh-cpp")
   include(CPack)
 else()
   ament_package()
