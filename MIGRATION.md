@@ -187,6 +187,21 @@ let mut tiles = TileCache::new(&map, &graph, 64)?;
 
 In `costmap_ros`, the `MapSource` trait, `SourceError` and `TileStats` are removed. The server reads any `CostWindows` map; `window_around(map, center, size)` cuts the window it publishes. `GeoTiffSource` implements `CostWindows` and its `stats()` returns `costmap::ChunkStats`.
 
+### `StaticLayer` replaces `TiledMapLayer`
+
+`StaticLayer<M>` takes any `CostWindows` map, owned, where `TiledMapLayer` took an `Arc<TiledGrid<u8>>`. A map on another resolution or sub-cell offset than the master is resampled instead of rejected, and `set_transform` places a map in another frame.
+
+| before | 0.3 |
+| --- | --- |
+| `TiledMapLayer::new(Arc::new(tiles), policy)` | `StaticLayer::new(tiles, policy)` |
+| `layer.grid()` | `layer.map()` |
+| `layer.grid_mut()` | `layer.map_mut()` |
+| `layered.layer_mut::<TiledMapLayer>(id)` | `layered.layer_mut::<StaticLayer<TiledGrid<u8>>>(id)` |
+
+- The layer rewrites the whole master each update, where `TiledMapLayer` rewrote the loaded chunks.
+- A failed read of the map leaves the master at its fill value; `take_error` returns the error.
+- `ProjectionLayer` resamples a source on another lattice; `add_layer` no longer rejects it.
+
 ### `LayeredCostmap::add_layer` returns a `Result`
 
 `add_layer` calls the new `Layer::attach` and returns its error, so a layer that cannot work with the costmap is rejected when it is added.

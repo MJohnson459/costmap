@@ -56,7 +56,7 @@ impl Lattice {
 /// Truncates and steps down when truncation rounded up, because `f64::floor` is a
 /// libm call on the baseline x86-64 target.
 #[inline]
-fn floor_i32(v: f64) -> i32 {
+pub(crate) fn floor_i32(v: f64) -> i32 {
     let t = v as i32;
     t.saturating_sub(i32::from(v < f64::from(t)))
 }

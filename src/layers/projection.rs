@@ -11,8 +11,13 @@
 
 use crate::{
     DenseGrid,
-    costmap::{Costmap, Layer, MergePolicy, project_into},
-    types::{Bounds, CellRegion, Pose2, VoxelError},
+    costmap::{
+        Costmap, Layer, MergePolicy,
+        project::merge_window,
+        project_into,
+        resample::{Resample, resample_window},
+    },
+    types::{Bounds, COST_UNKNOWN, CellRegion, Pose2},
 };
 
 /// A layer that owns a semantic grid and projects it into the master costmap.
@@ -21,6 +26,11 @@ use crate::{
 /// When `rolling_window` is set, the source grid is re-centred on the robot during
 /// [`update_bounds`](Layer::update_bounds) — before any layer's `update_costs` runs —
 /// so producers that write into the source during `update_costs` see a centred grid.
+///
+/// A source on another lattice than the master, in the master's frame, is
+/// [`resample`](crate::resample)d onto the master's cells with
+/// [`Resample::for_resolutions`]; there a projected [`COST_UNKNOWN`] leaves the
+/// master cell untouched, as `None` does.
 #[allow(clippy::type_complexity)]
 pub struct ProjectionLayer<T> {
     source: DenseGrid<T>,
@@ -93,21 +103,28 @@ impl<T: Clone + 'static> Layer for ProjectionLayer<T> {
     }
 
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
-        project_into(master, &self.source, region, self.policy, |cell| {
-            (self.project)(cell)
-        });
-    }
-
-    /// Rejects a source on another lattice than the master: its cells would name
-    /// other places.
-    fn attach(&mut self, master: &Costmap, _rolling_window: bool) -> Result<(), VoxelError> {
-        let (own, theirs) = (self.source.lattice(), master.lattice());
-        if own != theirs {
-            return Err(VoxelError::InvalidArgument(format!(
-                "projection source lattice {own:?} differs from the costmap's {theirs:?}"
-            )));
+        let lattice = master.lattice();
+        if self.source.lattice() == lattice {
+            project_into(master, &self.source, region, self.policy, |cell| {
+                (self.project)(cell)
+            });
+            return;
         }
-        Ok(())
+        let Some(offsets) = master.offsets_in(region) else {
+            return;
+        };
+        let held = CellRegion::new(master.cell_of(offsets.min), master.cell_of(offsets.max));
+        let costs: Vec<u8> = self
+            .source
+            .as_slice()
+            .iter()
+            .map(|cell| (self.project)(cell).unwrap_or(COST_UNKNOWN))
+            .collect();
+        let costs = Costmap::with_cells_of(&self.source, costs, COST_UNKNOWN);
+        let policy =
+            Resample::for_resolutions(self.source.lattice().resolution, lattice.resolution);
+        let window = resample_window(&costs, Pose2::default(), lattice, held, policy);
+        merge_window(master, &window, self.policy);
     }
 }
 
@@ -343,6 +360,33 @@ mod tests {
         assert_eq!(layer.source().world_bounds().min, DVec2::ZERO);
         assert_eq!(bounds.min, DVec2::ZERO);
         assert_eq!(bounds.max, DVec2::new(5.0, 5.0));
+    }
+
+    #[test]
+    fn a_source_on_another_lattice_is_resampled() {
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), COST_FREE, false);
+        let fine = Lattice::new(DVec2::new(0.25, 0.0), 0.5);
+        let mut source =
+            DenseGrid::<f32>::filled(fine, CellRegion::from_size(UVec2::splat(8)), 0.0);
+        source.set(glam::IVec2::new(4, 5), 1.0).unwrap();
+        layered
+            .add_layer(Box::new(ProjectionLayer::from_grid(
+                source,
+                MergePolicy::Max,
+                false,
+                |v| (*v > 0.5).then_some(COST_LETHAL),
+            )))
+            .unwrap();
+        layered.update_map(Pose2::default());
+
+        // Source cell (4, 5) spans 2.25..2.75 by 2.5..3.0 m, inside master cell (2, 2).
+        let lethal: Vec<_> = layered
+            .master()
+            .indexed_iter()
+            .filter(|&(_, &c)| c == COST_LETHAL)
+            .map(|(cell, _)| cell)
+            .collect();
+        assert_eq!(lethal, [glam::IVec2::new(2, 2)]);
     }
 
     #[test]
