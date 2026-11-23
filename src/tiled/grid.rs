@@ -239,17 +239,11 @@ impl<T: Clone> TiledGrid<T> {
 
     /// Copy the cells `[min_cell, min_cell + size)` into a dense grid.
     ///
-    /// The grid's origin is `lattice().cell_corner(min_cell)` and its resolution matches this
-    /// grid. Cells in absent chunks, and cells beyond the `i32` cell range, hold the
+    /// The window is on this grid's lattice, so a cell of it is the same cell here.
+    /// Cells in absent chunks, and cells beyond the `i32` cell range, hold the
     /// fill value, which is also the returned grid's fill value.
     pub fn window(&self, min_cell: IVec2, size: UVec2) -> DenseGrid<T> {
-        let info = MapInfo {
-            width: size.x,
-            height: size.y,
-            resolution: self.resolution,
-            origin: self.lattice().cell_corner(min_cell),
-        };
-        let mut grid = DenseGrid::filled(info, self.fill.clone());
+        let mut grid = DenseGrid::filled_cells(self.lattice(), min_cell, size, self.fill.clone());
         self.copy_out(min_cell, size, grid.as_mut_slice());
         grid
     }
@@ -461,13 +455,17 @@ mod tests {
         let size = UVec2::new(11, 9);
         let window = g.window(min, size);
 
+        assert_eq!(window.lattice(), g.lattice());
+        assert_eq!(window.cells().min, min);
+        assert_eq!(window.cells().max, min + size.as_ivec2());
         assert_eq!(window.info().origin, g.lattice().cell_corner(min));
         assert_eq!(window.info().resolution, 0.5);
-        for (pos, value) in window.indexed_iter() {
-            assert_eq!(value, g.get(min + pos), "at {pos}");
+        for (cell, value) in window.indexed_iter() {
+            assert_eq!(value, g.get(cell), "at {cell}");
         }
-        assert_eq!(window[IVec2::new(0, 8)], COST_UNKNOWN);
-        assert_eq!(window[IVec2::new(10, 0)], pattern(IVec2::new(5, -6)));
+        assert_eq!(window[IVec2::new(-5, 2)], COST_UNKNOWN);
+        assert_eq!(window[IVec2::new(5, -6)], pattern(IVec2::new(5, -6)));
+        assert_eq!(window.get(IVec2::new(0, 8)), None);
     }
 
     #[test]
@@ -475,9 +473,11 @@ mod tests {
         let mut g = grid(8);
         g.set(IVec2::splat(i32::MAX), 7);
         let window = g.window(IVec2::splat(i32::MAX - 1), UVec2::splat(4));
-        assert_eq!(window[IVec2::new(1, 1)], 7);
-        assert_eq!(window[IVec2::new(2, 2)], COST_UNKNOWN);
-        assert_eq!(window[IVec2::new(3, 0)], COST_UNKNOWN);
+        assert_eq!(window[IVec2::splat(i32::MAX)], 7);
+        // The array positions past the last cell have no name; they hold the fill.
+        assert_eq!(window.as_slice()[4 + 1], 7);
+        assert_eq!(window.as_slice()[2 * 4 + 2], COST_UNKNOWN);
+        assert_eq!(window.as_slice()[3], COST_UNKNOWN);
     }
 
     #[test]
@@ -486,7 +486,8 @@ mod tests {
         let cell = IVec2::new(-3, 12);
         g.set(cell, 42);
         let window = g.window_centered(g.lattice().cell_center(cell), UVec2::new(7, 5));
-        assert_eq!(window[IVec2::new(3, 2)], 42);
+        assert_eq!(window[cell], 42);
+        assert_eq!(window.cells().min, cell - IVec2::new(3, 2));
     }
 
     #[test]

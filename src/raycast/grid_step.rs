@@ -1,9 +1,8 @@
-use glam::{DVec2, IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, Vec2};
 
 use crate::OccupancyGrid;
 use crate::raycast::RayHit2D;
-
-use super::utils;
+use crate::types::OCCUPIED;
 
 impl OccupancyGrid {
     /// Grid-step traversal (Bresenham-style) over all crossed cells until hit.
@@ -17,13 +16,14 @@ impl OccupancyGrid {
         let dir = dir.normalize();
 
         let lattice = self.lattice();
-        let start = lattice.to_cells(origin);
+        let start = self.to_offsets(origin);
         if !self.spans(start) {
             return None;
         }
         let start = start.as_vec2();
         let end = start + dir * (max_t / resolution);
 
+        // The walk is in array offsets.
         let mut current = start.floor().as_ivec2();
         let end_cell = end.floor().as_ivec2();
         let step = IVec2::new(
@@ -34,16 +34,15 @@ impl OccupancyGrid {
         let dx = (end_cell.x - current.x).abs();
         let dy = -(end_cell.y - current.y).abs();
         let mut err = dx + dy;
-        let bounds = UVec2::new(info.width, info.height);
 
         loop {
-            if utils::in_bounds(current, bounds) && utils::is_occupied(self, current) {
-                let center = lattice.cell_center(current);
-                let hit_distance = (center - origin).as_vec2().dot(dir).max(0.0);
-                return Some(RayHit2D {
-                    cell: current,
-                    hit_distance,
-                });
+            if self.at(current).is_some_and(|&value| value >= OCCUPIED) {
+                let cell = self.cell_of(current);
+                let hit_distance = (lattice.cell_center(cell) - origin)
+                    .as_vec2()
+                    .dot(dir)
+                    .max(0.0);
+                return Some(RayHit2D { cell, hit_distance });
             }
 
             if current == end_cell {

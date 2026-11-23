@@ -12,7 +12,7 @@
 //! must already be in the costmap's world frame. Callers transform sensor data
 //! (origin, beam endpoints, sensor pose) before inserting it.
 
-use glam::{DVec2, IVec2, UVec2, Vec2};
+use glam::{DVec2, IVec2, Vec2};
 
 use crate::{
     DenseGrid,
@@ -217,9 +217,8 @@ impl ObstacleLayer {
 
     /// Mark the cell containing `end` lethal, if it lies inside the grid.
     fn mark_hit(&mut self, end: DVec2, stamp_s: f64) {
-        let cell = self.grid.lattice().cell_at(end);
-        if self.grid.contains(cell) {
-            self.set_cell(cell, COST_LETHAL, Some(stamp_s));
+        let offset = self.grid.offset_of(self.grid.lattice().cell_at(end));
+        if self.set_at(offset, COST_LETHAL, Some(stamp_s)) {
             touch(&mut self.touched, end, self.grid.info().resolution);
         }
     }
@@ -234,20 +233,26 @@ impl ObstacleLayer {
         touch(&mut self.touched, exit, info.resolution);
 
         let offset = (end - start).as_vec2();
-        let Some(cells) = LineIterator::new(&self.grid, start, offset, offset.length()) else {
+        let Some(mut line) = LineIterator::new(&self.grid, start, offset, offset.length()) else {
             return;
         };
-        for step in cells {
-            self.set_cell(step.cell, COST_FREE, None);
+        while let Some((offset, _)) = line.next_offset() {
+            self.set_at(offset, COST_FREE, None);
         }
     }
 
-    /// Write `cost` and the observation stamp; `None` drops the stamp.
-    fn set_cell(&mut self, cell: IVec2, cost: u8, stamp: Option<f64>) {
-        let _ = self.grid.set(cell, cost);
-        if let Some(stamps) = self.stamps.as_mut() {
-            let _ = stamps.set(cell, stamp);
+    /// Write `cost` and the observation stamp at array position `offset`; `None`
+    /// drops the stamp. Returns whether the grid holds that position. The stamps
+    /// hold the same cells as the grid, so one offset serves both.
+    fn set_at(&mut self, offset: IVec2, cost: u8, stamp: Option<f64>) -> bool {
+        let Some(slot) = self.grid.at_mut(offset) else {
+            return false;
+        };
+        *slot = cost;
+        if let Some(slot) = self.stamps.as_mut().and_then(|s| s.at_mut(offset)) {
+            *slot = stamp;
         }
+        true
     }
 
     /// Move the grid, and the stamps with it, so that it is centred on `center`.
@@ -275,7 +280,8 @@ fn touch(bounds: &mut Bounds, point: DVec2, pad: f64) {
     bounds.expand_to_include(point + DVec2::splat(pad));
 }
 
-/// Clip the segment `origin`..`end` to the grid described by `info`.
+/// Clip the segment `origin`..`end` to the grid described by `info`, working in
+/// cell units from the grid's lower-left corner.
 ///
 /// Returns the world-frame entry and exit points, or `None` if the segment misses
 /// the grid. The entry point lies at least [`CLIP_MARGIN_CELLS`] inside the grid,
@@ -306,8 +312,7 @@ fn clip_segment(info: &MapInfo, origin: DVec2, end: DVec2) -> Option<(DVec2, DVe
     let margin = Vec2::splat(CLIP_MARGIN_CELLS);
     let entry = (a + delta * t_in).clamp(margin, size - margin);
     let exit = a + delta * t_out;
-    let lattice = info.lattice();
-    let to_world = |cell: Vec2| lattice.from_cells(cell.as_dvec2());
+    let to_world = |offsets: Vec2| info.origin + offsets.as_dvec2() * info.resolution;
     Some((to_world(entry), to_world(exit)))
 }
 
@@ -349,38 +354,33 @@ impl Layer for ObstacleLayer {
         });
     }
 
-    fn attach(&mut self, master: &MapInfo, rolling_window: bool) -> Result<(), VoxelError> {
+    fn attach(&mut self, master: &Costmap, rolling_window: bool) -> Result<(), VoxelError> {
         if self.config.rolling_window != rolling_window {
             return Err(VoxelError::InvalidArgument(format!(
                 "obstacle layer rolling_window is {}, but the costmap's is {rolling_window}",
                 self.config.rolling_window
             )));
         }
-        let own = self.grid.info();
-        let same_cells = own.width == master.width
-            && own.height == master.height
-            && own.resolution == master.resolution;
-        if !same_cells || (!rolling_window && own.origin != master.origin) {
+        let (own, theirs) = (self.grid.info(), master.info());
+        let same_size = own.width == theirs.width
+            && own.height == theirs.height
+            && own.resolution == theirs.resolution;
+        if !same_size || (!rolling_window && own.origin != theirs.origin) {
             return Err(VoxelError::InvalidArgument(format!(
-                "obstacle layer grid {own:?} does not match the costmap's {master:?}"
+                "obstacle layer grid {own:?} does not match the costmap's {theirs:?}"
             )));
         }
-        // Re-centring shifts each grid by whole cells from its own origin, so a
-        // rolling layer that starts off the master's cell lattice never lines up
-        // with it. Starting from the master's origin keeps the two in step.
-        if own.origin != master.origin {
-            self.match_size(master);
+        // The layer's cells must be the master's cells: a rolling grid moves by whole
+        // cells of its own lattice, so a layer on another lattice never lines up.
+        if !self.grid.layout_matches(master) {
+            let (lattice, min, size) = (master.lattice(), master.cells().min, master.size());
+            self.grid = DenseGrid::filled_cells(lattice, min, size, COST_UNKNOWN);
+            if let Some(stamps) = self.stamps.as_mut() {
+                *stamps = DenseGrid::filled_cells(lattice, min, size, None);
+            }
+            self.touched = Bounds::empty();
         }
         Ok(())
-    }
-
-    fn match_size(&mut self, info: &MapInfo) {
-        let size = UVec2::new(info.width, info.height);
-        self.grid.resize_map(size, info.resolution, info.origin);
-        if let Some(stamps) = self.stamps.as_mut() {
-            stamps.resize_map(size, info.resolution, info.origin);
-        }
-        self.touched = Bounds::empty();
     }
 }
 
@@ -929,16 +929,24 @@ mod tests {
     }
 
     #[test]
-    fn match_size_adopts_master_layout_and_forgets_cells() {
-        let mut layer = decaying(2.0);
+    fn rolling_layer_adopts_the_master_cells_and_forgets_its_own() {
+        let mut layer = ObstacleLayer::new(
+            info(),
+            ObstacleConfig {
+                rolling_window: true,
+                decay_s: Some(2.0),
+                ..config()
+            },
+        );
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let bigger = MapInfo::square(40, 0.5);
-        layer.match_size(&bigger);
+        let mut master = Costmap::filled(info(), 0);
+        master.update_origin(DVec2::new(3.0, -2.0));
+        layer.attach(&master, true).unwrap();
 
-        assert_eq!(*layer.grid().info(), bigger);
+        assert_eq!(layer.grid().cells(), master.cells());
+        assert!(master.layout_matches(layer.grid()));
         assert_eq!(observed_cells(&layer), 0);
-        assert!(Costmap::filled(bigger, 0).layout_matches(layer.grid()));
     }
 
     #[test]

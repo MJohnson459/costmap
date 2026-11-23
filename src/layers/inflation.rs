@@ -15,7 +15,7 @@ use bitvec::prelude::*;
 use glam::IVec2;
 
 use crate::types::{
-    Bounds, COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, CellRegion, MapInfo, Pose2,
+    Bounds, COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, CellRegion, Pose2,
 };
 use crate::{Costmap, Layer};
 
@@ -90,12 +90,16 @@ impl Layer for WavefrontInflationLayer {
         bounds.expand_by(self.config.inflation_radius_m);
     }
 
-    fn match_size(&mut self, _info: &MapInfo) {
-        // The cached kernel is in cells, so a new resolution makes it wrong.
-        self.invalidate_cache();
-    }
-
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
+        if let Some(offsets) = master.offsets_in(region) {
+            self.update_offsets(master, offsets);
+        }
+    }
+}
+
+impl WavefrontInflationLayer {
+    /// [`Layer::update_costs`] with the region given as array offsets in `master`.
+    fn update_offsets(&mut self, master: &mut Costmap, region: CellRegion) {
         let resolution = master.info().resolution;
         let radius_cells = cell_distance(self.config.inflation_radius_m, resolution as f32);
 
@@ -138,12 +142,14 @@ impl Costmap {
             cost_scaling_factor,
             ..Default::default()
         });
-        inflation.update_costs(self, CellRegion::new(IVec2::ZERO, self.size().as_ivec2()));
+        // The whole grid, as array offsets.
+        let all = CellRegion::new(IVec2::ZERO, self.size().as_ivec2());
+        inflation.update_offsets(self, all);
     }
 }
 
 /// Cell data for wavefront propagation: cell position and the obstacle source
-/// it was enqueued from (for cost lookup).
+/// it was enqueued from (for cost lookup), both as array offsets in the grid.
 #[derive(Debug, Clone, Copy)]
 struct CellData {
     pos: IVec2,
@@ -272,7 +278,8 @@ impl WavefrontInflation {
 
     /// Inflate lethal (and optionally unknown) cells in place using wavefront propagation.
     ///
-    /// `seen` is a reusable buffer; it is resized to `width * height` if needed and cleared on use.
+    /// `region` and every position inside are array offsets in `grid`. `seen` is a
+    /// reusable buffer; it is resized to `width * height` if needed and cleared on use.
     pub fn inflate(&mut self, grid: &mut Costmap, region: CellRegion, options: InflateOptions) {
         let size = region.max.saturating_sub(region.min);
         if size.x <= 0 || size.y <= 0 {
@@ -310,7 +317,7 @@ impl WavefrontInflation {
                 if region.contains(cell.pos) {
                     let delta = cell.pos - cell.src;
                     let cost = self.cost_lookup(delta);
-                    let current = grid.get(cell.pos).copied().unwrap_or(COST_FREE);
+                    let current = grid.at(cell.pos).copied().unwrap_or(COST_FREE);
 
                     let new_cost = if current == COST_UNKNOWN {
                         if options.inflate_unknown {
@@ -324,9 +331,8 @@ impl WavefrontInflation {
                         Some(cost.max(current))
                     };
 
-                    if let Some(c) = new_cost {
-                        // Cell is within region, so set succeeds.
-                        let _ = grid.set(cell.pos, c);
+                    if let (Some(c), Some(slot)) = (new_cost, grid.at_mut(cell.pos)) {
+                        *slot = c;
                     }
                 }
 
@@ -384,7 +390,8 @@ impl WavefrontInflation {
         (distance_matrix, level_side, level)
     }
 
-    /// Generate the seeds for the wavefront propagation.
+    /// Generate the seeds for the wavefront propagation. `region` is in array
+    /// offsets.
     ///
     /// Returns true if any seeds were generated.
     fn generate_seeds(
@@ -466,16 +473,19 @@ impl WavefrontInflation {
 
     /// Offset of `pos` in `seen`. A cell outside the grid gives an offset past
     /// its end. Going through `u32` zero-extends.
+    #[inline]
     fn seen_index(&self, pos: IVec2) -> usize {
         pos.y as u32 as usize * self.width + pos.x as u32 as usize
     }
 
+    #[inline]
     fn is_seen(&self, pos: IVec2) -> bool {
         let index = self.seen_index(pos);
         index >= self.size || self.seen[index]
     }
 
     /// Mark a cell as seen, returning true if it was not already seen.
+    #[inline]
     fn mark_seen(&mut self, pos: IVec2) -> bool {
         let index = self.seen_index(pos);
         if index >= self.size || self.seen[index] {

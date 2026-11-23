@@ -2,7 +2,6 @@ use glam::IVec2;
 
 pub mod dda;
 pub mod grid_step;
-mod utils;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct RayHit2D {

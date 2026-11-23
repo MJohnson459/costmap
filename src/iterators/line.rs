@@ -11,8 +11,10 @@ pub struct LineIterator {
     t_max: Vec2,
     /// Distance to the next cell boundary along each axis.
     t_delta: Vec2,
-    /// Current cell being processed.
-    cell: IVec2,
+    /// Array offset of the current cell.
+    offset: IVec2,
+    /// First cell of the grid: an offset plus this is a cell.
+    min: IVec2,
     emit_start: bool,
 
     width: u32,
@@ -39,14 +41,14 @@ impl LineIterator {
         let dir = dir.normalize();
 
         // TODO: Support starting outside of the grid.
-        let start = grid.lattice().to_cells(origin);
+        let start = grid.to_offsets(origin);
         if !grid.spans(start) {
             return None;
         }
         let start = start.as_vec2();
 
         // We use ivecs internally as the steps can be negative.
-        let cell = start.floor().as_ivec2();
+        let offset = start.floor().as_ivec2();
 
         let step = IVec2::new(dir.x.signum() as i32, dir.y.signum() as i32);
         let (t_delta_x, t_max_x) = axis_params(start.x, dir.x);
@@ -59,7 +61,8 @@ impl LineIterator {
             step,
             t_max,
             t_delta,
-            cell,
+            offset,
+            min: grid.cell_of(IVec2::ZERO),
             emit_start: true,
             width: info.width,
             height: info.height,
@@ -67,27 +70,25 @@ impl LineIterator {
     }
 }
 
-impl Iterator for LineIterator {
-    type Item = LineStep;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl LineIterator {
+    /// The next step as an array offset in the grid and the distance along the
+    /// line. Every offset returned is held by the grid.
+    #[inline]
+    pub(crate) fn next_offset(&mut self) -> Option<(IVec2, f32)> {
         if self.emit_start {
             self.emit_start = false;
-            return Some(LineStep {
-                cell: self.cell,
-                t: 0.0,
-            });
+            return Some((self.offset, 0.0));
         }
 
         let t;
         if self.t_max.x < self.t_max.y {
             t = self.t_max.x;
             self.t_max.x += self.t_delta.x;
-            self.cell.x += self.step.x;
+            self.offset.x += self.step.x;
         } else {
             t = self.t_max.y;
             self.t_max.y += self.t_delta.y;
-            self.cell.y += self.step.y;
+            self.offset.y += self.step.y;
         }
 
         if t > self.max_t_grid {
@@ -95,11 +96,24 @@ impl Iterator for LineIterator {
         }
 
         // equivalent to (x >= 0 && x < width) for signed x
-        if (self.cell.x as u32) >= self.width || (self.cell.y as u32) >= self.height {
+        if (self.offset.x as u32) >= self.width || (self.offset.y as u32) >= self.height {
             return None;
         }
 
-        Some(LineStep { cell: self.cell, t })
+        Some((self.offset, t))
+    }
+}
+
+impl Iterator for LineIterator {
+    type Item = LineStep;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let (offset, t) = self.next_offset()?;
+        Some(LineStep {
+            cell: offset.wrapping_add(self.min),
+            t,
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -125,10 +139,8 @@ impl<'a, T> Iterator for LineValueIterator<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|step| {
-            // SAFETY: step.cell comes from LineIterator, which only yields in-bounds cells.
-            unsafe { self.grid.get_unchecked(step.cell) }
-        })
+        let (offset, _) = self.iter.next_offset()?;
+        Some(self.grid.at_held(offset))
     }
 }
 
@@ -150,11 +162,9 @@ impl<'a, T> Iterator for LineValueMutIterator<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: step.cell is in-bounds (LineIterator only yields in-bounds cells).
-        // The raw pointer cast extends the lifetime for the returned &mut T.
-        self.iter
-            .next()
-            .map(|step| unsafe { &mut *(self.grid.get_unchecked_mut(step.cell) as *mut T) })
+        let (offset, _) = self.iter.next_offset()?;
+        // SAFETY: the raw pointer cast extends the lifetime for the returned &mut T.
+        Some(unsafe { &mut *(self.grid.at_held_mut(offset) as *mut T) })
     }
 }
 

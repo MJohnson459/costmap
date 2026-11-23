@@ -2,7 +2,7 @@ use std::error::Error;
 
 use glam::{Vec2, Vec3};
 
-use crate::{Costmap, OccupancyGrid, types::UNKNOWN};
+use crate::{Costmap, OccupancyGrid};
 
 // Re-export cost constants so existing `use costmap::rerun_viz::COST_LETHAL` still works.
 pub use crate::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN};
@@ -216,18 +216,9 @@ pub fn log_footprint_polygon(
 fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
     let width = grid.size().x;
     let height = grid.size().y;
-    let mut cells = Vec::with_capacity((width * height) as usize);
-
-    for y_img in 0..height {
-        let y_grid = height - 1 - y_img;
-        for x in 0..width {
-            let value = grid
-                .get(glam::IVec2::new(x as i32, y_grid as i32))
-                .copied()
-                .unwrap_or(UNKNOWN);
-            cells.push(value as u8);
-        }
-    }
+    let cells = rows_top_down(grid.as_slice(), width)
+        .map(|&value| value as u8)
+        .collect();
     (width, height, cells)
 }
 
@@ -239,20 +230,15 @@ fn occupancy_to_l_bytes(grid: &OccupancyGrid) -> (u32, u32, Vec<u8>) {
 fn costmap_to_l_bytes(grid: &Costmap) -> (u32, u32, Vec<u8>) {
     let width = grid.size().x;
     let height = grid.size().y;
-    let mut cells = Vec::with_capacity((width * height) as usize);
-
-    for y_img in 0..height {
-        let y_grid = height - 1 - y_img;
-        for x in 0..width {
-            let cost = grid
-                .get(glam::IVec2::new(x as i32, y_grid as i32))
-                .copied()
-                .unwrap_or(COST_UNKNOWN);
-            cells.push(cost_to_rviz_value(cost));
-        }
-    }
-
+    let cells = rows_top_down(grid.as_slice(), width)
+        .map(|&cost| cost_to_rviz_value(cost))
+        .collect();
     (width, height, cells)
+}
+
+/// The cells of a row-major grid `width` wide, last row first.
+fn rows_top_down<T>(cells: &[T], width: u32) -> impl Iterator<Item = &T> {
+    cells.chunks_exact(width.max(1) as usize).rev().flatten()
 }
 
 /// Translate a raw `costmap_2d` cost into the value convention Rerun's `RvizCostmap`

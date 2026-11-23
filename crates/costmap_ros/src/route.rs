@@ -119,7 +119,7 @@ impl RawCosts for Costmap {
             width: size.x,
             height: size.y,
             resolution: self.info().resolution,
-            origin: self.info().lattice().cell_corner(low),
+            origin: self.lattice().cell_corner(self.cells().min + low),
         };
         let mut window = Costmap::filled(info, COST_UNKNOWN);
         // The rows and columns of the window that lie inside the map.
@@ -193,7 +193,7 @@ fn crop(grid: &Costmap, min: IVec2, size: UVec2) -> Result<Costmap, VoxelError> 
         width: size.x,
         height: size.y,
         resolution: grid.info().resolution,
-        origin: grid.info().lattice().cell_corner(min),
+        origin: grid.lattice().cell_corner(grid.cells().min + min),
     };
     Costmap::from_vec(info, data)
 }

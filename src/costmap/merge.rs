@@ -1,7 +1,7 @@
 //! Merge policies for writing a layer grid into the master costmap.
 //!
-//! **Assumption:** `master` and `source` share the same dimensions and alignment so that
-//! cell `(x, y)` in `region` is valid in both grids.
+//! **Assumption:** `master` and `source` are on the same lattice, so a cell of `region`
+//! names the same place in both grids.
 
 use crate::types::{COST_UNKNOWN, CellRegion};
 

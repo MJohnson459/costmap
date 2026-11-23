@@ -6,7 +6,7 @@ use glam::IVec2;
 
 use crate::Costmap;
 
-use super::astar::{PlanOptions, moves, passable_cost};
+use super::astar::{PlanOptions, moves_at, passable};
 
 /// Identifier of one region of a [`Regions`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -14,10 +14,12 @@ pub struct RegionId(u32);
 
 /// The passable cells of a costmap grouped into regions: two cells share a region
 /// exactly when [`plan`](super::plan) with the same options finds a path between them,
-/// because the regions are flooded with the planner's own [`moves`].
+/// because the regions are flooded with the planner's own [`moves`](super::astar::moves).
 pub struct Regions {
+    /// First cell of the grid labelled.
+    min: IVec2,
     width: u32,
-    /// Region of each cell, row-major; [`NONE`] for impassable cells.
+    /// Region of each cell, row-major from `min`; [`NONE`] for impassable cells.
     labels: Vec<u32>,
     /// Cell count of each region, indexed by its id.
     sizes: Vec<usize>,
@@ -31,18 +33,19 @@ impl Regions {
     /// number of cells.
     pub fn new(grid: &Costmap, options: &PlanOptions) -> Self {
         let width = grid.size().x;
-        let cell = |index: usize| {
+        // The flood works in array offsets.
+        let offset = |index: usize| {
             IVec2::new(
                 (index % width as usize) as i32,
                 (index / width as usize) as i32,
             )
         };
-        let index = |cell: IVec2| cell.y as usize * width as usize + cell.x as usize;
+        let index = |offset: IVec2| offset.y as usize * width as usize + offset.x as usize;
         let mut labels = vec![NONE; grid.as_slice().len()];
         let mut sizes = Vec::new();
         let mut queue = VecDeque::new();
         for seed in 0..labels.len() {
-            if labels[seed] != NONE || passable_cost(grid, cell(seed), options).is_none() {
+            if labels[seed] != NONE || passable(grid.as_slice()[seed], options).is_none() {
                 continue;
             }
             let label = sizes.len() as u32;
@@ -51,7 +54,7 @@ impl Regions {
             let mut size = 0;
             while let Some(current) = queue.pop_front() {
                 size += 1;
-                for step in moves(grid, cell(current), options) {
+                for step in moves_at(grid, offset(current), options) {
                     let next = index(step.cell);
                     if labels[next] == NONE {
                         labels[next] = label;
@@ -62,6 +65,7 @@ impl Regions {
             sizes.push(size);
         }
         Self {
+            min: grid.cells().min,
             width,
             labels,
             sizes,
@@ -70,10 +74,11 @@ impl Regions {
 
     /// Region of `cell`, or `None` if it is outside the grid or impassable.
     pub fn region(&self, cell: IVec2) -> Option<RegionId> {
-        if cell.x < 0 || cell.y < 0 || cell.x as u32 >= self.width {
+        let offset = cell.wrapping_sub(self.min);
+        if offset.x < 0 || offset.y < 0 || offset.x as u32 >= self.width {
             return None;
         }
-        let index = cell.y as usize * self.width as usize + cell.x as usize;
+        let index = offset.y as usize * self.width as usize + offset.x as usize;
         match *self.labels.get(index)? {
             NONE => None,
             label => Some(RegionId(label)),
@@ -99,10 +104,12 @@ impl Regions {
 
     /// The cells of `region` in row-major order.
     pub fn cells(&self, region: RegionId) -> impl Iterator<Item = IVec2> + '_ {
-        let width = self.width as usize;
+        let (min, width) = (self.min, self.width as usize);
         (self.labels.iter().enumerate())
             .filter(move |&(_, &label)| label == region.0)
-            .map(move |(index, _)| IVec2::new((index % width) as i32, (index / width) as i32))
+            .map(move |(index, _)| {
+                min.wrapping_add(IVec2::new((index % width) as i32, (index / width) as i32))
+            })
     }
 }
 

@@ -21,7 +21,9 @@ Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 - Cell positions are `IVec2`; sizes and counts of cells stay `UVec2`.
 - `LayeredCostmap::add_layer` returns a `Result`: a layer can reject a costmap it cannot work on.
 - `VoxelError` is non-exhaustive.
-- World-to-cell conversion goes through `Lattice`, from `DenseGrid::lattice`, `MapInfo::lattice` or `TiledGrid::lattice`. `cell_at`, `cell_center`, `cell_corner`, `to_cells` and `from_cells` replace `DenseGrid::world_to_map`, `map_to_world` and their `_continuous` forms, and `TiledGrid::world_to_cell`, `cell_origin` and `cell_center`.
+- World-to-cell conversion goes through `Lattice`, from `DenseGrid::lattice` or `TiledGrid::lattice`. `cell_at`, `cell_center`, `cell_corner`, `to_cells` and `from_cells` replace `DenseGrid::world_to_map`, `map_to_world` and their `_continuous` forms, and `TiledGrid::world_to_cell`, `cell_origin` and `cell_center`.
+- A `DenseGrid` keeps its lattice and holds a rectangle of its cells, `cells()`. A grid moved by `update_origin` or `update_center`, and a window from `TiledGrid::window`, name each cell as the grid they came from does; before, their first cell was always (0, 0).
+- `Layer::attach` takes the master grid, and `Layer::match_size` is removed.
 - Grids are logged to Rerun as `GridMap` archetypes.
 
 ## 0.2.0

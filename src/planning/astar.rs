@@ -96,10 +96,13 @@ pub fn plan(grid: &Costmap, start: IVec2, goal: IVec2, options: &PlanOptions) ->
         });
     }
 
+    // The search runs in array offsets; the path is turned back into cells.
+    let (start, goal) = (grid.offset_of(start), grid.offset_of(goal));
     let search = Search::new(grid, options);
     let solution = search.run(start, goal)?;
+    let offsets = solution.trace(start, goal);
     Some(Path {
-        cells: solution.trace(start, goal),
+        cells: offsets.into_iter().map(|o| grid.cell_of(o)).collect(),
         cost: solution.cost,
     })
 }
@@ -122,16 +125,28 @@ pub fn moves<'a>(
     cell: IVec2,
     options: &'a PlanOptions,
 ) -> impl Iterator<Item = Move> + 'a {
-    let cost_at = move |offset: IVec2| {
-        let next = offset_cell(grid, cell, offset)?;
-        Some((next, passable_cost(grid, next, options)?))
+    moves_at(grid, grid.offset_of(cell), options).map(move |step| Move {
+        cell: grid.cell_of(step.cell),
+        ..step
+    })
+}
+
+/// [`moves`] in array offsets: from the cell at `offset`, with each
+/// [`Move::cell`] an offset.
+pub(super) fn moves_at<'a>(
+    grid: &'a Costmap,
+    offset: IVec2,
+    options: &'a PlanOptions,
+) -> impl Iterator<Item = Move> + 'a {
+    let cost_at = move |by: IVec2| {
+        let next = offset.wrapping_add(by);
+        Some((next, passable(*grid.at(next)?, options)?))
     };
-    MOVES.iter().filter_map(move |&(offset, length_cells)| {
-        let (next, cost) = cost_at(offset)?;
-        let diagonal = offset.x != 0 && offset.y != 0;
+    MOVES.iter().filter_map(move |&(by, length_cells)| {
+        let (next, cost) = cost_at(by)?;
+        let diagonal = by.x != 0 && by.y != 0;
         let sides_open = !diagonal
-            || (cost_at(IVec2::new(offset.x, 0)).is_some()
-                && cost_at(IVec2::new(0, offset.y)).is_some());
+            || (cost_at(IVec2::new(by.x, 0)).is_some() && cost_at(IVec2::new(0, by.y)).is_some());
         sides_open.then_some(Move {
             cell: next,
             length_cells,
@@ -140,17 +155,16 @@ pub fn moves<'a>(
     })
 }
 
-/// `cell` moved by `offset`, or `None` if that leaves the grid.
-fn offset_cell(grid: &Costmap, cell: IVec2, offset: IVec2) -> Option<IVec2> {
-    let moved = cell + offset;
-    grid.contains(moved).then_some(moved)
+/// Cost of entering `cell`, or `None` if it is outside the grid or impassable.
+pub fn passable_cost(grid: &Costmap, cell: IVec2, options: &PlanOptions) -> Option<u8> {
+    passable(*grid.get(cell)?, options)
 }
 
-/// Cost of entering `cell`, or `None` if it is outside the grid or impassable.
-/// Unknown cells are tested before the threshold because [`COST_UNKNOWN`] is
-/// numerically above every lethal threshold.
-pub fn passable_cost(grid: &Costmap, cell: IVec2, options: &PlanOptions) -> Option<u8> {
-    match *grid.get(cell)? {
+/// `cost` if a cell of that cost may be entered. Unknown cells are tested before
+/// the threshold because [`COST_UNKNOWN`] is numerically above every lethal
+/// threshold.
+pub(super) fn passable(cost: u8, options: &PlanOptions) -> Option<u8> {
+    match cost {
         COST_UNKNOWN => options.allow_unknown.then_some(COST_FREE),
         cost => (cost < options.lethal_threshold).then_some(cost),
     }
@@ -203,6 +217,7 @@ impl Ord for Node {
     }
 }
 
+/// A search over one grid. Positions are array offsets in it.
 struct Search<'a> {
     grid: &'a Costmap,
     options: &'a PlanOptions,
@@ -245,7 +260,7 @@ impl<'a> Search<'a> {
     /// Neighbours of `cell` reachable in one move, with the cost of the move.
     fn neighbours(&self, cell: IVec2) -> impl Iterator<Item = (IVec2, f32)> + '_ {
         let resolution = self.grid.info().resolution as f32;
-        moves(self.grid, cell, self.options).map(move |step| {
+        moves_at(self.grid, cell, self.options).map(move |step| {
             let length_m = step.length_cells * resolution;
             (step.cell, step_cost(length_m, step.cost, self.cost_weight))
         })
@@ -296,7 +311,7 @@ impl<'a> Search<'a> {
 }
 
 impl Solution {
-    /// Cells from `start` to `goal`, found by following parent links back from `goal`.
+    /// Offsets from `start` to `goal`, found by following parent links back from `goal`.
     fn trace(&self, start: IVec2, goal: IVec2) -> Vec<IVec2> {
         let index_of = |c: IVec2| c.y as usize * self.width + c.x as usize;
         let cell = |i: usize| IVec2::new((i % self.width) as i32, (i / self.width) as i32);

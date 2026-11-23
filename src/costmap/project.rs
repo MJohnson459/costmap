@@ -40,9 +40,11 @@ pub(crate) fn merge_cost(policy: MergePolicy, old: u8, src: u8) -> Option<u8> {
 /// If `f` returns `Some(cost)`, the cost is merged into the master according to the policy.
 /// If `f` returns `None`, the master cell is left untouched.
 ///
+/// `region` is cells of the lattice the two grids share. A cell of it that either
+/// grid does not hold is skipped, so the grids may hold different rectangles.
+///
 /// # Panics
-/// In debug builds, panics if the master and source grids do not have matching layouts
-/// (width, height, resolution, origin).
+/// In debug builds, panics if the master and source grids are on different lattices.
 pub fn project_into<T>(
     master: &mut Costmap,
     source: &crate::DenseGrid<T>,
@@ -51,8 +53,8 @@ pub fn project_into<T>(
     f: impl Fn(&T) -> Option<u8>,
 ) {
     debug_assert!(
-        master.layout_matches(source),
-        "master and source grids must have matching layouts"
+        master.lattice() == source.lattice(),
+        "master and source grids must be on the same lattice"
     );
 
     for y in region.min.y..region.max.y {
