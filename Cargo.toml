@@ -11,7 +11,7 @@ categories = ["science", "algorithms", "simulation"]
 
 [dependencies]
 bitvec = "1.0"
-glam = "0.33"
+glam = "0.34"
 image = "0.25"
 rerun = { version = "0.34", optional = true }
 serde = { version = "1.0", features = ["derive"] }
