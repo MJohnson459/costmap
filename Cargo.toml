@@ -92,5 +92,9 @@ harness = false
 name = "polygon_iter"
 harness = false
 
+[[bench]]
+name = "obstacle"
+harness = false
+
 [workspace]
 members = [".", "crates/costmap_ros"]
