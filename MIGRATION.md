@@ -185,7 +185,23 @@ let mut tiles = TileCache::new(&map, &graph, 64)?;
 - A source that changed costs, such as one that inflates, implements `CostWindows` and reads a grown window from the map below it.
 - A graph stored by `write_to` before this change does not read back; build it again.
 
-In `costmap_ros`, the `MapSource` trait, `SourceError` and `TileStats` are removed. The server reads any `CostWindows` map; `window_around(map, center, size)` cuts the window it publishes. `GeoTiffSource` implements `CostWindows` and its `stats()` returns `costmap::ChunkStats`.
+In `costmap_ros`, the `MapSource` trait, `SourceError` and `TileStats` are removed. The server reads any `CostWindows` map; `CostWindows::window_around(center, size)` cuts the window it publishes. `GeoTiffSource` implements `CostWindows` and its `stats()` returns `costmap::ChunkStats`.
+
+### Route planning moved from `costmap_ros` to `costmap`
+
+`costmap_ros` now holds only message conversion, pose tracking, publishing decisions and the route action server. The planner and the window cut around a pose are in `costmap`, with no ROS dependency.
+
+| `costmap_ros` 0.1 | `costmap` 0.3 |
+| --- | --- |
+| `costmap_ros::RoutePlanner`, `RouteOptions`, `Route`, `RouteError` | `costmap::RoutePlanner`, `RouteOptions`, `Route`, `RouteError` |
+| `costmap_ros::route::graph_path` | `costmap::planning::route::graph_path` |
+| `costmap_ros::window_around(&mut map, center, size)` | `map.window_around(center, size)`, a provided method of `CostWindows` |
+| `cargo run -p costmap_ros --example plan_route -- --map M --start X,Y --goal X,Y` | `cargo run --features geotiff --example plan_route -- M X,Y X,Y` |
+
+- `RoutePlanner::open` reads `.tif` and `.tiff` only with the `geotiff` feature; `costmap_ros` enables it.
+- `RoutePlanner::open` no longer logs. `RoutePlanner::origin()` returns a `GraphOrigin`: the graph was read from its stored file, built and stored, built but not stored (with the error), or built from a map in memory.
+- `InflatedWindows::new(map, radius_m, inscribed_radius_m, cost_scaling_factor)` is the `CostWindows` map the planner reads: each window is read with the margin inflation needs and inflated as `Costmap::inflate` inflates it.
+- A graph stored beside a map by `costmap_ros` is built again on the next start: its fingerprint now carries the `costmap` version.
 
 ### `LayeredCostmap::add_layer` returns a `Result`
 

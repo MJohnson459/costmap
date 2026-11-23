@@ -91,7 +91,6 @@ mod tests {
     use glam::{DVec2, IVec2, UVec2};
 
     use super::*;
-    use crate::source::window_around;
 
     const RESOLUTION: f64 = 0.5;
     const MAP_CELLS: UVec2 = UVec2::new(1000, 200);
@@ -127,7 +126,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut source = open_pattern_map(&dir);
         assert_eq!(source.lattice(), Lattice::new(DVec2::ZERO, RESOLUTION));
-        let window = window_around(&mut source, world(300.5, 100.5), WINDOW).unwrap();
+        let window = source.window_around(world(300.5, 100.5), WINDOW).unwrap();
         assert_eq!(window.world_bounds().min, DVec2::new(145.0, 45.0));
         assert_eq!(window.get(IVec2::new(300, 100)), Some(&pattern(300, 100)));
     }
@@ -136,11 +135,11 @@ mod tests {
     fn a_move_within_the_load_margin_loads_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let mut source = open_pattern_map(&dir);
-        window_around(&mut source, world(300.5, 100.5), WINDOW).unwrap();
+        source.window_around(world(300.5, 100.5), WINDOW).unwrap();
         let before = source.stats();
         assert!(before.loaded > 0);
         // 4.5 m east and north: inside the 5 m load margin.
-        window_around(&mut source, world(309.5, 109.5), WINDOW).unwrap();
+        source.window_around(world(309.5, 109.5), WINDOW).unwrap();
         assert_eq!(source.stats(), before);
     }
 }

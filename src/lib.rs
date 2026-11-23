@@ -9,11 +9,13 @@
 //!   [`TiledMapLayer`] for a static map of any size.
 //! - [`raycast`] and [`iterators`] walk cells along rays and inside polygons.
 //! - [`plan`] is an 8-connected, cost-weighted A*. [`TileGraph`] plans across a map a
-//!   tile at a time and reads only the tiles on the route.
+//!   tile at a time and reads only the tiles on the route. [`RoutePlanner`] plans
+//!   between world positions on a whole map, on a graph it stores beside the map.
 //! - [`TiledGrid`] stores a map as sparse chunks.
 //! - [`CostWindows`] is the one request every cost map answers: the cells of a
 //!   rectangle as a dense window. [`Costmap`], [`TiledGrid`] and, with the `geotiff`
-//!   feature, `GeoTiffWindows` answer it.
+//!   feature, `GeoTiffWindows` answer it. [`InflatedWindows`] inflates each window
+//!   with the margin it needs.
 //! - [`RosMapLoader`] reads ROS map YAML files. With the `geotiff` feature,
 //!   `CostGeoTiff` reads the chunks of a cost GeoTIFF that a region needs.
 //! - With the `rerun` feature, `rerun_viz` logs grids to the Rerun viewer.
@@ -40,7 +42,7 @@ pub use costmap::{
 };
 #[allow(deprecated)]
 pub use grid::Grid2d;
-pub use grid::{CostWindows, DenseGrid};
+pub use grid::{CostWindows, DenseGrid, InflatedWindows};
 pub use layers::{
     Beam, InflationConfig, ObstacleConfig, ObstacleLayer, ProjectionLayer, TiledMapLayer,
     WavefrontInflationLayer,
@@ -51,7 +53,8 @@ pub use loaders::geotiff::{CostGeoTiff, write_cost_geotiff, write_cost_geotiff_r
 pub use loaders::geotiff_windows::{ChunkStats, GeoTiffWindows};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use planning::{
-    Path, PlanOptions, TileCache, TileGraph, TileGraphOptions, TileLayout, line_passable, plan,
+    GraphOrigin, Path, PlanOptions, Route, RouteError, RouteOptions, RoutePlanner, TileCache,
+    TileGraph, TileGraphOptions, TileLayout, line_passable, plan,
 };
 pub use tiled::{GeoReference, TiledGrid};
 pub use types::{Lattice, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
