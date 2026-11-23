@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use costmap::types::Pose2;
-use costmap::{CostWindows, RosMapLoader, costmap_from_occupancy};
+use costmap::{CostWindows, MapFile};
 use costmap_ros::pose::RobotPose;
 use costmap_ros::republish::LastPublish;
 use costmap_ros::route_server::{RouteServerOptions, open_routes, serve_routes};
@@ -232,44 +232,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Map file formats `--map` accepts, by extension.
-const MAP_EXTENSIONS: &str = ".yaml, .yml (ROS map), .tif, .tiff (cost GeoTIFF)";
-
-enum MapKind {
-    RosYaml,
-    GeoTiff,
-}
-
-impl MapKind {
-    fn of(path: &Path) -> anyhow::Result<Self> {
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(str::to_ascii_lowercase);
-        match extension.as_deref() {
-            Some("yaml" | "yml") => Ok(Self::RosYaml),
-            Some("tif" | "tiff") => Ok(Self::GeoTiff),
-            _ => Err(anyhow!(
-                "--map {}: unsupported extension; accepted: {MAP_EXTENSIONS}",
-                path.display()
-            )),
-        }
-    }
-}
-
 fn open_map(path: &Path) -> anyhow::Result<Box<dyn CostWindows>> {
-    let source: Box<dyn CostWindows> = match MapKind::of(path)? {
-        MapKind::RosYaml => {
-            let occupancy = RosMapLoader::load_from_yaml(path)
-                .with_context(|| format!("loading map {}", path.display()))?;
-            Box::new(costmap_from_occupancy(&occupancy).context("converting map to costs")?)
-        }
-        MapKind::GeoTiff => Box::new(
-            GeoTiffSource::open(path)
-                .with_context(|| format!("opening GeoTIFF {}", path.display()))?,
-        ),
-    };
-    Ok(source)
+    let map = MapFile::open(path, GeoTiffSource::READING)
+        .with_context(|| format!("opening --map {}", path.display()))?;
+    Ok(match map {
+        MapFile::Ros(costs) => Box::new(costs),
+        MapFile::GeoTiff(windows) => Box::new(GeoTiffSource::new(windows)),
+    })
 }
 
 /// Reliable, transient local, depth 1: what `StaticLayer` subscribes with

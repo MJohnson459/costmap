@@ -15,7 +15,8 @@
 //!   rectangle as a dense window. [`Costmap`], [`TiledGrid`] and, with the `geotiff`
 //!   feature, `GeoTiffWindows` answer it.
 //! - [`RosMapLoader`] reads ROS map YAML files. With the `geotiff` feature,
-//!   `CostGeoTiff` reads the chunks of a cost GeoTIFF that a region needs.
+//!   `CostGeoTiff` reads the chunks of a cost GeoTIFF that a region needs, and
+//!   `MapFile` opens either kind of map by its extension.
 //! - With the `rerun` feature, `rerun_viz` logs grids to the Rerun viewer.
 //!
 //! World positions, resolutions and extents are `f64`; quantities local to a grid or
@@ -49,6 +50,8 @@ pub use layers::{
 pub use loaders::geotiff::{CostGeoTiff, write_cost_geotiff, write_cost_geotiff_region};
 #[cfg(feature = "geotiff")]
 pub use loaders::geotiff_windows::{ChunkStats, GeoTiffWindows};
+#[cfg(feature = "geotiff")]
+pub use loaders::map_file::{GeoTiffReading, MapFile, Margin};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use planning::{
     Path, PlanOptions, TileCache, TileGraph, TileGraphOptions, TileLayout, line_passable, plan,

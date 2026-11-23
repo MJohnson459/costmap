@@ -15,8 +15,8 @@ use std::time::{Instant, UNIX_EPOCH};
 
 use costmap::types::{CellRegion, VoxelError};
 use costmap::{
-    CostWindows, Costmap, GeoTiffWindows, Lattice, RosMapLoader, TileCache, TileGraph,
-    TileGraphOptions, costmap_from_occupancy,
+    CostWindows, Costmap, GeoTiffReading, Lattice, MapFile, Margin, TileCache, TileGraph,
+    TileGraphOptions,
 };
 use glam::{DVec2, IVec2};
 use thiserror::Error;
@@ -295,34 +295,19 @@ impl RoutePlanner {
     /// logged and it is built again next time.
     pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
         let path = path.as_ref();
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(str::to_ascii_lowercase);
-        match extension.as_deref() {
-            Some("yaml" | "yml") => {
-                let occupancy = RosMapLoader::load_from_yaml(path)?;
-                let costs = costmap_from_occupancy(&occupancy)?;
-                let cells = costs.cells();
-                let fingerprint = costs_fingerprint(&costs, &options);
-                let mut source = Inflated::new(costs, &options);
-                let graph = stored_or_built(path, &fingerprint, cells, &options, &mut source)?;
-                return Self::new(graph, Box::new(source), options);
-            }
-            Some("tif" | "tiff") => {}
-            _ => {
-                return Err(VoxelError::InvalidArgument(format!(
-                    "{}: unsupported extension; accepted: .yaml, .yml (ROS map), .tif, .tiff (cost GeoTIFF)",
-                    path.display()
-                )));
-            }
-        }
-        // A tile is read with its neighbours next, which share its margin.
-        let map =
-            GeoTiffWindows::open(path, CHUNK_CELLS)?.with_margins(0, options.graph.tile_cells / 2);
+        let reading = GeoTiffReading {
+            chunk_cells: CHUNK_CELLS,
+            load_margin: Margin::Cells(0),
+            // A tile is read with its neighbours next, which share its margin.
+            keep_margin: Margin::Cells(options.graph.tile_cells / 2),
+        };
+        let map = MapFile::open(path, reading)?;
+        let fingerprint = match &map {
+            MapFile::Ros(costs) => costs_fingerprint(costs, &options),
+            MapFile::GeoTiff(_) => fingerprint(path, &options)?,
+        };
         let cells = map.cells();
         let mut source = Inflated::new(map, &options);
-        let fingerprint = fingerprint(path, &options)?;
         let graph = stored_or_built(path, &fingerprint, cells, &options, &mut source)?;
         Self::new(graph, Box::new(source), options)
     }
@@ -487,8 +472,8 @@ impl RoutePlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use costmap::TiledGrid;
     use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
+    use costmap::{RosMapLoader, TiledGrid, costmap_from_occupancy};
     use glam::UVec2;
 
     /// Small tiles, so the 20 m test maps span several.

@@ -3,32 +3,36 @@
 use std::path::Path;
 
 use costmap::types::{CellRegion, VoxelError};
-use costmap::{ChunkStats, CostWindows, Costmap, GeoTiffWindows, Lattice};
+use costmap::{ChunkStats, CostWindows, Costmap, GeoTiffReading, GeoTiffWindows, Lattice, Margin};
 use tracing::{debug, info};
-
-/// Edge of a held chunk, in cells.
-const CHUNK_CELLS: u32 = 64;
-/// Distance beyond the requested window that is loaded, in metres, so a robot
-/// moving less than this between windows does not touch the file.
-const LOAD_MARGIN_M: f64 = 5.0;
-/// Distance beyond the loaded region that chunks are kept, in metres. Chunks
-/// further out are dropped, so a robot oscillating at the edge of the loaded
-/// region does not reload the same chunks.
-const KEEP_MARGIN_M: f64 = 25.0;
 
 /// A cost GeoTIFF of which only the chunks near the last window are held.
 ///
 /// Windows are on the file's lattice: metres east and north of the raster's
-/// lower-left corner. [`GeoTiffWindows`] reads them, loading `LOAD_MARGIN_M`
-/// beyond each window and keeping chunks up to `KEEP_MARGIN_M` beyond that.
+/// lower-left corner. [`GeoTiffWindows`] reads them, as [`READING`](Self::READING)
+/// sets out.
 pub struct GeoTiffSource {
     windows: GeoTiffWindows,
 }
 
 impl GeoTiffSource {
-    /// Open `path` and log its size and georeference. No cells are read yet.
+    /// 64-cell chunks. A robot moving less than the 5 m load margin between
+    /// windows does not touch the file, and chunks within 25 m of the loaded
+    /// region are kept, so a robot oscillating at its edge does not reload them.
+    pub const READING: GeoTiffReading = GeoTiffReading {
+        chunk_cells: 64,
+        load_margin: Margin::Metres(5.0),
+        keep_margin: Margin::Metres(25.0),
+    };
+
+    /// Open `path` as [`READING`](Self::READING) sets out, and log its size and
+    /// georeference. No cells are read yet.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, VoxelError> {
-        let windows = GeoTiffWindows::open(path, CHUNK_CELLS)?;
+        Ok(Self::new(Self::READING.open(path)?))
+    }
+
+    /// Serve windows from `windows`, and log its size and georeference.
+    pub fn new(windows: GeoTiffWindows) -> Self {
         let file = windows.file();
         let (size, resolution, georef) = (file.size(), file.resolution(), file.georeference());
         info!(
@@ -46,10 +50,7 @@ impl GeoTiffSource {
             georef.anchor.x,
             georef.anchor.y,
         );
-        let cells = |metres: f64| (metres / resolution).ceil() as u32;
-        Ok(Self {
-            windows: windows.with_margins(cells(LOAD_MARGIN_M), cells(KEEP_MARGIN_M)),
-        })
+        Self { windows }
     }
 
     /// Chunk counters.
@@ -102,7 +103,8 @@ mod tests {
     }
 
     fn open_pattern_map(dir: &tempfile::TempDir) -> GeoTiffSource {
-        let mut grid = TiledGrid::new(RESOLUTION, CHUNK_CELLS, COST_UNKNOWN).unwrap();
+        let mut grid =
+            TiledGrid::new(RESOLUTION, GeoTiffSource::READING.chunk_cells, COST_UNKNOWN).unwrap();
         for y in 0..MAP_CELLS.y as i32 {
             for x in 0..MAP_CELLS.x as i32 {
                 grid.set(IVec2::new(x, y), pattern(x, y));
