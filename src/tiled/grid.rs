@@ -4,7 +4,7 @@ use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     DenseGrid,
-    types::{COST_UNKNOWN, Lattice, MapInfo, VoxelError},
+    types::{COST_UNKNOWN, Lattice, VoxelError},
 };
 
 /// Largest allowed chunk edge. Keeps `chunk_size * chunk_size` and chunk-local
@@ -254,13 +254,13 @@ impl<T: Clone> TiledGrid<T> {
         self.window(min_cell, size)
     }
 
-    /// Fill `target` from the tiles covering its [`MapInfo`].
+    /// Fill `target` from the tiles covering its cells.
     ///
     /// The target origin is snapped to the nearest cell boundary. Cells without a
     /// loaded chunk are set to the fill value. Fails if the resolutions differ by
     /// more than a relative 1e-4.
     pub fn read_into(&self, target: &mut DenseGrid<T>) -> Result<(), VoxelError> {
-        let (min_cell, size) = self.window_extent(target.info())?;
+        let (min_cell, size) = self.window_extent(target)?;
         self.copy_out(min_cell, size, target.as_mut_slice());
         Ok(())
     }
@@ -270,7 +270,7 @@ impl<T: Clone> TiledGrid<T> {
     /// Inverse of [`read_into`](Self::read_into), with the same origin snapping and
     /// resolution check. Cells beyond the `i32` cell range are ignored.
     pub fn write_window(&mut self, source: &DenseGrid<T>) -> Result<(), VoxelError> {
-        let (min_cell, size) = self.window_extent(source.info())?;
+        let (min_cell, size) = self.window_extent(source)?;
         for run in row_runs(self.chunk_size, min_cell, size) {
             let chunk = self.chunk_mut(run.chunk);
             chunk[run.chunk_offset..run.chunk_offset + run.len].clone_from_slice(
@@ -280,16 +280,18 @@ impl<T: Clone> TiledGrid<T> {
         Ok(())
     }
 
-    /// First cell and size of the dense window described by `info`.
-    fn window_extent(&self, info: &MapInfo) -> Result<(IVec2, UVec2), VoxelError> {
-        if !self.resolution_matches(info.resolution) {
+    /// First cell and size, in this grid's cells, of the dense window `window`.
+    fn window_extent<U>(&self, window: &DenseGrid<U>) -> Result<(IVec2, UVec2), VoxelError> {
+        let lattice = window.lattice();
+        if !self.resolution_matches(lattice.resolution) {
             return Err(VoxelError::InvalidArgument(format!(
                 "window resolution {} differs from tiled grid resolution {}",
-                info.resolution, self.resolution
+                lattice.resolution, self.resolution
             )));
         }
-        let min_cell = (info.origin / self.resolution).round().as_ivec2();
-        Ok((min_cell, UVec2::new(info.width, info.height)))
+        let corner = window.world_bounds().min;
+        let min_cell = (corner / self.resolution).round().as_ivec2();
+        Ok((min_cell, window.size()))
     }
 
     /// Copy `[min_cell, min_cell + size)` row by row into `dst`, writing the fill value for absent chunks.
@@ -344,6 +346,7 @@ impl TiledGrid<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::CellRegion;
 
     fn grid(chunk_size: u32) -> TiledGrid<u8> {
         TiledGrid::new(0.5, chunk_size, COST_UNKNOWN).unwrap()
@@ -458,8 +461,8 @@ mod tests {
         assert_eq!(window.lattice(), g.lattice());
         assert_eq!(window.cells().min, min);
         assert_eq!(window.cells().max, min + size.as_ivec2());
-        assert_eq!(window.info().origin, g.lattice().cell_corner(min));
-        assert_eq!(window.info().resolution, 0.5);
+        assert_eq!(window.world_bounds().min, g.lattice().cell_corner(min));
+        assert_eq!(window.lattice().resolution, 0.5);
         for (cell, value) in window.indexed_iter() {
             assert_eq!(value, g.get(cell), "at {cell}");
         }
@@ -493,13 +496,9 @@ mod tests {
     #[test]
     fn window_write_window_round_trip() {
         let mut g = grid(8);
-        let info = MapInfo {
-            width: 20,
-            height: 13,
-            resolution: 0.5,
-            origin: g.lattice().cell_corner(IVec2::new(-9, -4)),
-        };
-        let source = DenseGrid::from_fn(info, pattern);
+        let lattice = Lattice::new(g.lattice().cell_corner(IVec2::new(-9, -4)), 0.5);
+        let cells = CellRegion::from_size(UVec2::new(20, 13));
+        let source = DenseGrid::from_fn(lattice, cells, pattern);
         g.write_window(&source).unwrap();
 
         let back = g.window(IVec2::new(-9, -4), UVec2::new(20, 13));
@@ -510,7 +509,11 @@ mod tests {
     #[test]
     fn read_into_rejects_resolution_mismatch() {
         let g = grid(8);
-        let mut target = DenseGrid::<u8>::filled(MapInfo::square(4, 0.25), 0);
+        let mut target = DenseGrid::<u8>::filled(
+            Lattice::new(DVec2::ZERO, 0.25),
+            CellRegion::from_size(UVec2::splat(4)),
+            0,
+        );
         assert!(matches!(
             g.read_into(&mut target),
             Err(VoxelError::InvalidArgument(_))
@@ -523,13 +526,9 @@ mod tests {
     fn read_into_snaps_origin_and_overwrites_absent_cells() {
         let mut g = grid(8);
         g.set(IVec2::new(2, 3), 11);
-        let info = MapInfo {
-            width: 4,
-            height: 4,
-            resolution: 0.5,
-            origin: DVec2::new(0.52, 0.98),
-        };
-        let mut target = DenseGrid::filled(info, 99u8);
+        let lattice = Lattice::new(DVec2::new(0.52, 0.98), 0.5);
+        let cells = CellRegion::from_size(UVec2::splat(4));
+        let mut target = DenseGrid::filled(lattice, cells, 99u8);
         g.read_into(&mut target).unwrap();
         // The origin snaps to cell (1, 2), so cell (2, 3) lands at (1, 1).
         assert_eq!(target[IVec2::new(1, 1)], 11);

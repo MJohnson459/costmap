@@ -238,8 +238,8 @@ mod tests {
         let mut source = open_pattern_map(&dir);
         let window = source.window(world(300.5, 100.5), WINDOW).unwrap();
         // centre cell (300, 100); lower-left (290, 90)
-        assert_eq!(window.info().origin, DVec2::new(145.0, 45.0));
-        assert_eq!(window.info().resolution, RESOLUTION);
+        assert_eq!(window.world_bounds().min, DVec2::new(145.0, 45.0));
+        assert_eq!(window.lattice().resolution, RESOLUTION);
         assert_eq!(window.as_slice(), expected(&window).as_slice());
         assert_eq!(window.cells().min, IVec2::new(290, 90));
         assert_eq!(window.get(IVec2::new(290, 90)), Some(&pattern(290, 90)));
@@ -291,7 +291,10 @@ mod tests {
         assert!(source.stats().evicted > 0);
 
         let again = source.window(start, WINDOW).unwrap();
-        assert_eq!(again.info(), first.info());
+        assert_eq!(
+            (again.lattice(), again.cells()),
+            (first.lattice(), first.cells())
+        );
         assert_eq!(again.as_slice(), first.as_slice());
     }
 
@@ -319,8 +322,8 @@ mod tests {
         ];
         for centre in centres {
             let window = source.window(centre, WINDOW).unwrap();
-            assert_eq!(window.info().width, WINDOW.x, "{centre}");
-            assert_eq!(window.info().height, WINDOW.y, "{centre}");
+            assert_eq!(window.size().x, WINDOW.x, "{centre}");
+            assert_eq!(window.size().y, WINDOW.y, "{centre}");
             assert!(
                 window.as_slice().iter().all(|&c| c == COST_UNKNOWN),
                 "{centre}"

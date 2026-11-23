@@ -5,23 +5,22 @@
 use costmap::costmap::merge_max;
 use costmap::planning::Regions;
 use costmap::types::{
-    COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, FREE, Footprint, OCCUPIED, Pose2,
+    COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, FREE, Footprint, Lattice, OCCUPIED, Pose2,
 };
 use costmap::{
-    Costmap, DenseGrid, DenseTiles, InflationConfig, Layer, MapInfo, OccupancyGrid, PlanOptions,
+    Costmap, DenseGrid, DenseTiles, InflationConfig, Layer, OccupancyGrid, PlanOptions,
     WavefrontInflationLayer, costmap_from_occupancy, line_passable, plan,
 };
-use glam::{DVec2, IVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 const SHIFT: IVec2 = IVec2::new(7, -3);
 
-fn info() -> MapInfo {
-    MapInfo {
-        width: 40,
-        height: 30,
-        resolution: 0.5,
-        origin: DVec2::new(-2.0, 1.0),
-    }
+fn lattice() -> Lattice {
+    Lattice::new(DVec2::new(-2.0, 1.0), 0.5)
+}
+
+fn cells() -> CellRegion {
+    CellRegion::from_size(UVec2::new(40, 30))
 }
 
 /// A wall across the map at x = 20 with a door at y = 10..14, and a block.
@@ -32,32 +31,33 @@ fn walled(cell: IVec2) -> bool {
 }
 
 fn costs() -> Costmap {
-    Costmap::from_fn(
-        info(),
-        |cell| {
-            if walled(cell) { COST_LETHAL } else { COST_FREE }
-        },
-    )
+    Costmap::from_fn(lattice(), cells(), |cell| {
+        if walled(cell) { COST_LETHAL } else { COST_FREE }
+    })
 }
 
 fn occupancy() -> OccupancyGrid {
-    OccupancyGrid::from_fn(info(), |cell| if walled(cell) { OCCUPIED } else { FREE })
+    OccupancyGrid::from_fn(lattice(), cells(), |cell| {
+        if walled(cell) { OCCUPIED } else { FREE }
+    })
 }
 
 /// The values of `grid` at the same places in the world, in a grid that started
 /// [`SHIFT`] cells away and moved there: its cell `c + SHIFT` is `grid`'s cell `c`.
 fn moved<T: Clone + Default>(grid: &DenseGrid<T>) -> DenseGrid<T> {
-    let info = *grid.info();
-    let start = MapInfo {
-        origin: info.origin - SHIFT.as_dvec2() * info.resolution,
-        ..info
-    };
-    let mut moved = DenseGrid::<T>::new(start);
-    moved.update_origin(info.origin + DVec2::splat(0.25 * info.resolution));
+    let lattice = grid.lattice();
+    let start = Lattice::new(
+        lattice.anchor - SHIFT.as_dvec2() * lattice.resolution,
+        lattice.resolution,
+    );
+    let mut moved = DenseGrid::<T>::new(start, CellRegion::from_size(grid.size()));
+    moved.update_origin(grid.world_bounds().min + DVec2::splat(0.25 * lattice.resolution));
     moved.as_mut_slice().clone_from_slice(grid.as_slice());
 
     assert_eq!(moved.cells().min, SHIFT);
-    assert_eq!(moved.info(), grid.info());
+    assert_eq!(moved.world_bounds(), grid.world_bounds());
+    assert_eq!(moved.lattice().resolution, grid.lattice().resolution);
+    assert_eq!(moved.size(), grid.size());
     moved
 }
 
@@ -303,8 +303,8 @@ fn a_costmap_from_occupancy_keeps_the_cells() {
 
 #[test]
 fn grids_holding_different_cells_of_one_lattice_merge_where_they_overlap() {
-    let mut master = Costmap::new(info());
-    let mut source = Costmap::filled(info(), COST_UNKNOWN);
+    let mut master = Costmap::new(lattice(), cells());
+    let mut source = Costmap::filled(lattice(), cells(), COST_UNKNOWN);
     source.update_origin(master.lattice().cell_corner(IVec2::new(10, 5)));
     assert_eq!(source.lattice(), master.lattice());
     assert_eq!(source.cells().min, IVec2::new(10, 5));

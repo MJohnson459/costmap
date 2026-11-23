@@ -19,20 +19,47 @@ The module `costmap::grid::grid2d` is now `costmap::grid::dense`.
 
 ### `DenseGrid` methods
 
-The old names still compile, with a deprecation warning, and will be removed in 0.4.
+The constructors take a `Lattice` and a `CellRegion` where they took a `MapInfo` (see [`MapInfo` is removed](#mapinfo-is-removed)). The 0.2 constructor names are removed. The other old names still compile, with a deprecation warning, and will be removed in 0.4.
 
 | 0.2 | 0.3 |
 | --- | --- |
-| `Grid2d::new_with_value(info, value)` | `DenseGrid::filled(info, value)` |
-| `Grid2d::new_with(info, f)` | `DenseGrid::from_fn(info, f)` |
-| `Grid2d::init(info, data)` | `DenseGrid::from_vec(info, data)` |
-| `Grid2d::init_with_value(info, data, fill)` | `DenseGrid::from_vec(info, data)?.with_fill(fill)` |
-| `grid.width()` | `grid.size().x` |
-| `grid.height()` | `grid.size().y` |
-| `grid.iter()` | `grid.as_slice().iter()` |
-| `grid.iter_mut()` | `grid.as_mut_slice().iter_mut()` |
+| `Grid2d::new(info)` | `DenseGrid::new(lattice, cells)` |
+| `Grid2d::new_with_value(info, value)` | `DenseGrid::filled(lattice, cells, value)` |
+| `Grid2d::new_with(info, f)` | `DenseGrid::from_fn(lattice, cells, f)` |
+| `Grid2d::init(info, data)` | `DenseGrid::from_vec(lattice, cells, data)` |
+| `Grid2d::init_with_value(info, data, fill)` | `DenseGrid::from_vec(lattice, cells, data)?.with_fill(fill)` |
+| `grid.width()` (deprecated) | `grid.size().x` |
+| `grid.height()` (deprecated) | `grid.size().y` |
+| `grid.iter()` (deprecated) | `grid.as_slice().iter()` |
+| `grid.iter_mut()` (deprecated) | `grid.as_mut_slice().iter_mut()` |
 
 `with_fill` sets the value that `clear`, `update_origin`, `resize_map` and `reset_map` give to new or reset cells. `filled` uses its value as the fill value; the other constructors use `Default::default`.
+
+### `MapInfo` is removed
+
+A grid is its `Lattice` and the rectangle of cells it holds, a `CellRegion`. `MapInfo` repeated both, and `DenseGrid::info()` is removed with it. `CellRegion::from_size(size)` is the rectangle of `size` cells from (0, 0); `CellRegion::sized(min, size)` starts at `min`.
+
+```rust
+// 0.2
+let info = MapInfo { width: 200, height: 200, resolution: 0.05, origin: Vec2::new(-5.0, -5.0) };
+let map = Costmap::new_with_value(info, COST_FREE);
+// 0.3
+let lattice = Lattice::new(DVec2::new(-5.0, -5.0), 0.05);
+let map = Costmap::filled(lattice, CellRegion::from_size(UVec2::splat(200)), COST_FREE);
+```
+
+| 0.2 | 0.3 |
+| --- | --- |
+| `MapInfo::square(n, resolution)` | `Lattice::new(DVec2::ZERO, resolution)`, `CellRegion::from_size(UVec2::splat(n))` |
+| `grid.info().width`, `height` | `grid.size().x`, `y` |
+| `grid.info().resolution` | `grid.lattice().resolution` |
+| `grid.info().origin` | `grid.world_bounds().min` |
+| `info.world_width()`, `world_height()` | `grid.world_bounds().max - grid.world_bounds().min` |
+| `info.world_center()` | midpoint of `grid.world_bounds()` |
+| `LayeredCostmap::new(info, fill, rolling)` | `LayeredCostmap::new(lattice, cells, fill, rolling)` |
+| `ObstacleLayer::new(info, config)` | `ObstacleLayer::new(lattice, cells, config)` |
+
+`world_bounds()` runs from the lower-left corner of the first cell held to the upper-right corner of the last; after `update_origin` it is where the grid now lies. A window of another grid shares its lattice: `Costmap::from_vec(map.lattice(), CellRegion::sized(min, size), data)`.
 
 ### World coordinates are `f64`
 
@@ -40,10 +67,6 @@ Positions in the world frame, map resolution and map extents are now `f64` (`gla
 
 | Item | 0.2 | 0.3 |
 | --- | --- | --- |
-| `MapInfo::resolution` | `f32` | `f64` |
-| `MapInfo::origin` | `Vec2` | `DVec2` |
-| `MapInfo::world_width`, `world_height` | `f32` | `f64` |
-| `MapInfo::world_center` | `Vec2` | `DVec2` |
 | `Pose2::position` | `Vec2` | `DVec2` |
 | `Bounds::min`, `max` | `Vec2` | `DVec2` |
 | `Footprint::transform` | `Vec<Vec2>` | `Vec<DVec2>` |
@@ -67,7 +90,7 @@ To pass an `f32` vector where a world position is wanted, call `.as_dvec2()`; to
 
 ### Cell positions are `IVec2`
 
-A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsigned: `size()`, `resize_map` and `MapInfo::width`/`height` are unchanged.
+A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsigned: `size()` and `resize_map` are unchanged.
 
 | Item | 0.2 | 0.3 |
 | --- | --- | --- |
@@ -80,8 +103,6 @@ A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsign
 | `PolygonIterator` | yields `UVec2` | yields `IVec2` |
 | `RayHit2D::cell` | `UVec2` | `IVec2` |
 
-The deprecated `new_with` still passes `(x, y)` as `u32`.
-
 The planning API, new in 0.3, uses `IVec2` for every cell: `plan`'s `start` and `goal`, `Path::cells`, `Path::shortcut`, `Move::cell`, `moves`, `passable_cost`, `line_passable`, `Regions::region` and `Regions::cells`. `TileGraph::plan`, `TileGraph::shortcut` and `TileCache::cost` do the same. Tile coordinates are positions too: `TileSource::tile` takes an `IVec2`, and `TileLayout::tile_of` and `tile_min` return one. `TileLayout::tile_size`, `tiles` and `size` stay `UVec2`.
 
 A cell outside the grid, including one with a negative coordinate, gets `None` from `get`. `DenseGrid::contains(cell)` tests the bounds alone.
@@ -91,7 +112,7 @@ A cell outside the grid, including one with a negative coordinate, gets `None` f
 let grid = Costmap::new_with(info, |x, y| if x == 5 { COST_LETHAL } else { COST_FREE });
 let cost = grid.get(UVec2::new(5, 2));
 // 0.3
-let grid = Costmap::from_fn(info, |cell| if cell.x == 5 { COST_LETHAL } else { COST_FREE });
+let grid = Costmap::from_fn(lattice, cells, |cell| if cell.x == 5 { COST_LETHAL } else { COST_FREE });
 let cost = grid.get(IVec2::new(5, 2));
 ```
 
@@ -117,12 +138,12 @@ let cost = grid.get(grid.lattice().cell_at(position));
 
 ### A moved grid keeps its cells' names
 
-A `DenseGrid` holds a rectangle of its lattice's cells, returned by `cells()`. A grid built from a `MapInfo` holds the cells from (0, 0), as in 0.2. Two things differ:
+A `DenseGrid` holds a rectangle of its lattice's cells, returned by `cells()`. A grid built with `CellRegion::from_size` holds the cells from (0, 0), as in 0.2. Two things differ:
 
 - **`update_origin` and `update_center` leave the lattice alone.** In 0.2 the first cell was (0, 0) after every move, so a cell's position changed as the grid rolled. Now the grid holds other cells and each keeps its position: after a 4-cell-wide grid moves one cell right, `cells()` is x 1..5 and `get(IVec2::new(0, y))` is `None`.
 - **`TiledGrid::window(min_cell, size)` returns the tiled grid's cells.** The window's first cell is `min_cell`, where in 0.2 it was (0, 0).
 
-`as_slice` is unchanged: row-major from the first cell held. `info().origin` is the world corner of that first cell. Code that indexed a moved grid or a window from zero either reads the slice or adds `cells().min`:
+`as_slice` is unchanged: row-major from the first cell held. `world_bounds().min` is the world corner of that first cell. Code that indexed a moved grid or a window from zero either reads the slice or adds `cells().min`:
 
 ```rust
 // 0.2
@@ -133,7 +154,7 @@ let first = window.get(window.cells().min);
 
 `reset_map`, `CellRegion` in `Layer::update_costs` and `project_into`, and the cells of `LineIterator`, `PolygonIterator`, `RayHit2D`, `Path` and `Regions` are all cells of the grid's lattice. `project_into` and the `merge_*` functions accept two grids that hold different rectangles of one lattice and write where they overlap.
 
-`Layer::attach` takes the master grid (`&Costmap`) where it took a `&MapInfo`. `Layer::match_size` is removed; `LayeredCostmap` never called it. `MapInfo::lattice` is removed: take the lattice from the grid.
+`Layer::attach` takes the master grid (`&Costmap`) where it took a `&MapInfo`. `Layer::match_size` is removed; `LayeredCostmap` never called it.
 
 ### `LayeredCostmap::add_layer` returns a `Result`
 

@@ -24,10 +24,10 @@ use std::f32::consts::TAU;
 use std::time::Duration;
 
 use costmap::rerun_viz::{log_costmap, log_occupancy_grid_static, log_point3d};
-use costmap::types::{COST_FREE, Pose2};
+use costmap::types::{COST_FREE, CellRegion, Lattice, Pose2};
 use costmap::{InflationConfig, LayeredCostmap, ObstacleConfig, ObstacleLayer};
-use costmap::{MapInfo, OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
-use glam::{DVec2, Vec2};
+use costmap::{OccupancyGrid, RosMapLoader, WavefrontInflationLayer};
+use glam::{DVec2, UVec2, Vec2};
 
 const DEFAULT_YAML_PATH: &str = "tests/fixtures/warehouse.yaml";
 
@@ -75,7 +75,7 @@ fn simulate_scan(global_grid: &OccupancyGrid, pose: Pose2) -> Vec<f32> {
 fn main() -> Result<(), Box<dyn Error>> {
     // Step 1: Load the global map (static environment representation)
     let global_grid = RosMapLoader::load_from_yaml(DEFAULT_YAML_PATH)?;
-    let info = *global_grid.info();
+    let resolution = global_grid.lattice().resolution;
 
     // Step 2: Set up visualization (optional - Rerun is not required to use the library)
     let rec = rerun::RecordingStreamBuilder::new("costmap_local_costmap_lidar").spawn()?;
@@ -87,10 +87,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let waypoints: Vec<DVec2> = WAYPOINTS.iter().map(|(x, y)| DVec2::new(*x, *y)).collect();
 
     // Step 3: Create layered costmap (rolling window, sensor layer + inflation layer)
-    let local_info = MapInfo::square(LOCAL_SIZE_CELLS, info.resolution);
-    let mut layered = LayeredCostmap::new(local_info, COST_FREE, true);
+    let local_lattice = Lattice::new(DVec2::ZERO, resolution);
+    let local_cells = CellRegion::from_size(UVec2::splat(LOCAL_SIZE_CELLS));
+    let mut layered = LayeredCostmap::new(local_lattice, local_cells, COST_FREE, true);
     let obstacle_layer = layered.add_layer(Box::new(ObstacleLayer::new(
-        local_info,
+        local_lattice,
+        local_cells,
         ObstacleConfig {
             rolling_window: true,
             obstacle_range_m: MAX_RANGE_M,

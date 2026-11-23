@@ -128,11 +128,16 @@ mod tests {
     use super::*;
     use crate::{
         plan,
-        types::{COST_FREE, COST_LETHAL, MapInfo},
+        types::{COST_FREE, COST_LETHAL, CellRegion, Lattice},
     };
+    use glam::{DVec2, UVec2};
 
     fn grid(width: u32, height: u32) -> Costmap {
-        Costmap::filled(MapInfo::square(width.max(height), 1.0), COST_FREE)
+        Costmap::filled(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(width.max(height))),
+            COST_FREE,
+        )
     }
 
     fn cell(x: i32, y: i32) -> IVec2 {

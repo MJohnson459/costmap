@@ -11,8 +11,7 @@ impl OccupancyGrid {
             return None;
         }
 
-        let info = self.info();
-        let resolution = info.resolution as f32;
+        let resolution = self.lattice().resolution as f32;
         let dir = dir.normalize();
 
         let lattice = self.lattice();
@@ -66,10 +65,10 @@ impl OccupancyGrid {
 
 #[cfg(test)]
 mod tests {
-    use glam::IVec2;
+    use glam::{IVec2, UVec2};
 
     use super::*;
-    use crate::types::{FREE, OCCUPIED};
+    use crate::types::{CellRegion, FREE, Lattice, OCCUPIED};
 
     fn test_grid(occupied: Option<IVec2>) -> OccupancyGrid {
         let width = 5;
@@ -80,14 +79,10 @@ mod tests {
             data[idx] = OCCUPIED;
         }
 
-        let info = crate::types::MapInfo {
-            width: width as u32,
-            height: height as u32,
-            resolution: 1.0,
-            origin: glam::DVec2::ZERO,
-        };
+        let lattice = Lattice::new(glam::DVec2::ZERO, 1.0);
+        let cells = CellRegion::from_size(UVec2::new(width as u32, height as u32));
 
-        OccupancyGrid::from_vec(info, data).expect("grid should build")
+        OccupancyGrid::from_vec(lattice, cells, data).expect("grid should build")
     }
 
     #[test]

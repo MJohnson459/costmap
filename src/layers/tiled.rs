@@ -8,7 +8,7 @@ use crate::{
     DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project::merge_cost},
     tiled::TiledGrid,
-    types::{Bounds, COST_UNKNOWN, CellRegion, Lattice, MapInfo, Pose2, VoxelError},
+    types::{Bounds, COST_UNKNOWN, CellRegion, Lattice, Pose2, VoxelError},
 };
 
 /// A layer that stamps the part of a tiled cost map under the master costmap into it.
@@ -60,13 +60,7 @@ impl TiledMapLayer {
         if size.x <= 0 || size.y <= 0 {
             return None;
         }
-        let window_info = MapInfo {
-            width: size.x as u32,
-            height: size.y as u32,
-            resolution: lattice.resolution,
-            origin: lattice.cell_corner(region.min),
-        };
-        let mut window = DenseGrid::filled(window_info, COST_UNKNOWN);
+        let mut window = DenseGrid::filled(lattice, region, COST_UNKNOWN);
         self.grid.read_into(&mut window).ok()?;
         Some(window)
     }
@@ -96,7 +90,7 @@ impl Layer for TiledMapLayer {
 
     fn attach(&mut self, master: &Costmap, _rolling_window: bool) -> Result<(), VoxelError> {
         let resolution = self.grid.resolution();
-        let master_resolution = master.info().resolution;
+        let master_resolution = master.lattice().resolution;
         if !self.grid.resolution_matches(master_resolution) {
             return Err(VoxelError::InvalidArgument(format!(
                 "tiled map resolution {resolution} m differs from the costmap's {master_resolution} m"
@@ -139,7 +133,7 @@ fn merge_row(policy: MergePolicy, master: &mut [u8], source: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use glam::{DVec2, IVec2};
+    use glam::{DVec2, IVec2, UVec2};
 
     use super::*;
     use crate::{
@@ -159,7 +153,12 @@ mod tests {
     }
 
     fn fixed_master(width: u32) -> LayeredCostmap {
-        LayeredCostmap::new(MapInfo::square(width, 1.0), COST_FREE, false)
+        LayeredCostmap::new(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(width)),
+            COST_FREE,
+            false,
+        )
     }
 
     fn lethal_cells(layered: &LayeredCostmap) -> Vec<IVec2> {
@@ -237,7 +236,12 @@ mod tests {
         fill_chunk(&mut grid, IVec2::new(0, 0), COST_UNKNOWN);
         grid.set(IVec2::new(2, 2), 10);
 
-        let mut layered = LayeredCostmap::new(MapInfo::square(16, 1.0), 33, false);
+        let mut layered = LayeredCostmap::new(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(16)),
+            33,
+            false,
+        );
         layered.add_layer(layer_with(grid)).unwrap();
         layered.update_map(Pose2::default());
 
@@ -300,7 +304,11 @@ mod tests {
         let mut grid = tiles();
         fill_chunk(&mut grid, IVec2::new(0, 0), 60);
         let mut layer = TiledMapLayer::new(Arc::new(grid), MergePolicy::Overwrite);
-        let mut master = Costmap::filled(MapInfo::square(16, 1.0), COST_FREE);
+        let mut master = Costmap::filled(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(16)),
+            COST_FREE,
+        );
 
         layer.update_costs(
             &mut master,
@@ -328,7 +336,12 @@ mod tests {
         grid.set(obstacle, COST_LETHAL);
         let obstacle_centre = grid.lattice().cell_center(obstacle);
 
-        let mut layered = LayeredCostmap::new(MapInfo::square(20, 1.0), COST_FREE, true);
+        let mut layered = LayeredCostmap::new(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(20)),
+            COST_FREE,
+            true,
+        );
         layered.add_layer(layer_with(grid)).unwrap();
         layered
             .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
@@ -355,7 +368,12 @@ mod tests {
 
     #[test]
     fn add_layer_rejects_a_different_resolution() {
-        let mut half_metre = LayeredCostmap::new(MapInfo::square(8, 0.5), COST_FREE, false);
+        let mut half_metre = LayeredCostmap::new(
+            Lattice::new(DVec2::ZERO, 0.5),
+            CellRegion::from_size(UVec2::splat(8)),
+            COST_FREE,
+            false,
+        );
         let layer = TiledMapLayer::new(Arc::new(tiles()), MergePolicy::Overwrite);
 
         assert!(matches!(

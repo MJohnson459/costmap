@@ -300,8 +300,8 @@ fn publish_window(
         "published {}x{} window at origin ({:.2}, {:.2}) for robot at ({:.2}, {:.2})",
         size.x,
         size.y,
-        window.info().origin.x,
-        window.info().origin.y,
+        window.world_bounds().min.x,
+        window.world_bounds().min.y,
         pose.position.x,
         pose.position.y,
     );

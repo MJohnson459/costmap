@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use glam::DVec3;
+use glam::{DVec3, UVec2};
 use image::GenericImageView;
 use serde::Deserialize;
 
 use crate::OccupancyGrid;
 use crate::types::{
-    DEFAULT_FREE_THRESH, DEFAULT_OCCUPIED_THRESH, FREE, MapInfo, OCCUPIED, UNKNOWN, VoxelError,
+    CellRegion, DEFAULT_FREE_THRESH, DEFAULT_OCCUPIED_THRESH, FREE, Lattice, OCCUPIED, UNKNOWN,
+    VoxelError,
 };
 
 pub struct RosMapLoader;
@@ -134,13 +135,12 @@ fn load_occupancy_grid_from_memory(
     metadata: &RosMapMetadata,
 ) -> Result<OccupancyGrid, VoxelError> {
     let (data, width, height) = map_image_to_data(image, metadata)?;
-    let info = MapInfo {
-        width,
-        height,
-        resolution: metadata.resolution,
-        origin: metadata.origin.truncate(),
-    };
-    OccupancyGrid::from_vec(info, data)
+    let lattice = Lattice::new(metadata.origin.truncate(), metadata.resolution);
+    OccupancyGrid::from_vec(
+        lattice,
+        CellRegion::from_size(UVec2::new(width, height)),
+        data,
+    )
 }
 
 fn resolve_image_path(yaml_path: &Path, image_ref: &Path) -> PathBuf {

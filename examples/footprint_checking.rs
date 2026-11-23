@@ -17,10 +17,10 @@ use std::error::Error;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 
+use costmap::DenseGrid;
 use costmap::rerun_viz::{cost_to_rerun_color, log_costmap, log_footprint_polygon};
-use costmap::types::{COST_FREE, COST_UNKNOWN, Footprint, Pose2};
-use costmap::{DenseGrid, MapInfo};
-use glam::DVec2;
+use costmap::types::{COST_FREE, COST_UNKNOWN, CellRegion, Footprint, Lattice, Pose2};
+use glam::{DVec2, UVec2};
 
 // Funnel map dimensions
 const WIDTH: u32 = 50;
@@ -43,12 +43,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     costmap.inflate(0.15, 0.1, 3.0);
 
     let footprint = Footprint::rectangle(ROBOT_LENGTH, ROBOT_WIDTH);
-    let info = costmap.info();
+    let bounds = costmap.world_bounds();
 
     // Path: move from wide end (low y) to narrow end (high y) and back
     let start_y = 0.5;
     let end_y = 3.5;
-    let center = info.world_center();
+    let center = (bounds.min + bounds.max) * 0.5;
 
     // Yaw = 90° so the robot faces along the corridor (length along y, width along x)
     let yaw = FRAC_PI_2;
@@ -106,13 +106,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 /// Create a funnel-shaped costmap: wide corridor at bottom, narrow at top.
 fn create_funnel_costmap() -> DenseGrid<u8> {
-    let info = MapInfo {
-        width: WIDTH,
-        height: HEIGHT,
-        resolution: RESOLUTION,
-        ..Default::default()
-    };
-
     // Funnel walls: left and right boundaries that converge
     // At y=0 (bottom): corridor x in [12, 38]
     // At y=HEIGHT-1 (top): corridor x in [22, 28] — narrower, footprint gets squeezed
@@ -121,14 +114,18 @@ fn create_funnel_costmap() -> DenseGrid<u8> {
     let left_at_top = 22u32;
     let right_at_top = 28u32;
 
-    DenseGrid::from_fn(info, |cell| {
-        let t = cell.y as f32 / (HEIGHT - 1).max(1) as f32;
-        let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as i32;
-        let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as i32;
-        if cell.x < left_x || cell.x > right_x {
-            costmap::types::COST_LETHAL
-        } else {
-            COST_FREE
-        }
-    })
+    DenseGrid::from_fn(
+        Lattice::new(DVec2::ZERO, RESOLUTION),
+        CellRegion::from_size(UVec2::new(WIDTH, HEIGHT)),
+        |cell| {
+            let t = cell.y as f32 / (HEIGHT - 1).max(1) as f32;
+            let left_x = (left_at_bottom as f32 * (1.0 - t) + left_at_top as f32 * t) as i32;
+            let right_x = (right_at_bottom as f32 * (1.0 - t) + right_at_top as f32 * t) as i32;
+            if cell.x < left_x || cell.x > right_x {
+                costmap::types::COST_LETHAL
+            } else {
+                COST_FREE
+            }
+        },
+    )
 }

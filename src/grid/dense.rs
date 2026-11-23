@@ -8,104 +8,118 @@
 //! - **World coordinates**: Physical coordinates in meters.
 //!   [`DenseGrid::lattice`] converts between the two.
 
-use glam::{DVec2, IVec2, USizeVec2, UVec2};
+use glam::{DVec2, IVec2, UVec2};
 use std::{
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
 };
 
-use crate::types::{CellRegion, Lattice, MapInfo, VoxelError};
+use crate::types::{Bounds, CellRegion, Lattice, VoxelError};
 
 /// A bounded grid that stores every cell of a rectangle of a [`Lattice`], row-major
 /// from the rectangle's first cell. [`TiledGrid`](crate::TiledGrid) is the sparse
 /// counterpart for maps too large to hold whole.
 ///
-/// A grid built from a [`MapInfo`] anchors its lattice at the info's origin and holds
-/// the cells from (0, 0). Moving the grid with [`Self::update_origin`] changes which
-/// cells it holds and leaves the lattice alone, so a cell keeps its name.
+/// Moving the grid with [`Self::update_origin`] changes which cells it holds and
+/// leaves the lattice alone, so a cell keeps its name.
+///
+/// ```
+/// use costmap::{Costmap, Lattice, types::{COST_FREE, CellRegion}};
+/// use glam::{DVec2, UVec2};
+///
+/// // 200 x 200 cells of 0.05 m with the corner of cell (0, 0) at (-5, -5).
+/// let lattice = Lattice::new(DVec2::new(-5.0, -5.0), 0.05);
+/// let map = Costmap::filled(lattice, CellRegion::from_size(UVec2::splat(200)), COST_FREE);
+/// assert_eq!(map.world_bounds().max, DVec2::new(5.0, 5.0));
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct DenseGrid<T> {
-    /// World extent: `origin` is the lower-left corner of `min`.
-    info: MapInfo,
     lattice: Lattice,
     /// First cell held.
     min: IVec2,
+    size: UVec2,
     data: Vec<T>,
     fill_value: T,
 }
 
 impl<T> DenseGrid<T> {
-    /// Create a grid with every cell set to [`Default::default`].
-    pub fn new(info: MapInfo) -> Self
+    /// Create a grid holding `cells` of `lattice`, every cell set to
+    /// [`Default::default`].
+    pub fn new(lattice: Lattice, cells: CellRegion) -> Self
     where
         T: Default + Clone,
     {
-        Self::filled(info, T::default())
+        Self::filled(lattice, cells, T::default())
     }
 
-    /// Create a grid with every cell set to `value`, which also becomes the fill
-    /// value (see [`Self::with_fill`]).
-    pub fn filled(info: MapInfo, value: T) -> Self
+    /// Create a grid holding `cells` of `lattice`, every cell set to `value`, which
+    /// also becomes the fill value (see [`Self::with_fill`]).
+    pub fn filled(lattice: Lattice, cells: CellRegion, value: T) -> Self
     where
         T: Clone,
     {
-        let len = (info.width as usize) * (info.height as usize);
-        Self {
-            data: vec![value.clone(); len],
-            info,
-            lattice: Lattice::new(info.origin, info.resolution),
-            min: IVec2::ZERO,
-            fill_value: value,
-        }
+        Self::filled_cells(lattice, cells.min, cells.size(), value)
     }
 
-    /// Create a grid holding `size` cells of `lattice` from `min`, every cell set to
-    /// `value`, which also becomes the fill value.
+    /// Like [`Self::filled`], holding `size` cells from `min`. Cells beyond the `i32`
+    /// range are stored but have no name; `cells()` saturates.
     pub(crate) fn filled_cells(lattice: Lattice, min: IVec2, size: UVec2, value: T) -> Self
     where
         T: Clone,
     {
         Self {
             data: vec![value.clone(); size.x as usize * size.y as usize],
-            info: MapInfo {
-                width: size.x,
-                height: size.y,
-                resolution: lattice.resolution,
-                origin: lattice.cell_corner(min),
-            },
             lattice,
             min,
+            size,
             fill_value: value,
         }
     }
 
-    /// Create a grid by calling `f(cell)` for each cell in row-major order.
-    pub fn from_fn(info: MapInfo, mut f: impl FnMut(IVec2) -> T) -> Self
+    /// Create a grid holding `cells` of `lattice` by calling `f(cell)` for each cell
+    /// in row-major order.
+    pub fn from_fn(lattice: Lattice, cells: CellRegion, mut f: impl FnMut(IVec2) -> T) -> Self
     where
         T: Default,
     {
-        let mut data = Vec::with_capacity((info.width as usize) * (info.height as usize));
-        for y in 0..info.height as i32 {
-            for x in 0..info.width as i32 {
-                data.push(f(IVec2::new(x, y)));
+        let size = cells.size();
+        let mut data = Vec::with_capacity(size.x as usize * size.y as usize);
+        for y in 0..size.y as i32 {
+            for x in 0..size.x as i32 {
+                data.push(f(cells.min + IVec2::new(x, y)));
             }
         }
         Self {
-            info,
-            lattice: Lattice::new(info.origin, info.resolution),
-            min: IVec2::ZERO,
+            lattice,
+            min: cells.min,
+            size,
             data,
             fill_value: T::default(),
         }
     }
 
-    /// Create a grid from cells in row-major order. Fails if `data` does not hold
-    /// `width * height` cells.
-    pub fn from_vec(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
+    /// Create a grid holding `cells` of `lattice` from values in row-major order.
+    /// Fails if `data` does not hold one value per cell.
+    pub fn from_vec(lattice: Lattice, cells: CellRegion, data: Vec<T>) -> Result<Self, VoxelError>
     where
         T: Default,
     {
-        Self::from_parts(info, data, T::default())
+        let size = cells.size();
+        let expected_len = size.x as usize * size.y as usize;
+        if data.len() != expected_len {
+            return Err(VoxelError::InvalidMetadata(format!(
+                "data length {} does not match map size {}",
+                data.len(),
+                expected_len
+            )));
+        }
+        Ok(Self {
+            lattice,
+            min: cells.min,
+            size,
+            data,
+            fill_value: T::default(),
+        })
     }
 
     /// Set the fill value: the value [`Self::clear`], [`Self::update_origin`],
@@ -116,84 +130,39 @@ impl<T> DenseGrid<T> {
         self
     }
 
-    fn from_parts(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
-        let expected_len = (info.width as usize) * (info.height as usize);
-        if data.len() != expected_len {
-            return Err(VoxelError::InvalidMetadata(format!(
-                "data length {} does not match map size {}",
-                data.len(),
-                expected_len
-            )));
-        }
-        Ok(Self {
-            info,
-            lattice: Lattice::new(info.origin, info.resolution),
-            min: IVec2::ZERO,
-            data,
-            fill_value,
-        })
-    }
-
-    #[deprecated(since = "0.3.0", note = "renamed to `from_vec`")]
-    pub fn init(info: MapInfo, data: Vec<T>) -> Result<Self, VoxelError>
-    where
-        T: Default,
-    {
-        Self::from_vec(info, data)
-    }
-
-    #[deprecated(
-        since = "0.3.0",
-        note = "use `from_vec(info, data)?.with_fill(fill_value)`"
-    )]
-    pub fn init_with_value(info: MapInfo, data: Vec<T>, fill_value: T) -> Result<Self, VoxelError> {
-        Self::from_parts(info, data, fill_value)
-    }
-
-    #[deprecated(since = "0.3.0", note = "renamed to `filled`")]
-    pub fn new_with_value(info: MapInfo, fill_value: T) -> Self
-    where
-        T: Clone,
-    {
-        Self::filled(info, fill_value)
-    }
-
-    #[deprecated(since = "0.3.0", note = "renamed to `from_fn`")]
-    pub fn new_with(info: MapInfo, mut f: impl FnMut(u32, u32) -> T) -> Self
-    where
-        T: Default,
-    {
-        Self::from_fn(info, |cell| f(cell.x as u32, cell.y as u32))
-    }
-
-    /// Size, resolution and world origin: the lower-left corner of the first cell
-    /// held, which is cell (0, 0) only until the grid moves.
-    pub fn info(&self) -> &MapInfo {
-        &self.info
-    }
-
     #[deprecated(since = "0.3.0", note = "use `size().x`")]
     #[inline]
     pub fn width(&self) -> u32 {
-        self.info.width
+        self.size.x
     }
 
     #[deprecated(since = "0.3.0", note = "use `size().y`")]
     #[inline]
     pub fn height(&self) -> u32 {
-        self.info.height
+        self.size.y
     }
 
     /// Width and height in cells.
     #[inline]
     pub fn size(&self) -> UVec2 {
-        UVec2::new(self.info.width, self.info.height)
+        self.size
     }
 
     /// The cells this grid holds.
     #[inline]
     pub fn cells(&self) -> CellRegion {
-        CellRegion::new(self.min, self.min.saturating_add(self.size().as_ivec2()))
+        CellRegion::sized(self.min, self.size)
+    }
+
+    /// The world rectangle the grid covers: from the lower-left corner of its first
+    /// cell to the upper-right corner of its last.
+    #[inline]
+    pub fn world_bounds(&self) -> Bounds {
+        let cells = self.cells();
+        Bounds {
+            min: self.lattice.cell_corner(cells.min),
+            max: self.lattice.cell_corner(cells.max),
+        }
     }
 
     /// Whether this grid holds the same cells of the same lattice as `other`.
@@ -277,7 +246,7 @@ impl<T> DenseGrid<T> {
     #[inline]
     fn holds_offset(&self, offset: IVec2) -> bool {
         // A negative coordinate is a large unsigned one, so one comparison per axis.
-        (offset.x as u32) < self.info.width && (offset.y as u32) < self.info.height
+        (offset.x as u32) < self.size.x && (offset.y as u32) < self.size.y
     }
 
     /// The value at array position `offset`, if the grid holds it.
@@ -324,9 +293,9 @@ impl<T> DenseGrid<T> {
     pub(crate) fn with_cells_of<U>(other: &DenseGrid<U>, data: Vec<T>, fill_value: T) -> Self {
         debug_assert_eq!(data.len(), other.data.len());
         Self {
-            info: other.info,
             lattice: other.lattice,
             min: other.min,
+            size: other.size,
             data,
             fill_value,
         }
@@ -379,7 +348,7 @@ impl<T> DenseGrid<T> {
     ///
     /// Order: the first row of [`Self::cells`] left to right, then the next row up.
     pub fn indexed_iter(&self) -> impl Iterator<Item = (IVec2, &T)> {
-        let width = self.info.width as usize;
+        let width = self.size.x as usize;
         let min = self.min;
         self.as_slice().iter().enumerate().map(move |(idx, v)| {
             let x = (idx % width) as i32;
@@ -392,7 +361,7 @@ impl<T> DenseGrid<T> {
     ///
     /// Order: the first row of [`Self::cells`] left to right, then the next row up.
     pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item = (IVec2, &mut T)> {
-        let width = self.info.width as usize;
+        let width = self.size.x as usize;
         let min = self.min;
         self.as_mut_slice()
             .iter_mut()
@@ -418,10 +387,9 @@ impl<T> DenseGrid<T> {
     where
         T: Clone,
     {
-        *self = Self::filled_cells(
+        *self = Self::filled(
             Lattice::new(origin, resolution),
-            IVec2::ZERO,
-            size,
+            CellRegion::from_size(size),
             self.fill_value.clone(),
         );
     }
@@ -434,7 +402,7 @@ impl<T> DenseGrid<T> {
         let Some(region) = self.offsets_in(CellRegion::new(lower, upper)) else {
             return;
         };
-        let stride = self.info.width as usize;
+        let stride = self.size.x as usize;
         let columns = region.min.x as usize..region.max.x as usize;
         for y in region.min.y as usize..region.max.y as usize {
             self.data[y * stride..][columns.clone()].fill(self.fill_value.clone());
@@ -452,7 +420,7 @@ impl<T> DenseGrid<T> {
         // Keeps the last cell held within the `i32` range.
         let min = self.lattice.cell_at(origin).min(IVec2::MAX - grid_size);
         let cell_offset = min.saturating_sub(self.min);
-        let grid_size = USizeVec2::new(self.info.width as usize, self.info.height as usize);
+        let grid_size = self.size.as_usizevec2();
 
         let overlap_min = cell_offset.clamp(IVec2::ZERO, grid_size.as_ivec2());
         let overlap_max = cell_offset
@@ -474,7 +442,6 @@ impl<T> DenseGrid<T> {
 
         self.data = new_data;
         self.min = min;
-        self.info.origin = self.lattice.cell_corner(min);
     }
 
     /// Updates the origin based on the desired center of the map.
@@ -486,7 +453,7 @@ impl<T> DenseGrid<T> {
     where
         T: Clone,
     {
-        let origin = center - self.size().as_dvec2() * self.info.resolution * 0.5;
+        let origin = center - self.size().as_dvec2() * self.lattice.resolution * 0.5;
         self.update_origin(origin);
     }
 
@@ -494,7 +461,7 @@ impl<T> DenseGrid<T> {
     /// a cast straight from `i32` would sign-extend.
     #[inline]
     fn index(&self, offset: IVec2) -> usize {
-        (offset.y as u32 as usize) * (self.info.width as usize) + (offset.x as u32 as usize)
+        (offset.y as u32 as usize) * (self.size.x as usize) + (offset.x as u32 as usize)
     }
 }
 
@@ -537,12 +504,8 @@ mod tests {
     #[test]
     fn test_world_to_map_to_world() {
         let grid = DenseGrid::<i8>::from_vec(
-            MapInfo {
-                width: 10,
-                height: 10,
-                resolution: 1.0,
-                ..Default::default()
-            },
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::new(10, 10)),
             vec![0; 100],
         )
         .unwrap();
@@ -584,12 +547,8 @@ mod tests {
     #[test]
     fn update_origin_moves_the_grid_and_cells_keep_their_names() {
         let mut grid = DenseGrid::<i8>::from_vec(
-            MapInfo {
-                width: 4,
-                height: 4,
-                resolution: 1.0,
-                ..Default::default()
-            },
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::new(4, 4)),
             vec![0; 16],
         )
         .unwrap();
@@ -603,7 +562,7 @@ mod tests {
             grid.cells(),
             CellRegion::new(IVec2::new(1, 0), IVec2::new(5, 4))
         );
-        assert_eq!(grid.info().origin, DVec2::new(1.0, 0.0));
+        assert_eq!(grid.world_bounds().min, DVec2::new(1.0, 0.0));
         assert_eq!(grid.get(IVec2::new(1, 1)), Some(&7));
         assert_eq!(grid.get(IVec2::new(0, 1)), None);
         assert_eq!(grid.get(IVec2::new(4, 1)), Some(&0));
@@ -614,12 +573,8 @@ mod tests {
     #[test]
     fn test_resize_map_clears_data() {
         let mut grid = DenseGrid::<i8>::from_vec(
-            MapInfo {
-                width: 4,
-                height: 4,
-                resolution: 1.0,
-                ..Default::default()
-            },
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::new(4, 4)),
             vec![0; 16],
         )
         .unwrap();
@@ -633,12 +588,8 @@ mod tests {
     #[test]
     fn iter_cells_row_major_order() {
         let grid = DenseGrid::<u8>::from_vec(
-            MapInfo {
-                width: 3,
-                height: 2,
-                resolution: 1.0,
-                ..Default::default()
-            },
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::new(3, 2)),
             vec![10, 11, 12, 20, 21, 22],
         )
         .unwrap();
@@ -660,11 +611,8 @@ mod tests {
     #[test]
     fn iter_cells_mut_writes_values() {
         let mut grid = DenseGrid::<u8>::from_vec(
-            MapInfo {
-                width: 2,
-                height: 2,
-                ..Default::default()
-            },
+            Lattice::new(DVec2::ZERO, 0.05),
+            CellRegion::from_size(UVec2::new(2, 2)),
             vec![0, 1, 2, 3],
         )
         .unwrap();
@@ -682,23 +630,15 @@ mod tests {
     #[test]
     fn test_layout_matches_equal() {
         let grid_u8 = DenseGrid::<u8>::from_vec(
-            MapInfo {
-                width: 10,
-                height: 20,
-                resolution: 0.5,
-                origin: DVec2::new(1.0, 2.0),
-            },
+            Lattice::new(DVec2::new(1.0, 2.0), 0.5),
+            CellRegion::from_size(UVec2::new(10, 20)),
             vec![0; 200],
         )
         .unwrap();
 
         let grid_f32 = DenseGrid::<f32>::from_vec(
-            MapInfo {
-                width: 10,
-                height: 20,
-                resolution: 0.5,
-                origin: DVec2::new(1.0, 2.0),
-            },
+            Lattice::new(DVec2::new(1.0, 2.0), 0.5),
+            CellRegion::from_size(UVec2::new(10, 20)),
             vec![0.0; 200],
         )
         .unwrap();
@@ -710,23 +650,15 @@ mod tests {
     #[test]
     fn test_layout_matches_different_width() {
         let grid_u8 = DenseGrid::<u8>::from_vec(
-            MapInfo {
-                width: 10,
-                height: 20,
-                resolution: 0.5,
-                origin: DVec2::ZERO,
-            },
+            Lattice::new(DVec2::ZERO, 0.5),
+            CellRegion::from_size(UVec2::new(10, 20)),
             vec![0; 200],
         )
         .unwrap();
 
         let grid_f32 = DenseGrid::<f32>::from_vec(
-            MapInfo {
-                width: 15,
-                height: 20,
-                resolution: 0.5,
-                origin: DVec2::ZERO,
-            },
+            Lattice::new(DVec2::ZERO, 0.5),
+            CellRegion::from_size(UVec2::new(15, 20)),
             vec![0.0; 300],
         )
         .unwrap();
@@ -737,23 +669,15 @@ mod tests {
     #[test]
     fn test_layout_matches_different_resolution() {
         let grid_u8 = DenseGrid::<u8>::from_vec(
-            MapInfo {
-                width: 10,
-                height: 20,
-                resolution: 0.5,
-                origin: DVec2::ZERO,
-            },
+            Lattice::new(DVec2::ZERO, 0.5),
+            CellRegion::from_size(UVec2::new(10, 20)),
             vec![0; 200],
         )
         .unwrap();
 
         let grid_f32 = DenseGrid::<f32>::from_vec(
-            MapInfo {
-                width: 10,
-                height: 20,
-                resolution: 0.1,
-                origin: DVec2::ZERO,
-            },
+            Lattice::new(DVec2::ZERO, 0.1),
+            CellRegion::from_size(UVec2::new(10, 20)),
             vec![0.0; 200],
         )
         .unwrap();
@@ -763,23 +687,19 @@ mod tests {
 
     #[test]
     fn rolling_origin_stays_on_the_cell_lattice_after_a_long_drive() {
-        let info = MapInfo {
-            width: 200,
-            height: 200,
-            resolution: 0.05,
-            origin: DVec2::new(500_000.0, 6_200_000.0),
-        };
-        let start = info.origin;
-        let mut grid = DenseGrid::<u8>::new(info);
+        let lattice = Lattice::new(DVec2::new(500_000.0, 6_200_000.0), 0.05);
+        let mut grid = DenseGrid::<u8>::new(lattice, CellRegion::from_size(UVec2::splat(200)));
+        let start = grid.world_bounds().min;
         let step = DVec2::new(0.137, 0.061);
-        let mut centre = info.world_center();
+        let bounds = grid.world_bounds();
+        let mut centre = (bounds.min + bounds.max) * 0.5;
         for _ in 0..10_000 {
             centre += step;
             grid.update_center(centre);
         }
-        let travelled = (grid.info().origin - start).length();
+        let travelled = (grid.world_bounds().min - start).length();
         assert!(travelled > 1_400.0, "{travelled}");
-        let cells = (grid.info().origin - start) / info.resolution;
+        let cells = (grid.world_bounds().min - start) / lattice.resolution;
         let off_lattice = (cells - cells.round()).abs().max_element();
         assert!(off_lattice < 1e-4, "{off_lattice} cells off the lattice");
     }

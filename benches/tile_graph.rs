@@ -37,7 +37,7 @@ fn bench_tile_graph(c: &mut Criterion) {
 
     let built = Instant::now();
     let mut source = DenseTiles::new(&grid, options.tile_cells).unwrap();
-    let graph = TileGraph::build(grid.size(), grid.info().resolution, options, &mut source)
+    let graph = TileGraph::build(grid.size(), grid.lattice().resolution, options, &mut source)
         .expect("the graph builds");
     eprintln!(
         "{} x {} cells: built in {:.2} s, {} nodes, {:.1} MB",

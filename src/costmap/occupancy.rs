@@ -80,9 +80,8 @@ pub fn costmap_from_occupancy(grid: &OccupancyGrid) -> Result<Costmap, VoxelErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MapInfo;
-    use crate::types::COST_FREE;
-    use glam::DVec2;
+    use crate::types::{COST_FREE, CellRegion, Lattice};
+    use glam::{DVec2, UVec2};
 
     /// `StaticLayer::interpretValue` transcribed from the C++, including its
     /// double arithmetic and truncating conversion back to a byte.
@@ -147,13 +146,9 @@ mod tests {
 
     #[test]
     fn trinary_map_values_become_costs() {
-        let info = MapInfo {
-            width: 3,
-            height: 1,
-            resolution: 0.05,
-            origin: DVec2::ZERO,
-        };
-        let grid = OccupancyGrid::from_vec(info, vec![100, 0, -1]).unwrap();
+        let lattice = Lattice::new(DVec2::ZERO, 0.05);
+        let cells = CellRegion::from_size(UVec2::new(3, 1));
+        let grid = OccupancyGrid::from_vec(lattice, cells, vec![100, 0, -1]).unwrap();
         let costs = costmap_from_occupancy(&grid).unwrap();
         assert_eq!(costs.as_slice(), &[COST_LETHAL, COST_FREE, COST_UNKNOWN]);
     }

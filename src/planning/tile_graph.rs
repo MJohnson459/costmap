@@ -23,8 +23,8 @@ use std::sync::{Arc, Mutex};
 use glam::{IVec2, UVec2};
 
 use crate::{
-    Costmap, MapInfo,
-    types::{COST_FREE, COST_UNKNOWN, VoxelError},
+    Costmap,
+    types::{COST_FREE, COST_UNKNOWN, CellRegion, Lattice, VoxelError},
 };
 
 use super::astar::{COST_SCALE, Path, PlanOptions, effective_cost_weight};
@@ -205,13 +205,8 @@ impl<G: Borrow<Costmap>> TileSource for DenseTiles<G> {
             data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
         }
         let lattice = grid.lattice();
-        let info = MapInfo {
-            width: size.x,
-            height: size.y,
-            resolution: lattice.resolution,
-            origin: lattice.cell_corner(min),
-        };
-        Costmap::from_vec(info, data)
+        let corner = Lattice::new(lattice.cell_corner(min), lattice.resolution);
+        Costmap::from_vec(corner, CellRegion::from_size(size), data)
     }
 }
 
@@ -1224,7 +1219,7 @@ mod tests {
     use super::*;
     use crate::{
         plan,
-        types::{COST_LETHAL, MapInfo},
+        types::{COST_LETHAL, CellRegion, Lattice},
     };
 
     const OPTIONS: TileGraphOptions = TileGraphOptions {
@@ -1237,13 +1232,12 @@ mod tests {
         },
     };
 
-    fn info(width: u32, height: u32) -> MapInfo {
-        MapInfo {
-            width,
-            height,
-            resolution: 0.5,
-            ..Default::default()
-        }
+    fn lattice() -> Lattice {
+        Lattice::new(glam::DVec2::ZERO, 0.5)
+    }
+
+    fn cells(width: u32, height: u32) -> CellRegion {
+        CellRegion::from_size(UVec2::new(width, height))
     }
 
     fn cell(x: i32, y: i32) -> IVec2 {
@@ -1252,7 +1246,7 @@ mod tests {
 
     fn graph_of(grid: &Costmap, options: TileGraphOptions) -> TileGraph {
         let mut source = DenseTiles::new(grid, options.tile_cells).unwrap();
-        TileGraph::build(grid.size(), grid.info().resolution, options, &mut source).unwrap()
+        TileGraph::build(grid.size(), grid.lattice().resolution, options, &mut source).unwrap()
     }
 
     fn plan_on(
@@ -1277,7 +1271,7 @@ mod tests {
             let step = super::super::astar::moves(grid, pair[0], &options)
                 .find(|step| step.cell == pair[1])
                 .unwrap_or_else(|| panic!("{} -> {} is not a planner move", pair[0], pair[1]));
-            let length_m = step.length_cells * grid.info().resolution as f32;
+            let length_m = step.length_cells * grid.lattice().resolution as f32;
             cost += length_m * (1.0 + options.cost_weight * f32::from(step.cost) / 252.0);
         }
         cost
@@ -1301,7 +1295,7 @@ mod tests {
         let mut rng = Lcg(0x711E);
         let (mut joined, mut apart) = (0, 0);
         for _ in 0..60 {
-            let mut grid = Costmap::filled(info(width, height), COST_FREE);
+            let mut grid = Costmap::filled(lattice(), cells(width, height), COST_FREE);
             for _ in 0..rng.below(14) {
                 // Walls with gaps, graded cells and specks.
                 let (x, y) = (rng.below(width) as i32, rng.below(height) as i32);
@@ -1350,7 +1344,7 @@ mod tests {
     fn a_gap_one_cell_wide_on_a_tile_border_is_kept() {
         // A wall along the border between the tiles at x = 7 and x = 8, two cells
         // thick, open at one cell.
-        let grid = Costmap::from_fn(info(24, 24), |p| {
+        let grid = Costmap::from_fn(lattice(), cells(24, 24), |p| {
             if (p.x == 7 || p.x == 8) && p.y != 13 {
                 COST_LETHAL
             } else {
@@ -1369,7 +1363,7 @@ mod tests {
     fn a_path_may_leave_the_tile_its_ends_share() {
         // A wall splits tile (0, 0) from top to bottom; the way round is through the
         // tile to the north.
-        let grid = Costmap::from_fn(info(16, 16), |p| {
+        let grid = Costmap::from_fn(lattice(), cells(16, 16), |p| {
             if p.x == 4 && p.y < 8 {
                 COST_LETHAL
             } else {
@@ -1386,7 +1380,7 @@ mod tests {
 
     #[test]
     fn endpoints_outside_the_map_or_impassable_give_no_path() {
-        let mut grid = Costmap::filled(info(20, 20), COST_FREE);
+        let mut grid = Costmap::filled(lattice(), cells(20, 20), COST_FREE);
         grid.set(cell(15, 15), COST_LETHAL).unwrap();
         let graph = graph_of(&grid, OPTIONS);
         assert!(plan_on(&grid, &graph, cell(20, 0), cell(1, 1)).0.is_none());
@@ -1399,7 +1393,7 @@ mod tests {
 
     #[test]
     fn open_ground_costs_little_more_than_the_whole_map_search() {
-        let grid = Costmap::filled(info(200, 150), COST_FREE);
+        let grid = Costmap::filled(lattice(), cells(200, 150), COST_FREE);
         let options = TileGraphOptions {
             tile_cells: 32,
             node_spacing_cells: 8,
@@ -1422,7 +1416,7 @@ mod tests {
 
     #[test]
     fn shortcut_straightens_a_path_across_tiles() {
-        let grid = Costmap::filled(info(64, 64), COST_FREE);
+        let grid = Costmap::filled(lattice(), cells(64, 64), COST_FREE);
         let graph = graph_of(&grid, OPTIONS);
         let source = DenseTiles::new(&grid, OPTIONS.tile_cells).unwrap();
         let mut tiles = TileCache::new(source, &graph, 64);
@@ -1433,7 +1427,7 @@ mod tests {
 
     #[test]
     fn a_small_cache_reads_tiles_again_and_plans_the_same_path() {
-        let grid = Costmap::from_fn(info(64, 64), |p| {
+        let grid = Costmap::from_fn(lattice(), cells(64, 64), |p| {
             if p.x % 16 == 5 && p.y % 11 != 0 {
                 COST_LETHAL
             } else {
@@ -1452,7 +1446,7 @@ mod tests {
 
     #[test]
     fn a_repeated_plan_is_the_same_path_and_reads_no_more_tiles() {
-        let grid = Costmap::from_fn(info(64, 64), |p| {
+        let grid = Costmap::from_fn(lattice(), cells(64, 64), |p| {
             if p.x % 16 == 5 && p.y % 11 != 0 {
                 COST_LETHAL
             } else {
@@ -1477,7 +1471,7 @@ mod tests {
 
     #[test]
     fn a_stored_graph_reads_back_and_plans_the_same_path() {
-        let grid = Costmap::from_fn(info(40, 30), |p| {
+        let grid = Costmap::from_fn(lattice(), cells(40, 30), |p| {
             if p.x % 9 == 4 && p.y % 7 != 0 {
                 COST_LETHAL
             } else {
@@ -1513,7 +1507,7 @@ mod tests {
 
     #[test]
     fn a_cache_serves_only_the_graph_it_was_made_for() {
-        let grid = Costmap::filled(info(40, 30), COST_FREE);
+        let grid = Costmap::filled(lattice(), cells(40, 30), COST_FREE);
         let graph = graph_of(&grid, OPTIONS);
         let other = graph_of(&grid, OPTIONS);
         let source = DenseTiles::new(&grid, OPTIONS.tile_cells).unwrap();

@@ -18,7 +18,7 @@ use crate::{
     DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project_into},
     iterators::line::LineIterator,
-    types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, MapInfo, Pose2, VoxelError},
+    types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, Lattice, Pose2, VoxelError},
 };
 
 /// Distance, in cells, that a clipped ray start is kept inside the grid edge.
@@ -96,11 +96,13 @@ struct Ray {
 }
 
 impl ObstacleLayer {
-    /// Create a layer whose grid has the layout `info`, with every cell unknown.
-    pub fn new(info: MapInfo, config: ObstacleConfig) -> Self {
+    /// Create a layer whose grid holds `cells` of `lattice`, every cell unknown.
+    pub fn new(lattice: Lattice, cells: CellRegion, config: ObstacleConfig) -> Self {
         Self {
-            grid: DenseGrid::filled(info, COST_UNKNOWN),
-            stamps: config.decay_s.map(|_| DenseGrid::filled(info, None)),
+            grid: DenseGrid::filled(lattice, cells, COST_UNKNOWN),
+            stamps: config
+                .decay_s
+                .map(|_| DenseGrid::filled(lattice, cells, None)),
             config,
             touched: Bounds::empty(),
             pending_hits: Vec::new(),
@@ -170,7 +172,7 @@ impl ObstacleLayer {
         let (Some(decay_s), Some(stamps)) = (self.config.decay_s, self.stamps.as_mut()) else {
             return;
         };
-        let resolution = self.grid.info().resolution;
+        let resolution = self.grid.lattice().resolution;
         let lattice = self.grid.lattice();
         for (cell, stamp) in stamps.indexed_iter_mut() {
             if stamp.is_some_and(|t| now_s - t > f64::from(decay_s)) {
@@ -219,18 +221,18 @@ impl ObstacleLayer {
     fn mark_hit(&mut self, end: DVec2, stamp_s: f64) {
         let offset = self.grid.offset_of(self.grid.lattice().cell_at(end));
         if self.set_at(offset, COST_LETHAL, Some(stamp_s)) {
-            touch(&mut self.touched, end, self.grid.info().resolution);
+            touch(&mut self.touched, end, self.grid.lattice().resolution);
         }
     }
 
     /// Clear the part of the segment `origin`..`end` that lies inside the grid.
     fn clear_along(&mut self, origin: DVec2, end: DVec2) {
-        let info = *self.grid.info();
-        let Some((start, exit)) = clip_segment(&info, origin, end) else {
+        let Some((start, exit)) = clip_segment(&self.grid, origin, end) else {
             return;
         };
-        touch(&mut self.touched, start, info.resolution);
-        touch(&mut self.touched, exit, info.resolution);
+        let resolution = self.grid.lattice().resolution;
+        touch(&mut self.touched, start, resolution);
+        touch(&mut self.touched, exit, resolution);
 
         let offset = (end - start).as_vec2();
         let Some(mut line) = LineIterator::new(&self.grid, start, offset, offset.length()) else {
@@ -265,11 +267,7 @@ impl ObstacleLayer {
 
     /// World extent of the whole grid.
     fn extent(&self) -> Bounds {
-        let info = self.grid.info();
-        Bounds {
-            min: info.origin,
-            max: info.origin + DVec2::new(info.world_width(), info.world_height()),
-        }
+        self.grid.world_bounds()
     }
 }
 
@@ -280,17 +278,18 @@ fn touch(bounds: &mut Bounds, point: DVec2, pad: f64) {
     bounds.expand_to_include(point + DVec2::splat(pad));
 }
 
-/// Clip the segment `origin`..`end` to the grid described by `info`, working in
+/// Clip the segment `origin`..`end` to `grid`, working in
 /// cell units from the grid's lower-left corner.
 ///
 /// Returns the world-frame entry and exit points, or `None` if the segment misses
 /// the grid. The entry point lies at least [`CLIP_MARGIN_CELLS`] inside the grid,
 /// which makes it a valid start for [`LineIterator`].
-fn clip_segment(info: &MapInfo, origin: DVec2, end: DVec2) -> Option<(DVec2, DVec2)> {
-    let resolution = info.resolution as f32;
-    let a = (origin - info.origin).as_vec2() / resolution;
+fn clip_segment<T>(grid: &DenseGrid<T>, origin: DVec2, end: DVec2) -> Option<(DVec2, DVec2)> {
+    let corner = grid.world_bounds().min;
+    let resolution = grid.lattice().resolution as f32;
+    let a = (origin - corner).as_vec2() / resolution;
     let delta = (end - origin).as_vec2() / resolution;
-    let size = Vec2::new(info.width as f32, info.height as f32);
+    let size = grid.size().as_vec2();
 
     let (mut t_in, mut t_out) = (0.0_f32, 1.0_f32);
     for axis in 0..2 {
@@ -312,7 +311,7 @@ fn clip_segment(info: &MapInfo, origin: DVec2, end: DVec2) -> Option<(DVec2, DVe
     let margin = Vec2::splat(CLIP_MARGIN_CELLS);
     let entry = (a + delta * t_in).clamp(margin, size - margin);
     let exit = a + delta * t_out;
-    let to_world = |offsets: Vec2| info.origin + offsets.as_dvec2() * info.resolution;
+    let to_world = |offsets: Vec2| corner + offsets.as_dvec2() * grid.lattice().resolution;
     Some((to_world(entry), to_world(exit)))
 }
 
@@ -361,22 +360,25 @@ impl Layer for ObstacleLayer {
                 self.config.rolling_window
             )));
         }
-        let (own, theirs) = (self.grid.info(), master.info());
-        let same_size = own.width == theirs.width
-            && own.height == theirs.height
-            && own.resolution == theirs.resolution;
-        if !same_size || (!rolling_window && own.origin != theirs.origin) {
+        let (own, theirs) = (&self.grid, master);
+        let same_size =
+            own.size() == theirs.size() && own.lattice().resolution == theirs.lattice().resolution;
+        if !same_size || (!rolling_window && own.world_bounds() != theirs.world_bounds()) {
             return Err(VoxelError::InvalidArgument(format!(
-                "obstacle layer grid {own:?} does not match the costmap's {theirs:?}"
+                "obstacle layer grid {:?} on {:?} does not match the costmap's {:?} on {:?}",
+                own.cells(),
+                own.lattice(),
+                theirs.cells(),
+                theirs.lattice()
             )));
         }
         // The layer's cells must be the master's cells: a rolling grid moves by whole
         // cells of its own lattice, so a layer on another lattice never lines up.
         if !self.grid.layout_matches(master) {
-            let (lattice, min, size) = (master.lattice(), master.cells().min, master.size());
-            self.grid = DenseGrid::filled_cells(lattice, min, size, COST_UNKNOWN);
+            let (lattice, cells) = (master.lattice(), master.cells());
+            self.grid = DenseGrid::filled(lattice, cells, COST_UNKNOWN);
             if let Some(stamps) = self.stamps.as_mut() {
-                *stamps = DenseGrid::filled_cells(lattice, min, size, None);
+                *stamps = DenseGrid::filled(lattice, cells, None);
             }
             self.touched = Bounds::empty();
         }
@@ -388,11 +390,17 @@ impl Layer for ObstacleLayer {
 mod tests {
     use super::*;
     use crate::LayeredCostmap;
+    use crate::types::{CellRegion, Lattice};
+    use glam::UVec2;
 
     const SIZE: u32 = 20;
 
-    fn info() -> MapInfo {
-        MapInfo::square(SIZE, 1.0)
+    fn lattice() -> Lattice {
+        Lattice::new(DVec2::ZERO, 1.0)
+    }
+
+    fn cells() -> CellRegion {
+        CellRegion::from_size(UVec2::splat(SIZE))
     }
 
     fn config() -> ObstacleConfig {
@@ -405,7 +413,8 @@ mod tests {
 
     fn decaying(decay_s: f32) -> ObstacleLayer {
         ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 decay_s: Some(decay_s),
                 ..config()
@@ -446,7 +455,7 @@ mod tests {
 
     #[test]
     fn marks_hit_and_clears_path() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         for x in 0..8 {
@@ -459,7 +468,7 @@ mod tests {
 
     #[test]
     fn later_beam_clears_earlier_mark() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         let origin = DVec2::new(0.5, 5.5);
         layer.insert_beams(origin, [hit(8.5, 5.5)], 0.0);
         layer.insert_beams(origin, [hit(4.5, 5.5)], 1.0);
@@ -473,7 +482,7 @@ mod tests {
 
     #[test]
     fn hit_cell_survives_its_own_clearing_ray() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(0.5, 0.5), [hit(7.5, 7.5)], 0.0);
         assert_eq!(cost(&layer, 7, 7), COST_LETHAL);
         assert_eq!(cost(&layer, 3, 3), COST_FREE);
@@ -481,7 +490,7 @@ mod tests {
 
     #[test]
     fn hits_of_one_call_survive_beams_that_cross_them() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         let origin = DVec2::new(0.5, 5.5);
         layer.insert_beams(origin, [hit(4.5, 5.5), hit(8.5, 5.5)], 0.0);
         assert_eq!(cost(&layer, 4, 5), COST_LETHAL);
@@ -491,7 +500,7 @@ mod tests {
 
     #[test]
     fn second_scan_clears_a_mark_from_the_first() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         let sensor = Pose2::new(DVec2::new(0.5, 5.5), 0.0);
         layer.insert_laser_scan(sensor, 0.0, 0.0, &[4.0], 0.0);
         assert_eq!(cost(&layer, 4, 5), COST_LETHAL);
@@ -506,14 +515,11 @@ mod tests {
     #[test]
     fn oblique_wall_hits_all_survive_the_same_scan() {
         let resolution = 0.05;
-        let grid_info = MapInfo {
-            width: 400,
-            height: 400,
-            resolution,
-            origin: DVec2::ZERO,
-        };
+        let grid_lattice = Lattice::new(DVec2::ZERO, resolution);
+        let grid_cells = CellRegion::from_size(UVec2::splat(400));
         let mut layer = ObstacleLayer::new(
-            grid_info,
+            grid_lattice,
+            grid_cells,
             ObstacleConfig {
                 obstacle_range_m: 30.0,
                 raytrace_range_m: 30.0,
@@ -560,10 +566,10 @@ mod tests {
 
     #[test]
     fn unknown_cells_leave_master_untouched() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(3.5, 5.5)], 0.0);
 
-        let mut master = Costmap::filled(info(), 77);
+        let mut master = Costmap::filled(lattice(), cells(), 77);
         layer.update_costs(&mut master, full_region());
 
         assert_eq!(master.get(IVec2::new(10, 10)), Some(&77));
@@ -573,10 +579,10 @@ mod tests {
 
     #[test]
     fn free_observation_does_not_lower_lethal_master_under_max() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let mut master = Costmap::filled(info(), COST_FREE);
+        let mut master = Costmap::filled(lattice(), cells(), COST_FREE);
         master.set(IVec2::new(2, 5), COST_LETHAL).unwrap();
         layer.update_costs(&mut master, full_region());
 
@@ -587,7 +593,8 @@ mod tests {
     #[test]
     fn overwrite_policy_lets_free_observation_lower_master() {
         let mut layer = ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 policy: MergePolicy::Overwrite,
                 ..config()
@@ -595,7 +602,7 @@ mod tests {
         );
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let mut master = Costmap::filled(info(), COST_FREE);
+        let mut master = Costmap::filled(lattice(), cells(), COST_FREE);
         master.set(IVec2::new(2, 5), COST_LETHAL).unwrap();
         layer.update_costs(&mut master, full_region());
 
@@ -605,7 +612,8 @@ mod tests {
     #[test]
     fn obstacle_range_limits_marking_not_clearing() {
         let mut layer = ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 obstacle_range_m: 5.0,
                 raytrace_range_m: 8.0,
@@ -627,7 +635,8 @@ mod tests {
     #[test]
     fn raytrace_range_limits_clearing() {
         let mut layer = ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 obstacle_range_m: 12.0,
                 raytrace_range_m: 8.0,
@@ -649,7 +658,7 @@ mod tests {
 
     #[test]
     fn invalid_ranges_are_skipped_and_infinity_only_clears() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         let centre = Pose2::new(DVec2::new(10.5, 10.5), 0.0);
         let ranges = [f32::NAN, 0.0, -1.0, f32::INFINITY];
         layer.insert_laser_scan(centre, 0.0, std::f32::consts::FRAC_PI_2, &ranges, 0.0);
@@ -664,7 +673,7 @@ mod tests {
 
     #[test]
     fn non_finite_beams_are_ignored() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         let origin = DVec2::new(5.5, 5.5);
         layer.insert_beams(origin, [hit(f64::NAN, 1.0), hit(f64::INFINITY, 1.0)], 0.0);
         layer.insert_beams(origin, [hit(5.5, 5.5)], 0.0);
@@ -675,7 +684,7 @@ mod tests {
 
     #[test]
     fn origin_outside_grid_still_clears_and_marks_inside() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(-5.5, 5.5), [hit(3.5, 5.5)], 0.0);
 
         for x in 0..3 {
@@ -687,7 +696,7 @@ mod tests {
 
     #[test]
     fn origin_beyond_upper_edge_enters_grid() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(25.5, 5.5), [hit(15.5, 5.5)], 0.0);
 
         for x in 16..SIZE as i32 {
@@ -699,7 +708,8 @@ mod tests {
     #[test]
     fn beam_crossing_grid_with_both_ends_outside_clears_it() {
         let mut layer = ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 obstacle_range_m: 50.0,
                 raytrace_range_m: 50.0,
@@ -720,7 +730,7 @@ mod tests {
 
     #[test]
     fn beam_missing_grid_changes_nothing() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(-5.5, 30.5), [hit(3.5, 30.5)], 0.0);
         layer.insert_beams(DVec2::new(-5.5, -5.5), [hit(-1.5, 30.5)], 0.0);
         assert_eq!(observed_cells(&layer), 0);
@@ -767,10 +777,14 @@ mod tests {
 
     #[test]
     fn stamps_exist_only_with_decay() {
-        assert!(ObstacleLayer::new(info(), config()).stamps.is_none());
+        assert!(
+            ObstacleLayer::new(lattice(), cells(), config())
+                .stamps
+                .is_none()
+        );
         assert!(decaying(1.0).stamps.is_some());
 
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
         layer.expire(1e9);
         assert_eq!(cost(&layer, 8, 5), COST_LETHAL);
@@ -778,10 +792,11 @@ mod tests {
 
     #[test]
     fn rolling_window_keeps_obstacle_at_world_position() {
-        let mut layered = LayeredCostmap::new(info(), COST_FREE, true);
+        let mut layered = LayeredCostmap::new(lattice(), cells(), COST_FREE, true);
         let id = layered
             .add_layer(Box::new(ObstacleLayer::new(
-                info(),
+                lattice(),
+                cells(),
                 ObstacleConfig {
                     rolling_window: true,
                     decay_s: Some(10.0),
@@ -820,14 +835,12 @@ mod tests {
 
     #[test]
     fn rolling_layer_off_the_master_lattice_still_marks() {
-        let master = MapInfo {
-            origin: DVec2::new(-10.5, -10.5),
-            ..info()
-        };
-        let mut layered = LayeredCostmap::new(master, COST_FREE, true);
+        let master = Lattice::new(DVec2::new(-10.5, -10.5), 1.0);
+        let mut layered = LayeredCostmap::new(master, cells(), COST_FREE, true);
         let id = layered
             .add_layer(Box::new(ObstacleLayer::new(
-                info(),
+                lattice(),
+                cells(),
                 ObstacleConfig {
                     rolling_window: true,
                     ..config()
@@ -849,7 +862,8 @@ mod tests {
     #[test]
     fn rolling_window_stamps_follow_the_grid() {
         let mut layer = ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 rolling_window: true,
                 decay_s: Some(2.0),
@@ -860,7 +874,7 @@ mod tests {
 
         let mut bounds = Bounds::empty();
         layer.update_bounds(Pose2::new(DVec2::new(13.0, 10.0), 0.0), &mut bounds);
-        assert_eq!(layer.grid().info().origin, DVec2::new(3.0, 0.0));
+        assert_eq!(layer.grid().world_bounds().min, DVec2::new(3.0, 0.0));
 
         layer.expire(3.0);
         assert!(layer.grid().as_slice().iter().all(|&c| c != COST_LETHAL));
@@ -868,8 +882,9 @@ mod tests {
 
     #[test]
     fn fixed_bounds_cover_only_touched_area() {
-        let big = MapInfo::square(100, 1.0);
-        let mut layer = ObstacleLayer::new(big, config());
+        let big_lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let big_cells = CellRegion::from_size(UVec2::splat(100));
+        let mut layer = ObstacleLayer::new(big_lattice, big_cells, config());
         let robot = Pose2::new(DVec2::new(80.0, 80.0), 0.0);
 
         let mut bounds = Bounds::empty();
@@ -883,7 +898,7 @@ mod tests {
         assert!(bounds.max.x <= 17.0 && bounds.max.y <= 13.0, "{bounds:?}");
         assert!(bounds.min.x <= 10.5 && bounds.max.x >= 14.5);
 
-        let mut master = Costmap::filled(big, COST_FREE);
+        let mut master = Costmap::filled(big_lattice, big_cells, COST_FREE);
         layer.update_costs(&mut master, CellRegion::new(IVec2::ZERO, IVec2::splat(100)));
         let mut bounds = Bounds::empty();
         layer.update_bounds(robot, &mut bounds);
@@ -892,16 +907,18 @@ mod tests {
 
     #[test]
     fn expiry_is_reported_in_bounds() {
-        let big = MapInfo::square(100, 1.0);
+        let big_lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let big_cells = CellRegion::from_size(UVec2::splat(100));
         let mut layer = ObstacleLayer::new(
-            big,
+            big_lattice,
+            big_cells,
             ObstacleConfig {
                 decay_s: Some(1.0),
                 ..config()
             },
         );
         layer.insert_beams(DVec2::new(40.5, 40.5), [hit(44.5, 40.5)], 0.0);
-        let mut master = Costmap::filled(big, COST_FREE);
+        let mut master = Costmap::filled(big_lattice, big_cells, COST_FREE);
         layer.update_costs(&mut master, CellRegion::new(IVec2::ZERO, IVec2::splat(100)));
 
         layer.expire(5.0);
@@ -931,7 +948,8 @@ mod tests {
     #[test]
     fn rolling_layer_adopts_the_master_cells_and_forgets_its_own() {
         let mut layer = ObstacleLayer::new(
-            info(),
+            lattice(),
+            cells(),
             ObstacleConfig {
                 rolling_window: true,
                 decay_s: Some(2.0),
@@ -940,7 +958,7 @@ mod tests {
         );
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let mut master = Costmap::filled(info(), 0);
+        let mut master = Costmap::filled(lattice(), cells(), 0);
         master.update_origin(DVec2::new(3.0, -2.0));
         layer.attach(&master, true).unwrap();
 
@@ -951,11 +969,10 @@ mod tests {
 
     #[test]
     fn mismatched_layout_is_not_projected() {
-        let mut layer = ObstacleLayer::new(info(), config());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), config());
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
-        let other = MapInfo::square(SIZE, 0.5);
-        let mut master = Costmap::filled(other, 9);
+        let mut master = Costmap::filled(Lattice::new(DVec2::ZERO, 0.5), cells(), 9);
         layer.update_costs(
             &mut master,
             CellRegion::new(IVec2::ZERO, IVec2::splat(SIZE as i32)),
@@ -965,8 +982,8 @@ mod tests {
 
     #[test]
     fn add_layer_rejects_a_rolling_window_mismatch() {
-        let mut layered = LayeredCostmap::new(info(), COST_FREE, true);
-        let fixed = ObstacleLayer::new(info(), config());
+        let mut layered = LayeredCostmap::new(lattice(), cells(), COST_FREE, true);
+        let fixed = ObstacleLayer::new(lattice(), cells(), config());
 
         assert!(matches!(
             layered.add_layer(Box::new(fixed)),
@@ -976,21 +993,16 @@ mod tests {
 
     #[test]
     fn add_layer_rejects_a_grid_that_is_not_the_masters() {
-        let mut layered = LayeredCostmap::new(info(), COST_FREE, false);
-        let finer = ObstacleLayer::new(MapInfo::square(SIZE, 0.5), config());
-        let shifted = ObstacleLayer::new(
-            MapInfo {
-                origin: DVec2::new(3.0, 0.0),
-                ..info()
-            },
-            config(),
-        );
+        let mut layered = LayeredCostmap::new(lattice(), cells(), COST_FREE, false);
+        let finer = ObstacleLayer::new(Lattice::new(DVec2::ZERO, 0.5), cells(), config());
+        let shifted =
+            ObstacleLayer::new(Lattice::new(DVec2::new(3.0, 0.0), 1.0), cells(), config());
 
         assert!(layered.add_layer(Box::new(finer)).is_err());
         assert!(layered.add_layer(Box::new(shifted)).is_err());
         assert!(
             layered
-                .add_layer(Box::new(ObstacleLayer::new(info(), config())))
+                .add_layer(Box::new(ObstacleLayer::new(lattice(), cells(), config())))
                 .is_ok()
         );
     }

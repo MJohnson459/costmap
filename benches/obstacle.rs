@@ -1,21 +1,20 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use glam::DVec2;
+use glam::{DVec2, UVec2};
 
-use costmap::types::{COST_FREE, MapInfo, Pose2};
+use costmap::types::{COST_FREE, CellRegion, Lattice, Pose2};
 use costmap::{LayeredCostmap, ObstacleConfig, ObstacleLayer};
 
 const BEAMS: usize = 720;
 
 /// A 10 m costmap at 0.05 m with the sensor at its centre.
-fn info() -> MapInfo {
-    MapInfo {
-        width: 200,
-        height: 200,
-        resolution: 0.05,
-        origin: DVec2::ZERO,
-    }
+fn lattice() -> Lattice {
+    Lattice::new(DVec2::ZERO, 0.05)
+}
+
+fn cells() -> CellRegion {
+    CellRegion::from_size(UVec2::splat(200))
 }
 
 fn sensor() -> Pose2 {
@@ -33,17 +32,18 @@ fn bench_obstacle(c: &mut Criterion) {
     let increment = std::f32::consts::TAU / BEAMS as f32;
 
     c.bench_function("obstacle_insert_scan_720", |b| {
-        let mut layer = ObstacleLayer::new(info(), ObstacleConfig::default());
+        let mut layer = ObstacleLayer::new(lattice(), cells(), ObstacleConfig::default());
         b.iter(|| {
             layer.insert_laser_scan(sensor(), 0.0, increment, black_box(&ranges), 0.0);
         });
     });
 
     c.bench_function("obstacle_insert_scan_720_and_update", |b| {
-        let mut layered = LayeredCostmap::new(info(), COST_FREE, false);
+        let mut layered = LayeredCostmap::new(lattice(), cells(), COST_FREE, false);
         let id = layered
             .add_layer(Box::new(ObstacleLayer::new(
-                info(),
+                lattice(),
+                cells(),
                 ObstacleConfig::default(),
             )))
             .expect("the layer attaches");

@@ -2,8 +2,8 @@
 
 use std::ops::Range;
 
-use costmap::types::{COST_UNKNOWN, VoxelError};
-use costmap::{Costmap, MapInfo};
+use costmap::types::{COST_UNKNOWN, CellRegion, VoxelError};
+use costmap::{Costmap, Lattice};
 use glam::{DVec2, I64Vec2, UVec2};
 use thiserror::Error;
 
@@ -36,15 +36,15 @@ impl MapSource for Costmap {
     /// A window that does not touch the map, however far away its centre, is all
     /// unknown. Fails if `center` is not finite.
     fn window(&mut self, center: DVec2, size_cells: UVec2) -> Result<Costmap, SourceError> {
-        let map = *self.info();
-        let cells = WindowCells::around(center, map.origin, map.resolution, size_cells)?;
-        let mut window = cells.unknown_window(map.origin, map.resolution);
+        let (corner, resolution) = (self.world_bounds().min, self.lattice().resolution);
+        let cells = WindowCells::around(center, corner, resolution, size_cells)?;
+        let mut window = cells.unknown_window(corner, resolution);
         copy_overlap(self, &mut window, cells.min);
         Ok(window)
     }
 
     fn resolution(&self) -> f64 {
-        self.info().resolution
+        self.lattice().resolution
     }
 }
 
@@ -102,13 +102,8 @@ impl WindowCells {
     /// [`around`](Self::around).
     fn unknown_window(&self, origin: DVec2, resolution: f64) -> Costmap {
         let size = (self.max - self.min).as_uvec2();
-        let info = MapInfo {
-            width: size.x,
-            height: size.y,
-            resolution,
-            origin: origin + self.min.as_dvec2() * resolution,
-        };
-        Costmap::filled(info, COST_UNKNOWN)
+        let lattice = Lattice::new(origin + self.min.as_dvec2() * resolution, resolution);
+        Costmap::filled(lattice, CellRegion::from_size(size), COST_UNKNOWN)
     }
 }
 
@@ -151,13 +146,9 @@ mod tests {
 
     /// 10 x 8 map at 0.5 m whose cell (x, y) holds `10 * y + x`.
     fn numbered_map() -> Costmap {
-        let info = MapInfo {
-            width: 10,
-            height: 8,
-            resolution: 0.5,
-            origin: DVec2::new(-2.0, 1.0),
-        };
-        Costmap::from_fn(info, |cell| (10 * cell.y + cell.x) as u8)
+        let lattice = Lattice::new(DVec2::new(-2.0, 1.0), 0.5);
+        let cells = CellRegion::from_size(UVec2::new(10, 8));
+        Costmap::from_fn(lattice, cells, |cell| (10 * cell.y + cell.x) as u8)
     }
 
     /// Value of the map cell under the centre of each window cell, or
@@ -178,10 +169,10 @@ mod tests {
     fn interior_window_copies_cells_at_their_world_position() {
         let mut map = numbered_map();
         let window = map.window(DVec2::new(0.3, 2.9), UVec2::new(4, 3)).unwrap();
-        assert_eq!(window.info().resolution, 0.5);
+        assert_eq!(window.lattice().resolution, 0.5);
         assert_eq!(window.size(), UVec2::new(4, 3));
         // centre cell (4, 3); lower-left (2, 2)
-        assert_eq!(window.info().origin, DVec2::new(-1.0, 2.0));
+        assert_eq!(window.world_bounds().min, DVec2::new(-1.0, 2.0));
         assert_eq!(
             window.as_slice(),
             expected_by_world_position(&map, &window).as_slice()
@@ -242,8 +233,9 @@ mod tests {
     #[test]
     fn window_larger_than_the_map_contains_all_of_it() {
         let mut map = numbered_map();
+        let bounds = map.world_bounds();
         let window = map
-            .window(map.info().world_center(), UVec2::new(30, 30))
+            .window((bounds.min + bounds.max) * 0.5, UVec2::new(30, 30))
             .unwrap();
         let known = window
             .as_slice()
@@ -266,8 +258,8 @@ mod tests {
         let b = map
             .window(DVec2::new(0.99, 2.49), UVec2::new(4, 4))
             .unwrap();
-        assert_eq!(a.info(), b.info());
-        let offset = (a.info().origin - map.info().origin) / map.info().resolution;
+        assert_eq!((a.lattice(), a.cells()), (b.lattice(), b.cells()));
+        let offset = (a.world_bounds().min - map.world_bounds().min) / map.lattice().resolution;
         assert_eq!(offset, offset.round());
     }
 

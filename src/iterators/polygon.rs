@@ -200,21 +200,17 @@ impl<T> DenseGrid<T> {
 
 #[cfg(test)]
 mod tests {
-    use glam::{DVec2, IVec2};
+    use glam::{DVec2, IVec2, UVec2};
 
     use super::{PolygonIterator, PolygonValueIterator, PolygonValueMutIterator};
     use crate::DenseGrid;
-    use crate::types::MapInfo;
+    use crate::types::{CellRegion, Lattice};
 
     #[test]
     fn polygon_iter_fills_rectangle() {
-        let info = MapInfo {
-            width: 8,
-            height: 8,
-            resolution: 1.0,
-            ..Default::default()
-        };
-        let grid = DenseGrid::<u8>::new(info);
+        let lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let cells = CellRegion::from_size(UVec2::splat(8));
+        let grid = DenseGrid::<u8>::new(lattice, cells);
         let points = vec![
             DVec2::new(1.0, 1.0),
             DVec2::new(4.0, 1.0),
@@ -229,13 +225,9 @@ mod tests {
 
     #[test]
     fn polygon_value_iterator_reads_values() {
-        let info = MapInfo {
-            width: 8,
-            height: 8,
-            resolution: 1.0,
-            ..Default::default()
-        };
-        let mut grid = DenseGrid::<u8>::new(info);
+        let lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let cells = CellRegion::from_size(UVec2::splat(8));
+        let mut grid = DenseGrid::<u8>::new(lattice, cells);
         grid.set(IVec2::new(2, 2), 100).unwrap();
 
         let points = vec![
@@ -255,13 +247,9 @@ mod tests {
 
     #[test]
     fn polygon_value_mut_iterator_writes_values() {
-        let info = MapInfo {
-            width: 8,
-            height: 8,
-            resolution: 1.0,
-            ..Default::default()
-        };
-        let mut grid = DenseGrid::<u8>::new(info);
+        let lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let cells = CellRegion::from_size(UVec2::splat(8));
+        let mut grid = DenseGrid::<u8>::new(lattice, cells);
         let points = vec![
             DVec2::new(1.0, 1.0),
             DVec2::new(4.0, 1.0),

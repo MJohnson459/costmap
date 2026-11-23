@@ -18,8 +18,9 @@ use tiff::{
 mod gdal;
 use gdal::{gdal_available, run_gdal};
 
+use costmap::types::{CellRegion, Lattice};
 use costmap::{
-    CostGeoTiff, DenseGrid, GeoReference, MapInfo, TiledGrid, VoxelError, write_cost_geotiff,
+    CostGeoTiff, DenseGrid, GeoReference, TiledGrid, VoxelError, write_cost_geotiff,
     write_cost_geotiff_region,
 };
 
@@ -69,13 +70,11 @@ fn pattern(cell: IVec2) -> u8 {
 
 fn patterned_grid(resolution: f64, chunk_size: u32, min: IVec2, size: UVec2) -> TiledGrid<u8> {
     let mut grid = TiledGrid::new(resolution, chunk_size, UNKNOWN).unwrap();
-    let info = MapInfo {
-        width: size.x,
-        height: size.y,
-        resolution,
-        origin: grid.lattice().cell_corner(min),
-    };
-    let source = DenseGrid::from_fn(info, |cell| pattern(min + cell));
+    let source = DenseGrid::from_fn(
+        Lattice::new(grid.lattice().cell_corner(min), resolution),
+        CellRegion::from_size(size),
+        |cell| pattern(min + cell),
+    );
     grid.write_window(&source).unwrap();
     grid
 }
@@ -580,22 +579,20 @@ fn blocky_noise_grid(side: u32, seed: u64) -> TiledGrid<u8> {
         z ^ (z >> 31)
     };
     let mut grid = TiledGrid::new(1.0, 64, UNKNOWN).unwrap();
-    let info = MapInfo {
-        width: side,
-        height: side,
-        resolution: 1.0,
-        origin: grid.lattice().cell_corner(IVec2::ZERO),
-    };
-    let source = DenseGrid::from_fn(info, |cell| {
-        let UVec2 { x, y } = cell.as_uvec2();
-        let cell = u64::from(y) * u64::from(side) + u64::from(x);
-        if mix(seed ^ cell.wrapping_mul(0x9e37_79b9)) % 20 == 0 {
-            UNKNOWN
-        } else {
-            let block = u64::from(y / 8) * u64::from(side) + u64::from(x / 8);
-            (mix(seed.wrapping_add(block)) % 255) as u8
-        }
-    });
+    let source = DenseGrid::from_fn(
+        Lattice::new(grid.lattice().cell_corner(IVec2::ZERO), 1.0),
+        CellRegion::from_size(UVec2::splat(side)),
+        |cell| {
+            let UVec2 { x, y } = cell.as_uvec2();
+            let cell = u64::from(y) * u64::from(side) + u64::from(x);
+            if mix(seed ^ cell.wrapping_mul(0x9e37_79b9)) % 20 == 0 {
+                UNKNOWN
+            } else {
+                let block = u64::from(y / 8) * u64::from(side) + u64::from(x / 8);
+                (mix(seed.wrapping_add(block)) % 255) as u8
+            }
+        },
+    );
     grid.write_window(&source).unwrap();
     grid
 }
@@ -810,15 +807,11 @@ fn gdal_overview_factors_satisfy_both_axes() {
 fn write_fence_map(path: &Path) {
     let size = UVec2::new(1000, 500);
     let mut grid = TiledGrid::new(0.1, 100, UNKNOWN).unwrap();
-    let info = MapInfo {
-        width: size.x,
-        height: size.y,
-        resolution: 0.1,
-        origin: glam::DVec2::ZERO,
-    };
-    grid.write_window(&DenseGrid::from_fn(info, |cell| {
-        if cell.x == 500 { 254 } else { 0 }
-    }))
+    grid.write_window(&DenseGrid::from_fn(
+        Lattice::new(glam::DVec2::ZERO, 0.1),
+        CellRegion::from_size(size),
+        |cell| if cell.x == 500 { 254 } else { 0 },
+    ))
     .unwrap();
     write_cost_geotiff_region(path, &grid, &UTM_17N, IVec2::ZERO, size.as_ivec2()).unwrap();
 }

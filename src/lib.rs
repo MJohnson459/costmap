@@ -50,4 +50,4 @@ pub use planning::{
     line_passable, plan,
 };
 pub use tiled::{GeoReference, TiledGrid};
-pub use types::{Lattice, MapInfo, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
+pub use types::{Lattice, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};

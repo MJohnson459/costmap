@@ -23,10 +23,10 @@ use std::error::Error;
 use std::time::Duration;
 
 use costmap::rerun_viz::{log_costmap, log_point3d};
-use costmap::types::{COST_FREE, Pose2};
-use costmap::{DenseGrid, MapInfo, MergePolicy, ProjectionLayer, cost_from_unit};
+use costmap::types::{COST_FREE, CellRegion, Lattice, Pose2};
+use costmap::{DenseGrid, MergePolicy, ProjectionLayer, cost_from_unit};
 use costmap::{InflationConfig, LayeredCostmap, WavefrontInflationLayer};
-use glam::{DVec2, IVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 // Simulation parameters
 const DELAY_MS: u64 = 100;
@@ -44,12 +44,13 @@ const Z_ROBOT: f32 = 0.35;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let resolution = RESOLUTION;
-    let local_info = MapInfo::square(LOCAL_SIZE_CELLS, resolution);
+    let local_lattice = Lattice::new(DVec2::ZERO, resolution);
+    let local_cells = CellRegion::from_size(UVec2::splat(LOCAL_SIZE_CELLS));
     let rec = rerun::RecordingStreamBuilder::new("costmap_learned_traversability").spawn()?;
 
-    let mut layered = LayeredCostmap::new(local_info, COST_FREE, true);
+    let mut layered = LayeredCostmap::new(local_lattice, local_cells, COST_FREE, true);
     let id = layered.add_layer(Box::new(ProjectionLayer::from_grid(
-        DenseGrid::<f32>::filled(local_info, 0.0),
+        DenseGrid::<f32>::filled(local_lattice, local_cells, 0.0),
         MergePolicy::Max,
         true, // rolling window
         |t| Some(cost_from_unit(*t)),
