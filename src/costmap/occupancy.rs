@@ -67,14 +67,14 @@ pub fn cost_from_occupancy(occ: i8) -> u8 {
     }
 }
 
-/// Cost grid with the same layout as `grid`, through [`cost_from_occupancy`].
+/// Cost grid over the same cells as `grid`, through [`cost_from_occupancy`].
 pub fn costmap_from_occupancy(grid: &OccupancyGrid) -> Result<Costmap, VoxelError> {
     let data = grid
         .as_slice()
         .iter()
         .map(|&occ| cost_from_occupancy(occ))
         .collect();
-    Ok(DenseGrid::from_vec(*grid.info(), data)?.with_fill(COST_UNKNOWN))
+    Ok(DenseGrid::with_cells_of(grid, data, COST_UNKNOWN))
 }
 
 #[cfg(test)]

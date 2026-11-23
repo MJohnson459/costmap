@@ -212,12 +212,11 @@ mod tests {
 
     /// Pattern value under the centre of every window cell, or unknown off the map.
     fn expected(window: &Costmap) -> Vec<u8> {
-        let info = window.info();
-        let first = (info.origin / info.resolution).round().as_ivec2();
+        let lattice = window.lattice();
         window
             .indexed_iter()
             .map(|(cell, _)| {
-                let c = first + cell;
+                let c = (lattice.cell_center(cell) / RESOLUTION).floor().as_ivec2();
                 let inside =
                     c.x >= 0 && c.y >= 0 && c.x < MAP_CELLS.x as i32 && c.y < MAP_CELLS.y as i32;
                 if inside {
@@ -242,7 +241,9 @@ mod tests {
         assert_eq!(window.info().origin, DVec2::new(145.0, 45.0));
         assert_eq!(window.info().resolution, RESOLUTION);
         assert_eq!(window.as_slice(), expected(&window).as_slice());
-        assert_eq!(window.get(IVec2::ZERO), Some(&pattern(290, 90)));
+        assert_eq!(window.cells().min, IVec2::new(290, 90));
+        assert_eq!(window.get(IVec2::new(290, 90)), Some(&pattern(290, 90)));
+        assert_eq!(window.get(IVec2::new(300, 100)), Some(&pattern(300, 100)));
     }
 
     #[test]

@@ -97,7 +97,7 @@ let cost = grid.get(IVec2::new(5, 2));
 
 ### Cell conversions go through `Lattice`
 
-A `Lattice` places a grid's cells in the world: `anchor` is the lower-left corner of cell (0, 0) and `resolution` the cell size in metres. `DenseGrid::lattice`, `MapInfo::lattice` and `TiledGrid::lattice` return one. Its methods are Nav2's `worldToMap` and `mapToWorld` under names that say what they return. The `DenseGrid` conversion methods are removed.
+A `Lattice` places a grid's cells in the world: `anchor` is the lower-left corner of cell (0, 0) and `resolution` the cell size in metres. `DenseGrid::lattice` and `TiledGrid::lattice` return one. Its methods are Nav2's `worldToMap` and `mapToWorld` under names that say what they return. The `DenseGrid` conversion methods are removed.
 
 | 0.2 | 0.3 |
 | --- | --- |
@@ -106,7 +106,7 @@ A `Lattice` places a grid's cells in the world: `anchor` is the lower-left corne
 | `grid.world_to_map_continuous(p)` | `grid.lattice().to_cells(p)`, a `DVec2` |
 | `grid.map_to_world_continuous(v)` | `grid.lattice().from_cells(v)`, takes a `DVec2` |
 
-`cell_at` returns a cell for every position, rounding toward negative infinity; `get` returns `None` for a cell outside the grid, where `world_to_map` returned `None`. `to_cells` does no bounds check: where `world_to_map_continuous` returned `None`, test the result against `[0, size())` on each axis. `lattice().cell_corner(cell)` gives the lower-left corner of a cell.
+`cell_at` returns a cell for every position, rounding toward negative infinity; `get` returns `None` for a cell outside the grid, where `world_to_map` returned `None`. `to_cells` does no bounds check: where `world_to_map_continuous` returned `None`, test the result against `grid.cells()`. `lattice().cell_corner(cell)` gives the lower-left corner of a cell.
 
 ```rust
 // 0.2
@@ -114,6 +114,26 @@ let cost = grid.world_to_map(position).and_then(|cell| grid.get(cell));
 // 0.3
 let cost = grid.get(grid.lattice().cell_at(position));
 ```
+
+### A moved grid keeps its cells' names
+
+A `DenseGrid` holds a rectangle of its lattice's cells, returned by `cells()`. A grid built from a `MapInfo` holds the cells from (0, 0), as in 0.2. Two things differ:
+
+- **`update_origin` and `update_center` leave the lattice alone.** In 0.2 the first cell was (0, 0) after every move, so a cell's position changed as the grid rolled. Now the grid holds other cells and each keeps its position: after a 4-cell-wide grid moves one cell right, `cells()` is x 1..5 and `get(IVec2::new(0, y))` is `None`.
+- **`TiledGrid::window(min_cell, size)` returns the tiled grid's cells.** The window's first cell is `min_cell`, where in 0.2 it was (0, 0).
+
+`as_slice` is unchanged: row-major from the first cell held. `info().origin` is the world corner of that first cell. Code that indexed a moved grid or a window from zero either reads the slice or adds `cells().min`:
+
+```rust
+// 0.2
+let first = window.get(IVec2::ZERO);
+// 0.3
+let first = window.get(window.cells().min);
+```
+
+`reset_map`, `CellRegion` in `Layer::update_costs` and `project_into`, and the cells of `LineIterator`, `PolygonIterator`, `RayHit2D`, `Path` and `Regions` are all cells of the grid's lattice. `project_into` and the `merge_*` functions accept two grids that hold different rectangles of one lattice and write where they overlap.
+
+`Layer::attach` takes the master grid (`&Costmap`) where it took a `&MapInfo`. `Layer::match_size` is removed; `LayeredCostmap` never called it. `MapInfo::lattice` is removed: take the lattice from the grid.
 
 ### `LayeredCostmap::add_layer` returns a `Result`
 

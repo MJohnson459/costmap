@@ -12,7 +12,10 @@ pub struct PolygonIterator {
     x_end: i32,
     has_span: bool,
     grid_size: IVec2,
-    cell: IVec2,
+    /// Array offset of the next cell.
+    offset: IVec2,
+    /// First cell of the grid: an offset plus this is a cell.
+    min: IVec2,
     poly_min_y: f32,
     poly_max_y: f32,
 }
@@ -22,16 +25,21 @@ impl PolygonIterator {
         if points.len() < 3 {
             return None;
         }
-        let info = grid.info();
-        let lattice = info.lattice();
         let map_points = points
             .iter()
-            .map(|p| lattice.to_cells(*p).as_vec2())
+            .map(|p| grid.to_offsets(*p).as_vec2())
             .collect();
-        Some(Self::new_map(map_points, info.width, info.height))
+        let size = grid.size();
+        Some(Self::new_map(
+            map_points,
+            size.x,
+            size.y,
+            grid.cell_of(IVec2::ZERO),
+        ))
     }
 
-    fn new_map(points: Vec<Vec2>, width: u32, height: u32) -> Self {
+    /// `points` are in cell units from the corner of the grid's first cell, `min`.
+    fn new_map(points: Vec<Vec2>, width: u32, height: u32, min: IVec2) -> Self {
         let (min_y, max_y) = points
             .iter()
             .fold((f32::INFINITY, f32::NEG_INFINITY), |(min_y, max_y), p| {
@@ -48,7 +56,8 @@ impl PolygonIterator {
             x_end: -1,
             has_span: false,
             grid_size,
-            cell: IVec2::ZERO,
+            offset: IVec2::ZERO,
+            min,
             poly_min_y: min_y,
             poly_max_y: max_y,
         }
@@ -89,7 +98,7 @@ impl PolygonIterator {
                 }
 
                 if x_start <= x_end && self.y >= 0 && self.y < self.grid_size.y {
-                    self.cell = IVec2::new(x_start, self.y);
+                    self.offset = IVec2::new(x_start, self.y);
                     self.x_end = x_end;
                     self.has_span = true;
                     return true;
@@ -108,9 +117,9 @@ impl Iterator for PolygonIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.has_span && self.cell.x <= self.x_end {
-                let cell = self.cell;
-                self.cell.x += 1;
+            if self.has_span && self.offset.x <= self.x_end {
+                let cell = self.offset.wrapping_add(self.min);
+                self.offset.x += 1;
                 return Some(cell);
             }
 

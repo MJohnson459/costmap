@@ -2,14 +2,12 @@
 
 use glam::DVec2;
 
-use super::Lattice;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MapInfo {
     pub width: u32,
     pub height: u32,
     pub resolution: f64,
-    /// Origin of cell (0, 0) in world coordinates (meters).
+    /// World position (meters) of the lower-left corner of the grid's first cell.
     pub origin: DVec2,
 }
 
@@ -50,11 +48,5 @@ impl MapInfo {
     #[inline]
     pub fn world_center(&self) -> DVec2 {
         self.origin + DVec2::new(0.5 * self.world_width(), 0.5 * self.world_height())
-    }
-
-    /// Where the cells sit in the world: anchored at `origin`, `resolution` metres square.
-    #[inline]
-    pub fn lattice(&self) -> Lattice {
-        Lattice::new(self.origin, self.resolution)
     }
 }

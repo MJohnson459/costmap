@@ -173,7 +173,16 @@ pub struct DenseTiles<G> {
 }
 
 impl<G: Borrow<Costmap>> DenseTiles<G> {
+    /// Fails if the grid's first cell is not (0, 0): a tile graph covers the cells
+    /// from (0, 0), so a grid that has moved has no tiles to serve.
     pub fn new(grid: G, tile_cells: u32) -> Result<Self, VoxelError> {
+        let cells = grid.borrow().cells();
+        if cells.min != IVec2::ZERO {
+            return Err(VoxelError::InvalidArgument(format!(
+                "a tile graph covers cells from (0, 0), but the grid's first cell is {}",
+                cells.min
+            )));
+        }
         let layout = TileLayout::new(grid.borrow().size(), tile_cells)?;
         Ok(Self { grid, layout })
     }
@@ -195,12 +204,12 @@ impl<G: Borrow<Costmap>> TileSource for DenseTiles<G> {
             let row = y as usize * width + min.x as usize;
             data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
         }
-        let source = grid.info();
+        let lattice = grid.lattice();
         let info = MapInfo {
             width: size.x,
             height: size.y,
-            resolution: source.resolution,
-            origin: source.lattice().cell_corner(min),
+            resolution: lattice.resolution,
+            origin: lattice.cell_corner(min),
         };
         Costmap::from_vec(info, data)
     }

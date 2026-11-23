@@ -1,8 +1,8 @@
 use glam::{DVec2, Vec2};
 
+use crate::raycast::RayHit2D;
 use crate::types::OCCUPIED;
 use crate::{OccupancyGrid, iterators::line::LineIterator};
-use crate::{raycast::RayHit2D, types::FREE};
 
 impl OccupancyGrid {
     /// Fast voxel traversal (Amanatides & Woo) that returns the first occupied cell hit.
@@ -17,15 +17,14 @@ impl OccupancyGrid {
     ///
     /// A `RayHit2D` struct containing the cell and hit distance.
     pub fn raycast_dda(&self, origin: DVec2, dir: Vec2, max_t: f32) -> Option<RayHit2D> {
-        let iter = LineIterator::new(self, origin, dir, max_t)?;
+        let mut line = LineIterator::new(self, origin, dir, max_t)?;
 
         let resolution = self.info().resolution as f32;
-        for step in iter {
-            let value = self.get(step.cell).unwrap_or(&FREE);
-            if value >= &OCCUPIED {
+        while let Some((offset, t)) = line.next_offset() {
+            if *self.at_held(offset) >= OCCUPIED {
                 return Some(RayHit2D {
-                    cell: step.cell,
-                    hit_distance: step.t * resolution,
+                    cell: self.cell_of(offset),
+                    hit_distance: t * resolution,
                 });
             }
         }

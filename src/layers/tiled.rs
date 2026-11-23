@@ -8,7 +8,7 @@ use crate::{
     DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project::merge_cost},
     tiled::TiledGrid,
-    types::{Bounds, COST_UNKNOWN, CellRegion, MapInfo, Pose2, VoxelError},
+    types::{Bounds, COST_UNKNOWN, CellRegion, Lattice, MapInfo, Pose2, VoxelError},
 };
 
 /// A layer that stamps the part of a tiled cost map under the master costmap into it.
@@ -54,8 +54,8 @@ impl TiledMapLayer {
         Arc::make_mut(&mut self.grid)
     }
 
-    /// Dense copy of the tiles under `region` of a master described by `info`.
-    fn region_window(&self, info: &MapInfo, region: CellRegion) -> Option<DenseGrid<u8>> {
+    /// Dense copy of the tiles under the cells `region` of `lattice`.
+    fn region_window(&self, lattice: Lattice, region: CellRegion) -> Option<DenseGrid<u8>> {
         let size = region.max.saturating_sub(region.min);
         if size.x <= 0 || size.y <= 0 {
             return None;
@@ -63,8 +63,8 @@ impl TiledMapLayer {
         let window_info = MapInfo {
             width: size.x as u32,
             height: size.y as u32,
-            resolution: info.resolution,
-            origin: info.lattice().cell_corner(region.min),
+            resolution: lattice.resolution,
+            origin: lattice.cell_corner(region.min),
         };
         let mut window = DenseGrid::filled(window_info, COST_UNKNOWN);
         self.grid.read_into(&mut window).ok()?;
@@ -94,28 +94,32 @@ impl Layer for TiledMapLayer {
         self.previous_extent = current;
     }
 
-    fn attach(&mut self, master: &MapInfo, _rolling_window: bool) -> Result<(), VoxelError> {
+    fn attach(&mut self, master: &Costmap, _rolling_window: bool) -> Result<(), VoxelError> {
         let resolution = self.grid.resolution();
-        if !self.grid.resolution_matches(master.resolution) {
+        let master_resolution = master.info().resolution;
+        if !self.grid.resolution_matches(master_resolution) {
             return Err(VoxelError::InvalidArgument(format!(
-                "tiled map resolution {resolution} m differs from the costmap's {} m",
-                master.resolution
+                "tiled map resolution {resolution} m differs from the costmap's {master_resolution} m"
             )));
         }
         Ok(())
     }
 
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
-        let info = *master.info();
-        let Some(window) = self.region_window(&info, region) else {
+        // Array offsets of the part of `region` the master holds.
+        let Some(offsets) = master.offsets_in(region) else {
             return;
         };
-        let size = window.info();
-        let (width, region_width) = (info.width as usize, size.width as usize);
-        let rows = (region.min.y..region.max.y).zip(window.as_slice().chunks_exact(region_width));
+        let held = CellRegion::new(master.cell_of(offsets.min), master.cell_of(offsets.max));
+        let Some(window) = self.region_window(master.lattice(), held) else {
+            return;
+        };
+        let width = master.size().x as usize;
+        let columns = offsets.min.x as usize..offsets.max.x as usize;
+        let rows = (offsets.min.y as usize..offsets.max.y as usize)
+            .zip(window.as_slice().chunks_exact(columns.len()));
         for (y, source_row) in rows {
-            let start = y as usize * width + region.min.x as usize;
-            let master_row = &mut master.as_mut_slice()[start..start + region_width];
+            let master_row = &mut master.as_mut_slice()[y * width..][columns.clone()];
             merge_row(self.policy, master_row, source_row);
         }
     }
@@ -345,7 +349,7 @@ mod tests {
             assert_eq!(lethal_cells(&layered), [expected], "robot at x={robot_x}");
             let beside = master[expected + IVec2::X];
             assert!(beside > COST_FREE && beside < COST_LETHAL, "halo {beside}");
-            assert_eq!(master[IVec2::new(0, 0)], COST_FREE);
+            assert_eq!(master[master.cells().min], COST_FREE);
         }
     }
 

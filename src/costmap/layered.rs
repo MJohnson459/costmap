@@ -44,20 +44,18 @@ pub trait Layer: Any {
     /// Called once per update; layers only expand bounds, never shrink.
     fn update_bounds(&mut self, robot: Pose2, bounds: &mut Bounds);
 
-    /// Write into the master grid only within `region`.
+    /// Write into the master grid only within `region`, which is cells of the
+    /// master's lattice.
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion);
 
     /// Called when the robot footprint changes. Default: no-op.
     fn on_footprint_changed(&mut self, _footprint: &Footprint) {}
 
-    /// Called when the master grid is resized. Default: no-op.
-    fn match_size(&mut self, _info: &MapInfo) {}
-
-    /// Called once by [`LayeredCostmap::add_layer`] with the master's layout and
+    /// Called once by [`LayeredCostmap::add_layer`] with the master grid and
     /// whether it is a rolling window. Return an error if the layer cannot work
     /// with that costmap, so a misconfigured layer fails when it is added
     /// instead of contributing nothing at run time. Default: accept.
-    fn attach(&mut self, _master: &MapInfo, _rolling_window: bool) -> Result<(), VoxelError> {
+    fn attach(&mut self, _master: &Costmap, _rolling_window: bool) -> Result<(), VoxelError> {
         Ok(())
     }
 }
@@ -77,9 +75,9 @@ impl LayeredCostmap {
     /// The master is set uniformly to `fill_value` for all cells and the updated region
     /// is reset to `fill_value` each frame before layers write.
     ///
-    /// If `rolling_window` is true, the grid origin is recentered on the robot each
-    /// [`update_map`](Self::update_map), so the costmap stays fixed in size but moves
-    /// with the robot (local costmap). If false, the grid is fixed in world frame.
+    /// If `rolling_window` is true, the grid is recentered on the robot each
+    /// [`update_map`](Self::update_map): it moves by whole cells of its lattice and
+    /// keeps its size (local costmap). If false, the grid is fixed in world frame.
     pub fn new(info: MapInfo, fill_value: u8, rolling_window: bool) -> Self {
         let master = Costmap::filled(info, fill_value);
         Self {
@@ -97,7 +95,7 @@ impl LayeredCostmap {
     /// error from [`Layer::attach`] if the layer rejects this costmap; a rejected
     /// layer is not added.
     pub fn add_layer(&mut self, mut layer: Box<dyn Layer>) -> Result<LayerId, VoxelError> {
-        layer.attach(self.master.info(), self.rolling_window)?;
+        layer.attach(&self.master, self.rolling_window)?;
         let id = LayerId(self.layers.len());
         self.layers.push(layer);
         Ok(id)
@@ -140,14 +138,11 @@ impl LayeredCostmap {
         self.updated_bounds
     }
 
-    /// Run the update loop: optionally move origin, aggregate bounds from all layers,
-    /// reset the master in that region, then call each layer's update_costs.
+    /// Run the update loop: optionally recentre the master, aggregate bounds from all
+    /// layers, reset the master in that region, then call each layer's update_costs.
     pub fn update_map(&mut self, robot: Pose2) {
         if self.rolling_window {
-            let info = self.master.info();
-            let new_origin = robot.position
-                - DVec2::new(info.width as f64, info.height as f64) * info.resolution * 0.5;
-            self.master.update_origin(new_origin);
+            self.master.update_center(robot.position);
         }
 
         let mut bounds = Bounds::empty();
@@ -160,7 +155,7 @@ impl LayeredCostmap {
             return;
         }
 
-        let Some(region) = clip_to_cells(bounds, self.master.info()) else {
+        let Some(region) = clip_to_cells(bounds, &self.master) else {
             self.updated_bounds = bounds;
             return;
         };
@@ -175,18 +170,19 @@ impl LayeredCostmap {
     }
 }
 
-/// Cell region of `info` covered by world `bounds`, or `None` if they do not overlap.
+/// The cells of `grid` covered by world `bounds`, or `None` if they do not overlap.
 ///
-/// The cell containing `bounds.max` is included. Indices are computed in `f64`
+/// The cell containing `bounds.max` is included. Cells are computed in `f64`
 /// and clamped before the integer conversion, so bounds far outside the grid
 /// clip to its edge.
-fn clip_to_cells(bounds: Bounds, info: &MapInfo) -> Option<CellRegion> {
-    let size = DVec2::new(info.width as f64, info.height as f64);
-    let lattice = info.lattice();
+fn clip_to_cells(bounds: Bounds, grid: &Costmap) -> Option<CellRegion> {
+    let held = grid.cells();
+    let (first, end) = (held.min.as_dvec2(), held.max.as_dvec2());
+    let lattice = grid.lattice();
     let lower = lattice.to_cells(bounds.min).floor();
     let upper = lattice.to_cells(bounds.max).floor() + DVec2::ONE;
-    let min = lower.clamp(DVec2::ZERO, size).as_ivec2();
-    let max = upper.clamp(DVec2::ZERO, size).as_ivec2();
+    let min = lower.clamp(first, end).as_ivec2();
+    let max = upper.clamp(first, end).as_ivec2();
     (min.x < max.x && min.y < max.y).then_some(CellRegion { min, max })
 }
 
@@ -262,7 +258,7 @@ mod tests {
     fn clip_to_cells_inside_includes_max_cell() {
         let region = clip_to_cells(
             bounds(DVec2::new(0.25, 0.25), DVec2::new(0.55, 0.35)),
-            &default_info(),
+            &Costmap::new(default_info()),
         )
         .unwrap();
         assert_eq!(region.min, IVec2::new(2, 2));
@@ -273,7 +269,7 @@ mod tests {
     fn clip_to_cells_partial_overlap_clips_to_edge() {
         let region = clip_to_cells(
             bounds(DVec2::new(-5.0, 0.85), DVec2::new(0.15, 50.0)),
-            &default_info(),
+            &Costmap::new(default_info()),
         )
         .unwrap();
         assert_eq!(region.min, IVec2::new(0, 8));
@@ -282,11 +278,26 @@ mod tests {
 
     #[test]
     fn clip_to_cells_no_overlap_is_none() {
-        let info = default_info();
+        let grid = Costmap::new(default_info());
         let beyond = bounds(DVec2::new(5.0, 5.0), DVec2::new(6.0, 6.0));
         let before = bounds(DVec2::new(-6.0, -6.0), DVec2::new(-5.0, -5.0));
-        assert!(clip_to_cells(beyond, &info).is_none());
-        assert!(clip_to_cells(before, &info).is_none());
+        assert!(clip_to_cells(beyond, &grid).is_none());
+        assert!(clip_to_cells(before, &grid).is_none());
+    }
+
+    #[test]
+    fn clip_to_cells_of_a_moved_grid_gives_its_cells() {
+        let mut grid = Costmap::new(default_info());
+        grid.update_origin(DVec2::new(2.0, -1.0));
+        assert_eq!(
+            grid.cells(),
+            CellRegion::new(IVec2::new(20, -10), IVec2::new(30, 0))
+        );
+
+        let region =
+            clip_to_cells(bounds(DVec2::new(1.0, -0.75), DVec2::new(2.15, 5.0)), &grid).unwrap();
+        assert_eq!(region.min, IVec2::new(20, -8));
+        assert_eq!(region.max, IVec2::new(22, 0));
     }
 
     #[test]

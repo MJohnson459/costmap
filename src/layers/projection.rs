@@ -14,7 +14,7 @@ use glam::DVec2;
 use crate::{
     DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project_into},
-    types::{Bounds, CellRegion, Pose2},
+    types::{Bounds, CellRegion, Pose2, VoxelError},
 };
 
 /// A layer that owns a semantic grid and projects it into the master costmap.
@@ -98,6 +98,18 @@ impl<T: Clone + 'static> Layer for ProjectionLayer<T> {
         project_into(master, &self.source, region, self.policy, |cell| {
             (self.project)(cell)
         });
+    }
+
+    /// Rejects a source on another lattice than the master: its cells would name
+    /// other places.
+    fn attach(&mut self, master: &Costmap, _rolling_window: bool) -> Result<(), VoxelError> {
+        let (own, theirs) = (self.source.lattice(), master.lattice());
+        if own != theirs {
+            return Err(VoxelError::InvalidArgument(format!(
+                "projection source lattice {own:?} differs from the costmap's {theirs:?}"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -333,9 +345,9 @@ mod tests {
     #[test]
     fn rolling_window_projects_to_correct_world_cell_as_window_moves() {
         // The motivating path: a rolling master + rolling projection layer (same
-        // MapInfo) driven through update_map. A cost fixed in *world* space must land
-        // at the right master cell as the window moves, and master/source must stay
-        // layout-aligned (project_into's debug_assert fires here, in debug test builds).
+        // MapInfo) driven through update_map. A cost fixed in *world* space must stay
+        // in the same cell as the window moves, and master/source must stay on one
+        // lattice (project_into's debug_assert fires here, in debug test builds).
         let mut layered = LayeredCostmap::new(default_info(), COST_FREE, true);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
@@ -346,7 +358,7 @@ mod tests {
             )))
             .unwrap();
 
-        // Robot centred so the window origin stays at (0,0). Mark world (3.5, 3.5).
+        // Robot centred so the window stays at cell (0,0). Mark world (3.5, 3.5).
         layered
             .layer_mut::<ProjectionLayer<f32>>(id)
             .unwrap()
@@ -357,27 +369,21 @@ mod tests {
             position: DVec2::new(2.5, 2.5),
             yaw: 0.0,
         });
-        // World (3.5,3.5) → cell (3,3) with origin (0,0).
-        assert_eq!(
-            layered.master().get(glam::IVec2::new(3, 3)),
-            Some(&COST_LETHAL)
-        );
+        let marked = glam::IVec2::new(3, 3);
+        assert_eq!(layered.master().get(marked), Some(&COST_LETHAL));
 
-        // Move the window +1 m in x → origin snaps to (1,0). No re-marking: the source
-        // persists data by world position across the shift.
+        // Move the window +1 m in x → its first cell becomes (1,0). No re-marking:
+        // the source keeps its cells across the move.
         layered.update_map(Pose2 {
             position: DVec2::new(3.5, 2.5),
             yaw: 0.0,
         });
-        // World (3.5,3.5) now maps to cell (2,3) with origin (1,0).
-        assert_eq!(
-            layered.master().get(glam::IVec2::new(2, 3)),
-            Some(&COST_LETHAL)
-        );
-        // The old cell no longer holds the marked world location.
-        assert_eq!(
-            layered.master().get(glam::IVec2::new(3, 3)),
-            Some(&COST_FREE)
-        );
+        let master = layered.master();
+        assert_eq!(master.cells().min, glam::IVec2::new(1, 0));
+        // World (3.5,3.5) is still cell (3,3), now third in its row.
+        assert_eq!(master.lattice().cell_at(DVec2::new(3.5, 3.5)), marked);
+        assert_eq!(master.get(marked), Some(&COST_LETHAL));
+        assert_eq!(master.as_slice()[3 * 5 + 2], COST_LETHAL);
+        assert_eq!(master.get(marked + glam::IVec2::X), Some(&COST_FREE));
     }
 }
