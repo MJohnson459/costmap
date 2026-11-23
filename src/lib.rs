@@ -10,7 +10,10 @@
 //! - [`raycast`] and [`iterators`] walk cells along rays and inside polygons.
 //! - [`plan`] is an 8-connected, cost-weighted A*. [`TileGraph`] plans across a map a
 //!   tile at a time and reads only the tiles on the route.
-//! - [`TiledGrid`] stores a map as sparse chunks; `window` cuts a [`DenseGrid`] from it.
+//! - [`TiledGrid`] stores a map as sparse chunks.
+//! - [`CostWindows`] is the one request every cost map answers: the cells of a
+//!   rectangle as a dense window. [`Costmap`], [`TiledGrid`] and, with the `geotiff`
+//!   feature, `GeoTiffWindows` answer it.
 //! - [`RosMapLoader`] reads ROS map YAML files. With the `geotiff` feature,
 //!   `CostGeoTiff` reads the chunks of a cost GeoTIFF that a region needs.
 //! - With the `rerun` feature, `rerun_viz` logs grids to the Rerun viewer.
@@ -35,19 +38,20 @@ pub use costmap::{
     Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, cost_from_occupancy,
     costmap_from_occupancy, occupancy_from_cost, project_into,
 };
-pub use grid::DenseGrid;
 #[allow(deprecated)]
 pub use grid::Grid2d;
+pub use grid::{CostWindows, DenseGrid};
 pub use layers::{
     Beam, InflationConfig, ObstacleConfig, ObstacleLayer, ProjectionLayer, TiledMapLayer,
     WavefrontInflationLayer,
 };
 #[cfg(feature = "geotiff")]
 pub use loaders::geotiff::{CostGeoTiff, write_cost_geotiff, write_cost_geotiff_region};
+#[cfg(feature = "geotiff")]
+pub use loaders::geotiff_windows::{ChunkStats, GeoTiffWindows};
 pub use loaders::ros2::{RosMapLoader, RosMapMetadata};
 pub use planning::{
-    DenseTiles, Path, PlanOptions, TileCache, TileGraph, TileGraphOptions, TileLayout, TileSource,
-    line_passable, plan,
+    Path, PlanOptions, TileCache, TileGraph, TileGraphOptions, TileLayout, line_passable, plan,
 };
 pub use tiled::{GeoReference, TiledGrid};
 pub use types::{Lattice, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};

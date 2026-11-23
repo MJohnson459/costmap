@@ -4,7 +4,8 @@ use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     DenseGrid,
-    types::{COST_UNKNOWN, Lattice, VoxelError},
+    grid::CostWindows,
+    types::{COST_UNKNOWN, CellRegion, Lattice, VoxelError},
 };
 
 /// Largest allowed chunk edge. Keeps `chunk_size * chunk_size` and chunk-local
@@ -237,21 +238,16 @@ impl<T: Clone> TiledGrid<T> {
         before - self.chunks.len()
     }
 
-    /// Copy the cells `[min_cell, min_cell + size)` into a dense grid.
+    /// Copy `cells` into a dense grid.
     ///
     /// The window is on this grid's lattice, so a cell of it is the same cell here.
-    /// Cells in absent chunks, and cells beyond the `i32` cell range, hold the
-    /// fill value, which is also the returned grid's fill value.
-    pub fn window(&self, min_cell: IVec2, size: UVec2) -> DenseGrid<T> {
-        let mut grid = DenseGrid::filled_cells(self.lattice(), min_cell, size, self.fill.clone());
-        self.copy_out(min_cell, size, grid.as_mut_slice());
+    /// Cells in absent chunks hold the fill value, which is also the returned grid's
+    /// fill value.
+    pub fn window(&self, cells: CellRegion) -> DenseGrid<T> {
+        let (min, size) = (cells.min, cells.size());
+        let mut grid = DenseGrid::filled_cells(self.lattice(), min, size, self.fill.clone());
+        self.copy_out(min, size, grid.as_mut_slice());
         grid
-    }
-
-    /// Like [`window`](Self::window), covering `size` cells with the cell containing `center` in the middle.
-    pub fn window_centered(&self, center: DVec2, size: UVec2) -> DenseGrid<T> {
-        let min_cell = self.lattice().cell_at(center) - (size / 2).as_ivec2();
-        self.window(min_cell, size)
     }
 
     /// Fill `target` from the tiles covering its cells.
@@ -305,6 +301,28 @@ impl<T: Clone> TiledGrid<T> {
                 None => out.fill(self.fill.clone()),
             }
         }
+    }
+}
+
+/// Cells in absent chunks read as the grid's fill value: [`COST_UNKNOWN`] for a
+/// grid made to hold costs.
+impl CostWindows for TiledGrid<u8> {
+    fn lattice(&self) -> Lattice {
+        TiledGrid::lattice(self)
+    }
+
+    fn window(&mut self, cells: CellRegion) -> Result<DenseGrid<u8>, VoxelError> {
+        Ok(TiledGrid::window(self, cells))
+    }
+}
+
+impl CostWindows for &TiledGrid<u8> {
+    fn lattice(&self) -> Lattice {
+        TiledGrid::lattice(self)
+    }
+
+    fn window(&mut self, cells: CellRegion) -> Result<DenseGrid<u8>, VoxelError> {
+        Ok(TiledGrid::window(self, cells))
     }
 }
 
@@ -456,7 +474,7 @@ mod tests {
         }
         let min = IVec2::new(-5, -6);
         let size = UVec2::new(11, 9);
-        let window = g.window(min, size);
+        let window = g.window(CellRegion::sized(min, size));
 
         assert_eq!(window.lattice(), g.lattice());
         assert_eq!(window.cells().min, min);
@@ -472,25 +490,25 @@ mod tests {
     }
 
     #[test]
-    fn window_leaves_cells_beyond_i32_as_fill() {
+    fn window_at_the_top_of_the_cell_range_holds_its_cells() {
         let mut g = grid(8);
-        g.set(IVec2::splat(i32::MAX), 7);
-        let window = g.window(IVec2::splat(i32::MAX - 1), UVec2::splat(4));
-        assert_eq!(window[IVec2::splat(i32::MAX)], 7);
-        // The array positions past the last cell have no name; they hold the fill.
-        assert_eq!(window.as_slice()[4 + 1], 7);
-        assert_eq!(window.as_slice()[2 * 4 + 2], COST_UNKNOWN);
-        assert_eq!(window.as_slice()[3], COST_UNKNOWN);
+        g.set(IVec2::splat(i32::MAX - 1), 7);
+        let cells = CellRegion::centered(IVec2::splat(i32::MAX), UVec2::splat(4));
+        let window = g.window(cells);
+        assert_eq!(window.cells(), cells);
+        assert_eq!(window.size(), UVec2::splat(4));
+        assert_eq!(window[IVec2::splat(i32::MAX - 1)], 7);
+        assert_eq!(window[IVec2::splat(i32::MAX - 2)], COST_UNKNOWN);
     }
 
     #[test]
-    fn window_centered_places_center_cell_in_middle() {
+    fn trait_window_matches_the_inherent_one() {
         let mut g = grid(8);
-        let cell = IVec2::new(-3, 12);
-        g.set(cell, 42);
-        let window = g.window_centered(g.lattice().cell_center(cell), UVec2::new(7, 5));
-        assert_eq!(window[cell], 42);
-        assert_eq!(window.cells().min, cell - IVec2::new(3, 2));
+        g.set(IVec2::new(-3, 12), 42);
+        let cells = CellRegion::sized(IVec2::new(-6, 10), UVec2::new(7, 5));
+        let window = CostWindows::window(&mut &g, cells).unwrap();
+        assert_eq!(window, g.window(cells));
+        assert_eq!(CostWindows::lattice(&g), g.lattice());
     }
 
     #[test]
@@ -501,7 +519,7 @@ mod tests {
         let source = DenseGrid::from_fn(lattice, cells, pattern);
         g.write_window(&source).unwrap();
 
-        let back = g.window(IVec2::new(-9, -4), UVec2::new(20, 13));
+        let back = g.window(CellRegion::sized(IVec2::new(-9, -4), UVec2::new(20, 13)));
         assert_eq!(back.as_slice(), source.as_slice());
         assert_eq!(g.loaded_chunks().count(), 12);
     }

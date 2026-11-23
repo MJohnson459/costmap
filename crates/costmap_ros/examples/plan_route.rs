@@ -55,9 +55,9 @@ fn main() -> anyhow::Result<()> {
     let graph = planner.graph();
     println!(
         "{} x {} cells at {} m: {} crossings in {:.1} MB, ready in {:.2} s",
-        graph.layout().size().x,
-        graph.layout().size().y,
-        graph.resolution(),
+        graph.layout().cells().size().x,
+        graph.layout().cells().size().y,
+        graph.lattice().resolution,
         graph.node_count() / 2,
         graph.memory_bytes() as f64 / 1e6,
         opened.elapsed().as_secs_f64()

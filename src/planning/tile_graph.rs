@@ -12,7 +12,6 @@
 //! the chosen crossing cells, at most [`TileGraphOptions::node_spacing_cells`] apart,
 //! and is cheapest between them.
 
-use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::f32::consts::SQRT_2;
@@ -23,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use glam::{IVec2, UVec2};
 
 use crate::{
-    Costmap,
+    CostWindows,
     types::{COST_FREE, COST_UNKNOWN, CellRegion, Lattice, VoxelError},
 };
 
@@ -54,7 +53,7 @@ const MAX_STORED_TILES: u64 = 1 << 24;
 static NEXT_GRAPH_ID: AtomicU64 = AtomicU64::new(0);
 
 /// First bytes of a stored [`TileGraph`], ending in the format version.
-const MAGIC: [u8; 8] = *b"CMTILEG\x01";
+const MAGIC: [u8; 8] = *b"CMTILEG\x02";
 
 /// How a [`TileGraph`] is built.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -78,30 +77,37 @@ impl Default for TileGraphOptions {
     }
 }
 
-/// How a map of `size` cells divides into tiles of `tile_cells`.
+/// How a rectangle of map cells divides into tiles of `tile_cells`.
 ///
-/// Tile `(i, j)` starts at cell `(i, j) * tile_cells`. Tiles on the east and north
-/// edges of the map are cut off at the map's edge.
+/// Tile `(i, j)` starts at cell `cells.min + (i, j) * tile_cells`. Tiles on the east
+/// and north edges of the rectangle are cut off at its edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileLayout {
+    min: IVec2,
     size: UVec2,
     tile_cells: u32,
 }
 
 impl TileLayout {
-    /// Fails if `tile_cells` is zero or either side of `size` is.
-    pub fn new(size: UVec2, tile_cells: u32) -> Result<Self, VoxelError> {
-        if tile_cells == 0 || size.x == 0 || size.y == 0 {
+    /// Fails if `tile_cells` is zero, `tile_cells` exceeds the `i32` range, or `cells`
+    /// is empty.
+    pub fn new(cells: CellRegion, tile_cells: u32) -> Result<Self, VoxelError> {
+        let size = cells.size();
+        if tile_cells == 0 || tile_cells > i32::MAX as u32 || size.x == 0 || size.y == 0 {
             return Err(VoxelError::InvalidArgument(format!(
                 "tile layout needs a non-empty map and tile, got {size} cells in tiles of {tile_cells}"
             )));
         }
-        Ok(Self { size, tile_cells })
+        Ok(Self {
+            min: cells.min,
+            size,
+            tile_cells,
+        })
     }
 
-    /// Map size in cells.
-    pub fn size(&self) -> UVec2 {
-        self.size
+    /// The cells the tiles cover.
+    pub fn cells(&self) -> CellRegion {
+        CellRegion::sized(self.min, self.size)
     }
 
     /// Tile edge in cells.
@@ -119,23 +125,32 @@ impl TileLayout {
 
     /// The tile holding `cell`.
     pub fn tile_of(&self, cell: IVec2) -> IVec2 {
-        cell.div_euclid(IVec2::splat(self.tile_cells as i32))
+        let offset = cell.as_i64vec2() - self.min.as_i64vec2();
+        offset
+            .div_euclid(glam::I64Vec2::splat(i64::from(self.tile_cells)))
+            .as_ivec2()
     }
 
     /// The lowest cell of `tile`.
     pub fn tile_min(&self, tile: IVec2) -> IVec2 {
-        tile * self.tile_cells as i32
+        self.min + tile * self.tile_cells as i32
     }
 
     /// Size of `tile` in cells.
     pub fn tile_size(&self, tile: IVec2) -> UVec2 {
-        (self.size.as_ivec2() - self.tile_min(tile))
-            .min(IVec2::splat(self.tile_cells as i32))
-            .as_uvec2()
+        let first = tile.as_uvec2() * self.tile_cells;
+        self.size
+            .saturating_sub(first)
+            .min(UVec2::splat(self.tile_cells))
+    }
+
+    /// The cells of `tile`.
+    pub fn tile_region(&self, tile: IVec2) -> CellRegion {
+        CellRegion::sized(self.tile_min(tile), self.tile_size(tile))
     }
 
     fn contains(&self, cell: IVec2) -> bool {
-        (cell.x as u32) < self.size.x && (cell.y as u32) < self.size.y
+        self.cells().contains(cell)
     }
 
     fn tile_count(&self) -> usize {
@@ -152,64 +167,6 @@ impl TileLayout {
     }
 }
 
-/// Supplies the costs of one tile at a time.
-pub trait TileSource {
-    /// Costs of `tile`: a grid of [`TileLayout::tile_size`] cells whose cell `(0, 0)` is
-    /// [`TileLayout::tile_min`]. The costs are planned on as given, so a source inflates
-    /// them first if the robot needs clearance, using cells beyond the tile's edge.
-    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError>;
-}
-
-impl<S: TileSource + ?Sized> TileSource for Box<S> {
-    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError> {
-        (**self).tile(tile)
-    }
-}
-
-/// Serves the tiles of a costmap held whole in memory, owned or borrowed.
-pub struct DenseTiles<G> {
-    grid: G,
-    layout: TileLayout,
-}
-
-impl<G: Borrow<Costmap>> DenseTiles<G> {
-    /// Fails if the grid's first cell is not (0, 0): a tile graph covers the cells
-    /// from (0, 0), so a grid that has moved has no tiles to serve.
-    pub fn new(grid: G, tile_cells: u32) -> Result<Self, VoxelError> {
-        let cells = grid.borrow().cells();
-        if cells.min != IVec2::ZERO {
-            return Err(VoxelError::InvalidArgument(format!(
-                "a tile graph covers cells from (0, 0), but the grid's first cell is {}",
-                cells.min
-            )));
-        }
-        let layout = TileLayout::new(grid.borrow().size(), tile_cells)?;
-        Ok(Self { grid, layout })
-    }
-}
-
-impl<G: Borrow<Costmap>> TileSource for DenseTiles<G> {
-    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError> {
-        let grid = self.grid.borrow();
-        let tiles = self.layout.tiles();
-        if tile.x < 0 || tile.y < 0 || tile.x as u32 >= tiles.x || tile.y as u32 >= tiles.y {
-            return Err(VoxelError::OutOfBounds(format!(
-                "tile {tile} is outside the {tiles} tiles of the map"
-            )));
-        }
-        let (min, size) = (self.layout.tile_min(tile), self.layout.tile_size(tile));
-        let width = grid.size().x as usize;
-        let mut data = Vec::with_capacity(size.x as usize * size.y as usize);
-        for y in min.y..min.y + size.y as i32 {
-            let row = y as usize * width + min.x as usize;
-            data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
-        }
-        let lattice = grid.lattice();
-        let corner = Lattice::new(lattice.cell_corner(min), lattice.resolution);
-        Costmap::from_vec(corner, CellRegion::from_size(size), data)
-    }
-}
-
 /// One tile's costs as the planner sees them: the cost of entering each cell, or
 /// [`IMPASSABLE`].
 struct TileCosts {
@@ -219,19 +176,20 @@ struct TileCosts {
 
 impl TileCosts {
     fn fetch(
-        source: &mut impl TileSource,
+        map: &mut impl CostWindows,
         layout: &TileLayout,
         tile: IVec2,
         options: &PlanOptions,
     ) -> Result<Self, VoxelError> {
-        let grid = source.tile(tile)?;
-        let size = layout.tile_size(tile);
-        if grid.size() != size {
+        let cells = layout.tile_region(tile);
+        let grid = map.window(cells)?;
+        if grid.cells() != cells {
             return Err(VoxelError::InvalidArgument(format!(
-                "tile {tile} has {} cells, expected {size}",
-                grid.size()
+                "tile {tile} came back as cells {:?}, expected {cells:?}",
+                grid.cells()
             )));
         }
+        let size = cells.size();
         let costs = grid
             .as_slice()
             .iter()
@@ -513,7 +471,7 @@ pub struct TileGraph {
     id: u64,
     layout: TileLayout,
     options: TileGraphOptions,
-    resolution: f64,
+    lattice: Lattice,
     steps: Steps,
     nodes: Vec<Node>,
     /// The nodes on the border of each tile.
@@ -525,26 +483,29 @@ pub struct TileGraph {
 }
 
 impl TileGraph {
-    /// Build the graph of a map of `size` cells of `resolution` metres, reading each
-    /// tile from `source` twice.
+    /// Build the graph of `cells` of `map`, reading each tile from `map` twice.
+    ///
+    /// The costs are planned on as `map` gives them, so a map whose robot needs
+    /// clearance is inflated before it reaches here. Cells are `map`'s, and so are the
+    /// cells of every path the graph plans.
     pub fn build(
-        size: UVec2,
-        resolution: f64,
+        map: &mut impl CostWindows,
+        cells: CellRegion,
         options: TileGraphOptions,
-        source: &mut impl TileSource,
     ) -> Result<Self, VoxelError> {
         if options.node_spacing_cells == 0 {
             return Err(VoxelError::InvalidArgument(
                 "node_spacing_cells must be at least 1".into(),
             ));
         }
-        let layout = TileLayout::new(size, options.tile_cells)?;
-        let steps = Steps::new(resolution, &options.plan);
+        let lattice = map.lattice();
+        let layout = TileLayout::new(cells, options.tile_cells)?;
+        let steps = Steps::new(lattice.resolution, &options.plan);
         let count = layout.tile_count();
 
         let mut edges = Vec::with_capacity(count);
         for index in 0..count {
-            let tile = TileCosts::fetch(source, &layout, layout.tile_at(index), &options.plan)?;
+            let tile = TileCosts::fetch(map, &layout, layout.tile_at(index), &options.plan)?;
             edges.push(Edges {
                 west: tile.column(0),
                 east: tile.column(tile.size.x as i32 - 1),
@@ -557,7 +518,7 @@ impl TileGraph {
             id: NEXT_GRAPH_ID.fetch_add(1, AtomicOrdering::Relaxed),
             layout,
             options,
-            resolution,
+            lattice,
             steps,
             nodes: Vec::new(),
             tile_nodes: vec![Vec::new(); count],
@@ -602,7 +563,7 @@ impl TileGraph {
             let mut tiles = Vec::with_capacity(batch.len());
             for &index in batch {
                 let tile = layout.tile_at(index);
-                tiles.push(TileCosts::fetch(source, &layout, tile, &options.plan)?);
+                tiles.push(TileCosts::fetch(map, &layout, tile, &options.plan)?);
             }
             let next = AtomicUsize::new(0);
             let done = Mutex::new(Vec::with_capacity(batch.len()));
@@ -672,9 +633,12 @@ impl TileGraph {
     pub fn write_to(&self, out: &mut impl Write) -> std::io::Result<()> {
         let plan = &self.options.plan;
         out.write_all(&MAGIC)?;
+        let cells = self.layout.cells();
         for value in [
-            self.layout.size.x,
-            self.layout.size.y,
+            cells.min.x as u32,
+            cells.min.y as u32,
+            cells.max.x as u32,
+            cells.max.y as u32,
             self.options.tile_cells,
             self.options.node_spacing_cells,
             u32::from(plan.lethal_threshold),
@@ -684,7 +648,13 @@ impl TileGraph {
         ] {
             out.write_all(&value.to_le_bytes())?;
         }
-        out.write_all(&self.resolution.to_le_bytes())?;
+        for value in [
+            self.lattice.anchor.x,
+            self.lattice.anchor.y,
+            self.lattice.resolution,
+        ] {
+            out.write_all(&value.to_le_bytes())?;
+        }
         for node in &self.nodes {
             for value in [node.cell.x, node.cell.y] {
                 out.write_all(&value.to_le_bytes())?;
@@ -718,7 +688,8 @@ impl TileGraph {
             input.read_exact(&mut bytes)?;
             Ok(u32::from_le_bytes(bytes))
         };
-        let size = UVec2::new(word()?, word()?);
+        let min = IVec2::new(word()? as i32, word()? as i32);
+        let max = IVec2::new(word()? as i32, word()? as i32);
         let options = TileGraphOptions {
             tile_cells: word()?,
             node_spacing_cells: word()?,
@@ -729,13 +700,18 @@ impl TileGraph {
             },
         };
         let node_count = word()? as usize;
-        let mut resolution = [0; 8];
-        input.read_exact(&mut resolution)?;
-        let resolution = f64::from_le_bytes(resolution);
-        if !(resolution.is_finite() && resolution > 0.0) {
-            return Err(invalid("resolution"));
+        let mut float = || -> Result<f64, VoxelError> {
+            let mut bytes = [0; 8];
+            input.read_exact(&mut bytes)?;
+            Ok(f64::from_le_bytes(bytes))
+        };
+        let anchor = glam::DVec2::new(float()?, float()?);
+        let resolution = float()?;
+        if !(anchor.is_finite() && resolution.is_finite() && resolution > 0.0) {
+            return Err(invalid("lattice"));
         }
-        let layout = TileLayout::new(size, options.tile_cells)?;
+        let lattice = Lattice::new(anchor, resolution);
+        let layout = TileLayout::new(CellRegion::new(min, max), options.tile_cells)?;
         let tiles = layout.tiles();
         if u64::from(tiles.x) * u64::from(tiles.y) > MAX_STORED_TILES {
             return Err(invalid("more tiles than a stored graph may have"));
@@ -797,7 +773,7 @@ impl TileGraph {
             id: NEXT_GRAPH_ID.fetch_add(1, AtomicOrdering::Relaxed),
             layout,
             options,
-            resolution,
+            lattice,
             steps: Steps::new(resolution, &options.plan),
             nodes,
             tile_nodes,
@@ -810,9 +786,9 @@ impl TileGraph {
         self.layout
     }
 
-    /// Cell size in metres.
-    pub fn resolution(&self) -> f64 {
-        self.resolution
+    /// The lattice of the map the graph was built from: its cells are the graph's.
+    pub fn lattice(&self) -> Lattice {
+        self.lattice
     }
 
     /// The options the graph was built with.
@@ -842,7 +818,7 @@ impl TileGraph {
     ///
     /// Fails if the source fails, if its tiles differ from those the graph was built
     /// from, or if `tiles` was made for another graph.
-    pub fn plan<S: TileSource>(
+    pub fn plan<S: CostWindows>(
         &self,
         start: IVec2,
         goal: IVec2,
@@ -1038,7 +1014,7 @@ impl TileGraph {
     }
 
     /// The cheapest path inside a tile from `from` to `to`.
-    fn refine<S: TileSource>(
+    fn refine<S: CostWindows>(
         &self,
         tiles: &mut TileCache<S>,
         search: &mut Search,
@@ -1082,7 +1058,7 @@ impl TileGraph {
 
     /// Waypoints along `path` joined by straight segments, as [`Path::shortcut`] gives
     /// on the whole map.
-    pub fn shortcut<S: TileSource>(
+    pub fn shortcut<S: CostWindows>(
         &self,
         path: &Path,
         tiles: &mut TileCache<S>,
@@ -1113,7 +1089,7 @@ struct Stretch {
 /// it holds a few hundred cells.
 const STRETCHES_HELD: usize = 1024;
 
-/// Tiles read from a [`TileSource`], kept for later plans, with the parts of earlier
+/// Tiles read from a [`CostWindows`] map, kept for later plans, with the parts of earlier
 /// plans that later ones repeat.
 pub struct TileCache<S> {
     source: S,
@@ -1133,11 +1109,20 @@ pub struct TileCache<S> {
     fetched: usize,
 }
 
-impl<S: TileSource> TileCache<S> {
+impl<S: CostWindows> TileCache<S> {
     /// Hold up to `capacity` tiles of `source` for plans on `graph`. A plan reads the
     /// tiles its route passes through; with fewer held, tiles are read again.
-    pub fn new(source: S, graph: &TileGraph, capacity: usize) -> Self {
-        Self {
+    ///
+    /// Fails if `source` is not on the lattice `graph` was built on.
+    pub fn new(source: S, graph: &TileGraph, capacity: usize) -> Result<Self, VoxelError> {
+        if source.lattice() != graph.lattice {
+            return Err(VoxelError::InvalidArgument(format!(
+                "tile cache source is on {:?}, but the graph was built on {:?}",
+                source.lattice(),
+                graph.lattice
+            )));
+        }
+        Ok(Self {
             source,
             graph: graph.id,
             layout: graph.layout,
@@ -1149,7 +1134,7 @@ impl<S: TileSource> TileCache<S> {
             stretches: HashMap::new(),
             to_goal: None,
             fetched: 0,
-        }
+        })
     }
 
     /// Number of tiles read from the source so far.
@@ -1218,7 +1203,7 @@ impl<S: TileSource> TileCache<S> {
 mod tests {
     use super::*;
     use crate::{
-        plan,
+        Costmap, plan,
         types::{COST_LETHAL, CellRegion, Lattice},
     };
 
@@ -1245,8 +1230,7 @@ mod tests {
     }
 
     fn graph_of(grid: &Costmap, options: TileGraphOptions) -> TileGraph {
-        let mut source = DenseTiles::new(grid, options.tile_cells).unwrap();
-        TileGraph::build(grid.size(), grid.lattice().resolution, options, &mut source).unwrap()
+        TileGraph::build(&mut &*grid, grid.cells(), options).unwrap()
     }
 
     fn plan_on(
@@ -1255,8 +1239,7 @@ mod tests {
         start: IVec2,
         goal: IVec2,
     ) -> (Option<Path>, usize) {
-        let source = DenseTiles::new(grid, graph.options().tile_cells).unwrap();
-        let mut tiles = TileCache::new(source, graph, 64);
+        let mut tiles = TileCache::new(grid, graph, 64).unwrap();
         let path = graph.plan(start, goal, &mut tiles).unwrap();
         (path, tiles.fetched())
     }
@@ -1418,8 +1401,7 @@ mod tests {
     fn shortcut_straightens_a_path_across_tiles() {
         let grid = Costmap::filled(lattice(), cells(64, 64), COST_FREE);
         let graph = graph_of(&grid, OPTIONS);
-        let source = DenseTiles::new(&grid, OPTIONS.tile_cells).unwrap();
-        let mut tiles = TileCache::new(source, &graph, 64);
+        let mut tiles = TileCache::new(&grid, &graph, 64).unwrap();
         let (start, goal) = (cell(2, 3), cell(60, 41));
         let path = graph.plan(start, goal, &mut tiles).unwrap().unwrap();
         assert_eq!(graph.shortcut(&path, &mut tiles).unwrap(), [start, goal]);
@@ -1437,8 +1419,7 @@ mod tests {
         let graph = graph_of(&grid, OPTIONS);
         let (start, goal) = (cell(1, 1), cell(62, 60));
         let (expected, _) = plan_on(&grid, &graph, start, goal);
-        let source = DenseTiles::new(&grid, OPTIONS.tile_cells).unwrap();
-        let mut tiles = TileCache::new(source, &graph, 1);
+        let mut tiles = TileCache::new(&grid, &graph, 1).unwrap();
         let path = graph.plan(start, goal, &mut tiles).unwrap();
         assert_eq!(path, expected);
         assert_eq!(tiles.held(), 1);
@@ -1454,8 +1435,7 @@ mod tests {
             }
         });
         let graph = graph_of(&grid, OPTIONS);
-        let source = DenseTiles::new(&grid, OPTIONS.tile_cells).unwrap();
-        let mut tiles = TileCache::new(source, &graph, 64);
+        let mut tiles = TileCache::new(&grid, &graph, 64).unwrap();
         let (start, goal) = (cell(1, 1), cell(62, 60));
         let first = graph.plan(start, goal, &mut tiles).unwrap().unwrap();
         let fetched = tiles.fetched();
@@ -1484,16 +1464,17 @@ mod tests {
         let read = TileGraph::read_from(&mut bytes.as_slice()).unwrap();
         assert_eq!(read.nodes, graph.nodes);
         assert_eq!(read.tile_costs, graph.tile_costs);
-        assert_eq!(read.resolution(), graph.resolution());
+        assert_eq!(read.lattice(), graph.lattice());
+        assert_eq!(read.layout(), graph.layout());
         let (start, goal) = (cell(0, 0), cell(39, 29));
         let expected = plan_on(&grid, &graph, start, goal).0;
         assert!(expected.is_some());
         assert_eq!(plan_on(&grid, &read, start, goal).0, expected);
 
         assert!(TileGraph::read_from(&mut &bytes[..bytes.len() - 1]).is_err());
-        // The partner of the first node is the fifth word after the 48-byte header.
+        // The partner of the first node is the fifth word after the 72-byte header.
         let mut wrong_partner = bytes.clone();
-        wrong_partner[48 + 16..48 + 20].copy_from_slice(&0u32.to_le_bytes());
+        wrong_partner[72 + 16..72 + 20].copy_from_slice(&0u32.to_le_bytes());
         assert!(matches!(
             TileGraph::read_from(&mut wrong_partner.as_slice()),
             Err(VoxelError::InvalidMetadata(_))
@@ -1510,13 +1491,54 @@ mod tests {
         let grid = Costmap::filled(lattice(), cells(40, 30), COST_FREE);
         let graph = graph_of(&grid, OPTIONS);
         let other = graph_of(&grid, OPTIONS);
-        let source = DenseTiles::new(&grid, OPTIONS.tile_cells).unwrap();
-        let mut tiles = TileCache::new(source, &graph, 64);
+        let mut tiles = TileCache::new(&grid, &graph, 64).unwrap();
         assert!(graph.plan(cell(0, 0), cell(39, 29), &mut tiles).is_ok());
         assert!(matches!(
             other.plan(cell(0, 0), cell(39, 29), &mut tiles),
             Err(VoxelError::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn a_cache_refuses_a_map_on_another_lattice() {
+        let grid = Costmap::filled(lattice(), cells(40, 30), COST_FREE);
+        let graph = graph_of(&grid, OPTIONS);
+        let shifted = Lattice::new(glam::DVec2::new(0.25, 0.0), 0.5);
+        let other = Costmap::filled(shifted, cells(40, 30), COST_FREE);
+        assert!(matches!(
+            TileCache::new(&other, &graph, 64),
+            Err(VoxelError::InvalidArgument(_))
+        ));
+    }
+
+    #[test]
+    fn a_graph_of_cells_away_from_the_origin_plans_in_those_cells() {
+        let shift = IVec2::new(-37, 1000);
+        let cost = |p: IVec2| {
+            if p.x % 9 == 4 && p.y % 7 != 0 {
+                COST_LETHAL
+            } else {
+                (p.x + p.y) as u8
+            }
+        };
+        let grid = Costmap::from_fn(lattice(), cells(40, 30), cost);
+        let moved = Costmap::from_fn(
+            lattice(),
+            CellRegion::sized(shift, UVec2::new(40, 30)),
+            |p| cost(p - shift),
+        );
+        let (start, goal) = (cell(0, 0), cell(39, 29));
+        let graph = graph_of(&grid, OPTIONS);
+        let moved_graph = graph_of(&moved, OPTIONS);
+        assert_eq!(moved_graph.layout().cells(), moved.cells());
+        let path = plan_on(&grid, &graph, start, goal).0.unwrap();
+        let moved_path = plan_on(&moved, &moved_graph, start + shift, goal + shift)
+            .0
+            .unwrap();
+        let shifted: Vec<IVec2> = path.cells.iter().map(|&c| c + shift).collect();
+        assert_eq!(moved_path.cells, shifted);
+        assert_eq!(moved_path.cost, path.cost);
+        assert_eq!(plan_on(&moved, &moved_graph, start, goal).0, None);
     }
 
     #[test]

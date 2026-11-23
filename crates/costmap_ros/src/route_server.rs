@@ -244,9 +244,9 @@ pub fn open_routes(
     info!(
         "{} is {}x{} cells at {:.3} m; its tile graph has {} crossings in {:.1} MB, ready in {:.1} s",
         path.display(),
-        graph.layout().size().x,
-        graph.layout().size().y,
-        graph.resolution(),
+        graph.layout().cells().size().x,
+        graph.layout().cells().size().y,
+        graph.lattice().resolution,
         graph.node_count() / 2,
         graph.memory_bytes() as f64 / 1e6,
         loaded.elapsed().as_secs_f64()

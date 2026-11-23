@@ -8,8 +8,9 @@ use costmap::types::{
     COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, FREE, Footprint, Lattice, OCCUPIED, Pose2,
 };
 use costmap::{
-    Costmap, DenseGrid, DenseTiles, InflationConfig, Layer, OccupancyGrid, PlanOptions,
-    WavefrontInflationLayer, costmap_from_occupancy, line_passable, plan,
+    CostWindows, Costmap, DenseGrid, InflationConfig, Layer, OccupancyGrid, PlanOptions, TileCache,
+    TileGraph, TileGraphOptions, WavefrontInflationLayer, costmap_from_occupancy, line_passable,
+    plan,
 };
 use glam::{DVec2, IVec2, UVec2, Vec2};
 
@@ -326,8 +327,37 @@ fn grids_holding_different_cells_of_one_lattice_merge_where_they_overlap() {
 }
 
 #[test]
-fn a_tile_graph_refuses_a_moved_grid() {
+fn a_window_holds_the_same_cells_shifted() {
     let grid = costs();
-    assert!(DenseTiles::new(&grid, 16).is_ok());
-    assert!(DenseTiles::new(moved(&grid), 16).is_err());
+    let mut shifted = moved(&grid);
+    let cells = CellRegion::sized(IVec2::new(-2, 3), UVec2::new(30, 12));
+    let window = (&grid).window(cells).unwrap();
+    let moved_window = shifted
+        .window(CellRegion::new(cells.min + SHIFT, cells.max + SHIFT))
+        .unwrap();
+    assert_eq!(moved_window.as_slice(), window.as_slice());
+    assert_eq!(moved_window.cells().min, window.cells().min + SHIFT);
+}
+
+#[test]
+fn a_tile_graph_plans_the_same_path_shifted() {
+    let grid = costs();
+    let shifted = moved(&grid);
+    let options = TileGraphOptions {
+        tile_cells: 16,
+        node_spacing_cells: 4,
+        plan: PlanOptions::default(),
+    };
+    let route = |map: &Costmap, start: IVec2, goal: IVec2| {
+        let graph = TileGraph::build(&mut &*map, map.cells(), options).unwrap();
+        let mut tiles = TileCache::new(map, &graph, 64).unwrap();
+        graph.plan(start, goal, &mut tiles).unwrap()
+    };
+    let (start, goal) = (grid.cells().min, grid.cells().max - IVec2::ONE);
+    let path = route(&grid, start, goal);
+    let moved_path = route(&shifted, start + SHIFT, goal + SHIFT);
+    assert_eq!(
+        moved_path.map(|p| p.cells),
+        path.map(|p| p.cells.iter().map(|&c| c + SHIFT).collect())
+    );
 }

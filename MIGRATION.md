@@ -103,7 +103,7 @@ A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsign
 | `PolygonIterator` | yields `UVec2` | yields `IVec2` |
 | `RayHit2D::cell` | `UVec2` | `IVec2` |
 
-The planning API, new in 0.3, uses `IVec2` for every cell: `plan`'s `start` and `goal`, `Path::cells`, `Path::shortcut`, `Move::cell`, `moves`, `passable_cost`, `line_passable`, `Regions::region` and `Regions::cells`. `TileGraph::plan`, `TileGraph::shortcut` and `TileCache::cost` do the same. Tile coordinates are positions too: `TileSource::tile` takes an `IVec2`, and `TileLayout::tile_of` and `tile_min` return one. `TileLayout::tile_size`, `tiles` and `size` stay `UVec2`.
+The planning API, new in 0.3, uses `IVec2` for every cell: `plan`'s `start` and `goal`, `Path::cells`, `Path::shortcut`, `Move::cell`, `moves`, `passable_cost`, `line_passable`, `Regions::region` and `Regions::cells`. `TileGraph::plan`, `TileGraph::shortcut` and `TileCache::cost` do the same. Tile coordinates are positions too: `TileLayout::tile_of` and `tile_min` return an `IVec2`. `TileLayout::tile_size` and `tiles` stay `UVec2`.
 
 A cell outside the grid, including one with a negative coordinate, gets `None` from `get`. `DenseGrid::contains(cell)` tests the bounds alone.
 
@@ -141,7 +141,7 @@ let cost = grid.get(grid.lattice().cell_at(position));
 A `DenseGrid` holds a rectangle of its lattice's cells, returned by `cells()`. A grid built with `CellRegion::from_size` holds the cells from (0, 0), as in 0.2. Two things differ:
 
 - **`update_origin` and `update_center` leave the lattice alone.** In 0.2 the first cell was (0, 0) after every move, so a cell's position changed as the grid rolled. Now the grid holds other cells and each keeps its position: after a 4-cell-wide grid moves one cell right, `cells()` is x 1..5 and `get(IVec2::new(0, y))` is `None`.
-- **`TiledGrid::window(min_cell, size)` returns the tiled grid's cells.** The window's first cell is `min_cell`, where in 0.2 it was (0, 0).
+- **`TiledGrid::window(cells)` returns the tiled grid's cells.** The window's first cell is `cells.min`, where in 0.2 it was (0, 0).
 
 `as_slice` is unchanged: row-major from the first cell held. `world_bounds().min` is the world corner of that first cell. Code that indexed a moved grid or a window from zero either reads the slice or adds `cells().min`:
 
@@ -155,6 +155,37 @@ let first = window.get(window.cells().min);
 `reset_map`, `CellRegion` in `Layer::update_costs` and `project_into`, and the cells of `LineIterator`, `PolygonIterator`, `RayHit2D`, `Path` and `Regions` are all cells of the grid's lattice. `project_into` and the `merge_*` functions accept two grids that hold different rectangles of one lattice and write where they overlap.
 
 `Layer::attach` takes the master grid (`&Costmap`) where it took a `&MapInfo`. `Layer::match_size` is removed; `LayeredCostmap` never called it.
+
+### Windows are read through `CostWindows`
+
+Every cost map answers one request: `CostWindows::window(cells)` returns the cells of a `CellRegion` as a `Costmap` on the map's lattice, with `COST_UNKNOWN` where the map holds nothing. `Costmap`, `TiledGrid<u8>` and, with the `geotiff` feature, `GeoTiffWindows` implement it.
+
+| 0.2 | 0.3 |
+| --- | --- |
+| `tiled.window(min_cell, size)` | `tiled.window(CellRegion::sized(min_cell, size))` |
+| `tiled.window_centered(center, size)` | `tiled.window(CellRegion::centered(tiled.lattice().cell_at(center), size))` |
+
+`CellRegion::centered(cell, size)` puts `size / 2` cells below `cell` on each axis, as `window_centered` did, and moves the region inward at the ends of the `i32` cell range so it keeps its size. `CellRegion::grown(n)` adds `n` cells on every side.
+
+`TileGraph` reads its tiles through the same trait; `TileSource` and `DenseTiles` are removed. The graph covers any rectangle of cells, not only those from (0, 0), and keeps the map's lattice:
+
+```rust
+// before
+let mut source = DenseTiles::new(&map, options.tile_cells)?;
+let graph = TileGraph::build(map.size(), map.lattice().resolution, options, &mut source)?;
+let mut tiles = TileCache::new(DenseTiles::new(&map, options.tile_cells)?, &graph, 64);
+// 0.3
+let graph = TileGraph::build(&mut &map, map.cells(), options)?;
+let mut tiles = TileCache::new(&map, &graph, 64)?;
+```
+
+- `TileCache::new` returns a `Result`: it fails if the map is not on the graph's lattice.
+- `TileGraph::resolution()` is `TileGraph::lattice().resolution`.
+- `TileLayout::new` takes a `CellRegion`; `TileLayout::size()` is `TileLayout::cells().size()`.
+- A source that changed costs, such as one that inflates, implements `CostWindows` and reads a grown window from the map below it.
+- A graph stored by `write_to` before this change does not read back; build it again.
+
+In `costmap_ros`, the `MapSource` trait, `SourceError` and `TileStats` are removed. The server reads any `CostWindows` map; `window_around(map, center, size)` cuts the window it publishes. `GeoTiffSource` implements `CostWindows` and its `stats()` returns `costmap::ChunkStats`.
 
 ### `LayeredCostmap::add_layer` returns a `Result`
 

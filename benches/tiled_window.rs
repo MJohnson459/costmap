@@ -4,6 +4,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use glam::{IVec2, UVec2};
 
 use costmap::TiledGrid;
+use costmap::types::CellRegion;
 
 const MAP_CELLS: i32 = 8192;
 const CHUNK_SIZE: u32 = 256;
@@ -27,7 +28,7 @@ fn bench_window(c: &mut Criterion) {
         // Offset so the window straddles chunk boundaries on both axes.
         let min = IVec2::new(1000 + 17, 3000 + 91);
         group.bench_function(format!("{size}x{size}"), |b| {
-            b.iter(|| black_box(grid.window(black_box(min), UVec2::splat(size))))
+            b.iter(|| black_box(grid.window(CellRegion::sized(black_box(min), UVec2::splat(size)))))
         });
     }
     group.finish();
