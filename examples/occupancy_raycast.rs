@@ -41,7 +41,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let rec = rerun::RecordingStreamBuilder::new("costmap_occupancy_raycast").spawn()?;
     log_occupancy_grid(&rec, "world/map", &grid, 0.0)?;
 
-    let center = grid.info().world_center();
+    let bounds = grid.world_bounds();
+    let center = (bounds.min + bounds.max) * 0.5;
     log_point3d(
         &rec,
         "world/map_center",

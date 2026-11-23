@@ -1,20 +1,17 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::DVec2;
+use glam::{DVec2, UVec2};
 
 use costmap::DenseGrid;
 use costmap::iterators::polygon::PolygonIterator;
-use costmap::types::MapInfo;
+use costmap::types::{CellRegion, Lattice};
 
 fn bench_polygon_iter(c: &mut Criterion) {
-    let info = MapInfo {
-        width: 256,
-        height: 256,
-        resolution: 1.0,
-        ..Default::default()
-    };
-    let grid = DenseGrid::<u8>::new(info);
+    let grid = DenseGrid::<u8>::new(
+        Lattice::new(DVec2::ZERO, 1.0),
+        CellRegion::from_size(UVec2::splat(256)),
+    );
 
     let points = vec![
         DVec2::new(10.0, 10.0),

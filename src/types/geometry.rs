@@ -1,6 +1,6 @@
 //! Geometric and spatial types used across the grid and costmap APIs.
 
-use glam::{DVec2, IVec2, Vec2};
+use glam::{DVec2, IVec2, UVec2, Vec2};
 
 /// Robot pose in world coordinates (meters).
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -66,6 +66,25 @@ pub struct CellRegion {
 impl CellRegion {
     pub fn new(min: IVec2, max: IVec2) -> Self {
         Self { min, max }
+    }
+
+    /// `size` cells from `min`. A size beyond the `i32` cell range saturates.
+    #[inline]
+    pub fn sized(min: IVec2, size: UVec2) -> Self {
+        Self::new(min, min.saturating_add_unsigned(size))
+    }
+
+    /// `size` cells from (0, 0).
+    #[inline]
+    pub fn from_size(size: UVec2) -> Self {
+        Self::sized(IVec2::ZERO, size)
+    }
+
+    /// Width and height in cells; zero on an axis where `max` is not above `min`.
+    #[inline]
+    pub fn size(&self) -> UVec2 {
+        let size = self.max.saturating_sub(self.min).max(IVec2::ZERO);
+        size.as_uvec2()
     }
 
     /// Returns true if the cell position is inside this region (half-open bounds).

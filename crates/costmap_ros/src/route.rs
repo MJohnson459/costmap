@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Instant, UNIX_EPOCH};
 
-use costmap::types::{COST_UNKNOWN, VoxelError};
+use costmap::types::{COST_UNKNOWN, CellRegion, VoxelError};
 use costmap::{
-    CostGeoTiff, Costmap, Lattice, MapInfo, RosMapLoader, TileCache, TileGraph, TileGraphOptions,
+    CostGeoTiff, Costmap, Lattice, RosMapLoader, TileCache, TileGraph, TileGraphOptions,
     TileLayout, TileSource, TiledGrid, costmap_from_occupancy,
 };
 use glam::{DVec2, IVec2, UVec2};
@@ -115,13 +115,13 @@ impl RawCosts for GeoTiffCosts {
 
 impl RawCosts for Costmap {
     fn window(&mut self, low: IVec2, size: UVec2) -> Result<Costmap, VoxelError> {
-        let info = MapInfo {
-            width: size.x,
-            height: size.y,
-            resolution: self.info().resolution,
-            origin: self.lattice().cell_corner(self.cells().min + low),
-        };
-        let mut window = Costmap::filled(info, COST_UNKNOWN);
+        let lattice = self.lattice();
+        let corner = lattice.cell_corner(self.cells().min + low);
+        let mut window = Costmap::filled(
+            Lattice::new(corner, lattice.resolution),
+            CellRegion::from_size(size),
+            COST_UNKNOWN,
+        );
         // The rows and columns of the window that lie inside the map.
         let first = low.max(IVec2::ZERO);
         let last = (low + size.as_ivec2()).min(self.size().as_ivec2());
@@ -189,13 +189,13 @@ fn crop(grid: &Costmap, min: IVec2, size: UVec2) -> Result<Costmap, VoxelError> 
         let row = y as usize * width + min.x as usize;
         data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
     }
-    let info = MapInfo {
-        width: size.x,
-        height: size.y,
-        resolution: grid.info().resolution,
-        origin: grid.lattice().cell_corner(grid.cells().min + min),
-    };
-    Costmap::from_vec(info, data)
+    let lattice = grid.lattice();
+    let corner = lattice.cell_corner(grid.cells().min + min);
+    Costmap::from_vec(
+        Lattice::new(corner, lattice.resolution),
+        CellRegion::from_size(size),
+        data,
+    )
 }
 
 /// What a stored graph of a raster was built from: the raster's length,
@@ -228,12 +228,11 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
 /// size and resolution, a hash of every cell, and [`options_fingerprint`].
 /// A ROS map's image and the thresholds in its YAML both show in the cells.
 fn costs_fingerprint(costs: &Costmap, options: &RouteOptions) -> Vec<u8> {
-    let info = costs.info();
     let mut bytes = GRAPH_MAGIC.to_vec();
     bytes.extend(b"cells");
-    bytes.extend(info.width.to_le_bytes());
-    bytes.extend(info.height.to_le_bytes());
-    bytes.extend(info.resolution.to_le_bytes());
+    bytes.extend(costs.size().x.to_le_bytes());
+    bytes.extend(costs.size().y.to_le_bytes());
+    bytes.extend(costs.lattice().resolution.to_le_bytes());
     bytes.extend(fnv1a(FNV_OFFSET, costs.as_slice()).to_le_bytes());
     bytes.extend(options_fingerprint(options));
     bytes
@@ -373,19 +372,13 @@ impl RoutePlanner {
             Some("yaml" | "yml") => {
                 let occupancy = RosMapLoader::load_from_yaml(path)?;
                 let costs = costmap_from_occupancy(&occupancy)?;
-                let info = *costs.info();
-                let size = UVec2::new(info.width, info.height);
+                let (size, resolution) = (costs.size(), costs.lattice().resolution);
+                let origin = costs.world_bounds().min;
                 let fingerprint = costs_fingerprint(&costs, &options);
-                let mut source = InflatedTiles::new(costs, size, info.resolution, &options)?;
-                let graph = stored_or_built(
-                    path,
-                    &fingerprint,
-                    size,
-                    info.resolution,
-                    &options,
-                    &mut source,
-                )?;
-                return Ok(Self::new(graph, Box::new(source), info.origin, options));
+                let mut source = InflatedTiles::new(costs, size, resolution, &options)?;
+                let graph =
+                    stored_or_built(path, &fingerprint, size, resolution, &options, &mut source)?;
+                return Ok(Self::new(graph, Box::new(source), origin, options));
             }
             Some("tif" | "tiff") => {}
             _ => {
@@ -410,11 +403,11 @@ impl RoutePlanner {
     /// Plan on `costs`, held in memory and inflated a tile at a time. The map
     /// frame is the frame `costs` is placed in by its origin.
     pub fn from_costmap(costs: Costmap, options: RouteOptions) -> Result<Self, VoxelError> {
-        let info = *costs.info();
-        let size = UVec2::new(info.width, info.height);
-        let mut source = InflatedTiles::new(costs, size, info.resolution, &options)?;
-        let graph = TileGraph::build(size, info.resolution, options.graph, &mut source)?;
-        Ok(Self::new(graph, Box::new(source), info.origin, options))
+        let (size, resolution) = (costs.size(), costs.lattice().resolution);
+        let origin = costs.world_bounds().min;
+        let mut source = InflatedTiles::new(costs, size, resolution, &options)?;
+        let graph = TileGraph::build(size, resolution, options.graph, &mut source)?;
+        Ok(Self::new(graph, Box::new(source), origin, options))
     }
 
     fn new(
@@ -595,10 +588,18 @@ mod tests {
         RoutePlanner::from_costmap(costs, OPTIONS).unwrap()
     }
 
+    /// `cells` x `cells` grid anchored at (0, 0) with the given resolution.
+    fn square(cells: u32, resolution: f64) -> (Lattice, CellRegion) {
+        (
+            Lattice::new(DVec2::ZERO, resolution),
+            CellRegion::from_size(UVec2::splat(cells)),
+        )
+    }
+
     /// 20 x 20 m at 0.25 m with a wall along x = 10 m, open only for y in 15..17 m.
     fn walled_planner() -> RoutePlanner {
-        let info = MapInfo::square(80, 0.25);
-        planner(Costmap::from_fn(info, |IVec2 { x, y }| {
+        let (lattice, cells) = square(80, 0.25);
+        planner(Costmap::from_fn(lattice, cells, |IVec2 { x, y }| {
             if x == 40 && !(60..68).contains(&y) {
                 COST_LETHAL
             } else {
@@ -650,9 +651,10 @@ mod tests {
 
     #[test]
     fn an_endpoint_with_no_passable_cell_nearby_is_an_error() {
-        let info = MapInfo::square(80, 0.25);
+        let (lattice, cells) = square(80, 0.25);
         let costs = Costmap::from_fn(
-            info,
+            lattice,
+            cells,
             |IVec2 { x, .. }| if x < 40 { COST_LETHAL } else { COST_FREE },
         );
         let planner = planner(costs);
@@ -698,11 +700,10 @@ mod tests {
 
     #[test]
     fn a_closed_wall_gives_no_route() {
-        let info = MapInfo::square(80, 0.25);
-        let costs = Costmap::from_fn(
-            info,
-            |IVec2 { x, .. }| if x == 40 { COST_LETHAL } else { COST_FREE },
-        );
+        let (lattice, cells) = square(80, 0.25);
+        let costs = Costmap::from_fn(lattice, cells, |IVec2 { x, .. }| {
+            if x == 40 { COST_LETHAL } else { COST_FREE }
+        });
         let planner = planner(costs);
         let (start, goal) = (DVec2::new(2.0, 2.0), DVec2::new(18.0, 2.0));
         assert_eq!(
@@ -715,9 +716,9 @@ mod tests {
     fn a_doorway_the_robot_fits_through_stays_open() {
         // 20 x 20 m at 0.05 m. The wall along x = 10 m has one opening 0.9 m
         // wide, which leaves the 0.3 m robot 0.15 m on each side.
-        let info = MapInfo::square(400, 0.05);
+        let (lattice, cells) = square(400, 0.05);
         let doorway = 200..218;
-        let planner = planner(Costmap::from_fn(info, |IVec2 { x, y }| {
+        let planner = planner(Costmap::from_fn(lattice, cells, |IVec2 { x, y }| {
             if (200..203).contains(&x) && !doorway.contains(&y) {
                 COST_LETHAL
             } else {
@@ -748,8 +749,8 @@ mod tests {
     fn cells_inside_the_robot_radius_are_impassable_with_no_inflation() {
         // 0.25 m cells; the wall along x = 10 m has a gap 0.5 m wide, which a
         // 0.3 m robot does not fit through.
-        let info = MapInfo::square(80, 0.25);
-        let costs = Costmap::from_fn(info, |IVec2 { x, y }| {
+        let (lattice, cells) = square(80, 0.25);
+        let costs = Costmap::from_fn(lattice, cells, |IVec2 { x, y }| {
             if x == 40 && !(40..42).contains(&y) {
                 COST_LETHAL
             } else {
@@ -830,8 +831,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("costmap_route_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let map = dir.join("cost.tif");
-        let info = MapInfo::square(100, 0.25);
-        let costs = Costmap::from_fn(info, |IVec2 { x, y }| {
+        let (lattice, cells) = square(100, 0.25);
+        let costs = Costmap::from_fn(lattice, cells, |IVec2 { x, y }| {
             if x == 50 && y > 10 {
                 COST_LETHAL
             } else {

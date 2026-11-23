@@ -100,7 +100,7 @@ impl Layer for WavefrontInflationLayer {
 impl WavefrontInflationLayer {
     /// [`Layer::update_costs`] with the region given as array offsets in `master`.
     fn update_offsets(&mut self, master: &mut Costmap, region: CellRegion) {
-        let resolution = master.info().resolution;
+        let resolution = master.lattice().resolution;
         let radius_cells = cell_distance(self.config.inflation_radius_m, resolution as f32);
 
         if radius_cells == 0 {
@@ -286,8 +286,8 @@ impl WavefrontInflation {
             return;
         }
 
-        self.width = grid.info().width as usize;
-        self.height = grid.info().height as usize;
+        self.width = grid.size().x as usize;
+        self.height = grid.size().y as usize;
         self.size = self.width * self.height;
 
         if self.seen.len() != self.size {
@@ -556,9 +556,9 @@ struct InflateOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{CellRegion, Pose2};
+    use crate::types::COST_UNKNOWN;
+    use crate::types::{CellRegion, Lattice, Pose2};
     use crate::{Layer, LayeredCostmap};
-    use crate::{MapInfo, types::COST_UNKNOWN};
 
     #[test]
     fn radius_to_cells_basic() {
@@ -596,12 +596,8 @@ mod tests {
 
     fn make_grid(width: u32, height: u32, data: Vec<u8>) -> Costmap {
         Costmap::from_vec(
-            MapInfo {
-                width,
-                height,
-                resolution: 1.0,
-                ..Default::default()
-            },
+            Lattice::new(glam::DVec2::ZERO, 1.0),
+            CellRegion::from_size(glam::UVec2::new(width, height)),
             data,
         )
         .unwrap()
@@ -614,7 +610,8 @@ mod tests {
         let source = make_grid(5, 5, data);
 
         let mut dest = source.clone();
-        let mut wavefront = WavefrontInflation::build(2.0, 0.0, dest.info().resolution as f32, 3.0);
+        let mut wavefront =
+            WavefrontInflation::build(2.0, 0.0, dest.lattice().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
             CellRegion::new(IVec2::ZERO, IVec2::new(5, 5)),
@@ -629,14 +626,13 @@ mod tests {
 
     #[test]
     fn inflate_empty_grid_stays_free() {
-        let source = Costmap::new(MapInfo {
-            width: 10,
-            height: 10,
-            resolution: 0.5,
-            ..Default::default()
-        });
+        let source = Costmap::new(
+            Lattice::new(glam::DVec2::ZERO, 0.5),
+            CellRegion::from_size(glam::UVec2::splat(10)),
+        );
         let mut dest = source.clone();
-        let mut wavefront = WavefrontInflation::build(1.0, 2.0, dest.info().resolution as f32, 3.0);
+        let mut wavefront =
+            WavefrontInflation::build(1.0, 2.0, dest.lattice().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
             CellRegion::new(IVec2::ZERO, IVec2::new(10, 10)),
@@ -650,12 +646,8 @@ mod tests {
 
     #[test]
     fn inflation_layer_in_layered_costmap() {
-        let info = MapInfo {
-            width: 5,
-            height: 5,
-            resolution: 0.2,
-            ..Default::default()
-        };
+        let lattice = Lattice::new(glam::DVec2::ZERO, 0.2);
+        let cells = CellRegion::from_size(glam::UVec2::splat(5));
 
         struct OneLethalLayer;
         impl Layer for OneLethalLayer {
@@ -672,7 +664,7 @@ mod tests {
             }
         }
 
-        let mut layered = LayeredCostmap::new(info, 0, false);
+        let mut layered = LayeredCostmap::new(lattice, cells, 0, false);
         layered.add_layer(Box::new(OneLethalLayer)).unwrap();
         layered
             .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
@@ -706,7 +698,8 @@ mod tests {
         let source = make_grid(5, 5, data);
 
         let mut dest = source.clone();
-        let mut wavefront = WavefrontInflation::build(1.2, 1.0, dest.info().resolution as f32, 3.0);
+        let mut wavefront =
+            WavefrontInflation::build(1.2, 1.0, dest.lattice().resolution as f32, 3.0);
         wavefront.inflate(
             &mut dest,
             CellRegion::new(IVec2::ZERO, IVec2::new(5, 5)),
@@ -722,12 +715,8 @@ mod tests {
 
     #[test]
     fn inflation_layer_inflate_unknown_overwrites_unknown_with_inflation() {
-        let info = MapInfo {
-            width: 5,
-            height: 5,
-            resolution: 0.2,
-            ..Default::default()
-        };
+        let lattice = Lattice::new(glam::DVec2::ZERO, 0.2);
+        let cells = CellRegion::from_size(glam::UVec2::splat(5));
 
         struct OneLethalLayer;
         impl Layer for OneLethalLayer {
@@ -744,7 +733,7 @@ mod tests {
             }
         }
 
-        let mut layered = LayeredCostmap::new(info, COST_UNKNOWN, false);
+        let mut layered = LayeredCostmap::new(lattice, cells, COST_UNKNOWN, false);
         layered.add_layer(Box::new(OneLethalLayer)).unwrap();
         layered
             .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {
@@ -772,12 +761,8 @@ mod tests {
 
     #[test]
     fn inflation_layer_inflate_around_unknown_treats_unknown_as_seed() {
-        let info = MapInfo {
-            width: 5,
-            height: 5,
-            resolution: 0.2,
-            ..Default::default()
-        };
+        let lattice = Lattice::new(glam::DVec2::ZERO, 0.2);
+        let cells = CellRegion::from_size(glam::UVec2::splat(5));
 
         struct OneUnknownLayer;
         impl Layer for OneUnknownLayer {
@@ -794,7 +779,7 @@ mod tests {
             }
         }
 
-        let mut layered = LayeredCostmap::new(info, COST_FREE, false);
+        let mut layered = LayeredCostmap::new(lattice, cells, COST_FREE, false);
         layered.add_layer(Box::new(OneUnknownLayer)).unwrap();
         layered
             .add_layer(Box::new(WavefrontInflationLayer::new(InflationConfig {

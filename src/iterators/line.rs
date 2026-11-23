@@ -35,8 +35,7 @@ impl LineIterator {
             return None;
         }
 
-        let info = grid.info();
-        let resolution = info.resolution;
+        let resolution = grid.lattice().resolution;
         let max_t_grid = max_t / resolution as f32;
         let dir = dir.normalize();
 
@@ -64,8 +63,8 @@ impl LineIterator {
             offset,
             min: grid.cell_of(IVec2::ZERO),
             emit_start: true,
-            width: info.width,
-            height: info.height,
+            width: grid.size().x,
+            height: grid.size().y,
         })
     }
 }
@@ -241,7 +240,8 @@ mod tests {
     use approx::assert_relative_eq;
 
     use super::*;
-    use crate::types::{FREE, OCCUPIED};
+    use crate::types::{CellRegion, FREE, Lattice, OCCUPIED};
+    use glam::UVec2;
 
     fn test_grid(occupied: Option<IVec2>, resolution: f64, origin: DVec2) -> DenseGrid<i8> {
         let width = 5;
@@ -252,14 +252,10 @@ mod tests {
             data[idx] = OCCUPIED;
         }
 
-        let info = crate::types::MapInfo {
-            width: width as u32,
-            height: height as u32,
-            resolution,
-            origin,
-        };
+        let lattice = Lattice::new(origin, resolution);
+        let cells = CellRegion::from_size(UVec2::new(width as u32, height as u32));
 
-        DenseGrid::from_vec(info, data).expect("grid should build")
+        DenseGrid::from_vec(lattice, cells, data).expect("grid should build")
     }
 
     #[test]

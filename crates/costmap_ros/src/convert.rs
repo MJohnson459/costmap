@@ -3,9 +3,9 @@
 //! Cells are converted with [`costmap::occupancy_from_cost`] and
 //! [`costmap::cost_from_occupancy`], the rule Nav2's `StaticLayer` applies.
 
-use costmap::types::{COST_UNKNOWN, VoxelError};
-use costmap::{Costmap, DenseGrid, MapInfo, cost_from_occupancy, occupancy_from_cost};
-use glam::DVec2;
+use costmap::types::{COST_UNKNOWN, CellRegion, VoxelError};
+use costmap::{Costmap, DenseGrid, Lattice, cost_from_occupancy, occupancy_from_cost};
+use glam::{DVec2, UVec2};
 use hiroz_msgs::builtin_interfaces::Time;
 use hiroz_msgs::geometry_msgs::{Point, Pose, Quaternion};
 use hiroz_msgs::nav_msgs::{MapMetaData, OccupancyGrid as OccupancyGridMsg};
@@ -13,15 +13,15 @@ use hiroz_msgs::std_msgs::Header;
 
 /// `nav_msgs/OccupancyGrid` holding `costmap` through [`occupancy_from_cost`].
 ///
-/// Both layouts are row-major from the cell at the lower-left corner, and
-/// `MapInfo::origin` is that corner, so cells copy across in order. The
-/// message holds the resolution as `f32`.
+/// Both layouts are row-major from the cell at the lower-left corner, so cells
+/// copy across in order. The message origin is the lower-left corner of the
+/// grid's first cell. The message holds the resolution as `f32`.
 pub fn occupancy_grid_from_costmap(
     costmap: &Costmap,
     frame_id: &str,
     stamp: Time,
 ) -> OccupancyGridMsg {
-    let info = costmap.info();
+    let (size, origin) = (costmap.size(), costmap.world_bounds().min);
     OccupancyGridMsg {
         header: Header {
             stamp,
@@ -29,13 +29,13 @@ pub fn occupancy_grid_from_costmap(
         },
         info: MapMetaData {
             map_load_time: stamp,
-            resolution: info.resolution as f32,
-            width: info.width,
-            height: info.height,
+            resolution: costmap.lattice().resolution as f32,
+            width: size.x,
+            height: size.y,
             origin: Pose {
                 position: Point {
-                    x: info.origin.x,
-                    y: info.origin.y,
+                    x: origin.x,
+                    y: origin.y,
                     z: 0.0,
                 },
                 orientation: Quaternion {
@@ -57,7 +57,8 @@ pub fn occupancy_grid_from_costmap(
 /// Cost grid read from a `nav_msgs/OccupancyGrid` through [`cost_from_occupancy`].
 ///
 /// Fails if the data length does not match the dimensions, or if the origin
-/// is rotated: [`MapInfo`] has no yaw.
+/// is rotated: a [`Lattice`] has no yaw. The grid holds the cells from (0, 0)
+/// of a lattice anchored at the message origin.
 pub fn costmap_from_occupancy_grid(msg: &OccupancyGridMsg) -> Result<Costmap, VoxelError> {
     let q = &msg.info.origin.orientation;
     if q.x != 0.0 || q.y != 0.0 || q.z != 0.0 {
@@ -66,18 +67,17 @@ pub fn costmap_from_occupancy_grid(msg: &OccupancyGridMsg) -> Result<Costmap, Vo
             q.x, q.y, q.z, q.w
         )));
     }
-    let info = MapInfo {
-        width: msg.info.width,
-        height: msg.info.height,
-        resolution: f64::from(msg.info.resolution),
-        origin: DVec2::new(msg.info.origin.position.x, msg.info.origin.position.y),
-    };
+    let lattice = Lattice::new(
+        DVec2::new(msg.info.origin.position.x, msg.info.origin.position.y),
+        f64::from(msg.info.resolution),
+    );
+    let cells = CellRegion::from_size(UVec2::new(msg.info.width, msg.info.height));
     let data = msg
         .data
         .iter()
         .map(|&occ| cost_from_occupancy(occ))
         .collect();
-    Ok(DenseGrid::from_vec(info, data)?.with_fill(COST_UNKNOWN))
+    Ok(DenseGrid::from_vec(lattice, cells, data)?.with_fill(COST_UNKNOWN))
 }
 
 #[cfg(test)]
@@ -86,12 +86,8 @@ mod tests {
     use costmap::types::{COST_FREE, COST_INSCRIBED, COST_LETHAL};
 
     fn sample_costmap() -> Costmap {
-        let info = MapInfo {
-            width: 3,
-            height: 2,
-            resolution: 0.25,
-            origin: DVec2::new(-1.5, 2.0),
-        };
+        let lattice = Lattice::new(DVec2::new(-1.5, 2.0), 0.25);
+        let cells = CellRegion::from_size(UVec2::new(3, 2));
         let data = vec![
             COST_FREE,
             10,
@@ -100,7 +96,7 @@ mod tests {
             COST_UNKNOWN,
             128,
         ];
-        Costmap::from_vec(info, data).unwrap()
+        Costmap::from_vec(lattice, cells, data).unwrap()
     }
 
     #[test]
@@ -125,7 +121,10 @@ mod tests {
         let costmap = sample_costmap();
         let msg = occupancy_grid_from_costmap(&costmap, "map", Time::default());
         let back = costmap_from_occupancy_grid(&msg).unwrap();
-        assert_eq!(back.info(), costmap.info());
+        assert_eq!(
+            (back.lattice(), back.cells()),
+            (costmap.lattice(), costmap.cells())
+        );
         let special = [COST_FREE, COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN];
         for (sent, received) in costmap.as_slice().iter().zip(back.as_slice()) {
             if special.contains(sent) {

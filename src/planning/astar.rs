@@ -254,12 +254,12 @@ impl<'a> Search<'a> {
     fn heuristic(&self, cell: IVec2, goal: IVec2) -> f32 {
         let d = (cell - goal).abs();
         let (long, short) = (d.x.max(d.y) as f32, d.x.min(d.y) as f32);
-        (long - short + SQRT_2 * short) * self.grid.info().resolution as f32
+        (long - short + SQRT_2 * short) * self.grid.lattice().resolution as f32
     }
 
     /// Neighbours of `cell` reachable in one move, with the cost of the move.
     fn neighbours(&self, cell: IVec2) -> impl Iterator<Item = (IVec2, f32)> + '_ {
-        let resolution = self.grid.info().resolution as f32;
+        let resolution = self.grid.lattice().resolution as f32;
         moves_at(self.grid, cell, self.options).map(move |step| {
             let length_m = step.length_cells * resolution;
             (step.cell, step_cost(length_m, step.cost, self.cost_weight))
@@ -330,17 +330,16 @@ impl Solution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{COST_LETHAL, MapInfo};
+    use crate::types::{COST_LETHAL, CellRegion, Lattice};
     use approx::assert_relative_eq;
+    use glam::UVec2;
 
     fn grid(width: u32, height: u32, value: u8) -> Costmap {
-        let info = MapInfo {
-            width,
-            height,
-            resolution: 0.5,
-            ..Default::default()
-        };
-        Costmap::filled(info, value)
+        Costmap::filled(
+            Lattice::new(DVec2::ZERO, 0.5),
+            CellRegion::from_size(UVec2::new(width, height)),
+            value,
+        )
     }
 
     fn set(grid: &mut Costmap, x: i32, y: i32, value: u8) {
@@ -352,7 +351,7 @@ mod tests {
     }
 
     fn path_cost(grid: &Costmap, path: &Path, options: &PlanOptions) -> f32 {
-        let resolution = grid.info().resolution;
+        let resolution = grid.lattice().resolution;
         path.cells
             .windows(2)
             .map(|pair| {

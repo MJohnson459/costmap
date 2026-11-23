@@ -30,24 +30,22 @@ struct Args {
 fn convert(args: &Args) -> Result<(), Box<dyn Error>> {
     let occupancy = RosMapLoader::load_from_yaml(&args.yaml)?;
     let map = costmap_from_occupancy(&occupancy)?;
-    let info = map.info();
-
-    let mut grid = TiledGrid::new(info.resolution, CHUNK_CELLS, COST_UNKNOWN)?;
+    let mut grid = TiledGrid::new(map.lattice().resolution, CHUNK_CELLS, COST_UNKNOWN)?;
     for (cell, &cost) in map.indexed_iter() {
         grid.set(cell, cost);
     }
     let georef = GeoReference {
         epsg: None,
-        anchor: info.origin,
+        anchor: map.world_bounds().min,
     };
-    let size = IVec2::new(i32::try_from(info.width)?, i32::try_from(info.height)?);
+    let size = IVec2::new(i32::try_from(map.size().x)?, i32::try_from(map.size().y)?);
     write_cost_geotiff_region(&args.out, &grid, &georef, IVec2::ZERO, size)?;
     println!(
         "{}: {} x {} cells at {} m",
         args.out.display(),
-        info.width,
-        info.height,
-        info.resolution
+        map.size().x,
+        map.size().y,
+        map.lattice().resolution
     );
     Ok(())
 }

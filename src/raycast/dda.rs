@@ -19,7 +19,7 @@ impl OccupancyGrid {
     pub fn raycast_dda(&self, origin: DVec2, dir: Vec2, max_t: f32) -> Option<RayHit2D> {
         let mut line = LineIterator::new(self, origin, dir, max_t)?;
 
-        let resolution = self.info().resolution as f32;
+        let resolution = self.lattice().resolution as f32;
         while let Some((offset, t)) = line.next_offset() {
             if *self.at_held(offset) >= OCCUPIED {
                 return Some(RayHit2D {
@@ -35,10 +35,10 @@ impl OccupancyGrid {
 #[cfg(test)]
 mod tests {
     use approx::assert_relative_eq;
-    use glam::IVec2;
+    use glam::{IVec2, UVec2};
 
     use super::*;
-    use crate::types::{FREE, OCCUPIED};
+    use crate::types::{CellRegion, FREE, Lattice, OCCUPIED};
 
     fn test_grid(occupied: Option<IVec2>, resolution: f64, origin: DVec2) -> OccupancyGrid {
         let width = 5;
@@ -49,14 +49,10 @@ mod tests {
             data[idx] = OCCUPIED;
         }
 
-        let info = crate::types::MapInfo {
-            width: width as u32,
-            height: height as u32,
-            resolution,
-            origin,
-        };
+        let lattice = Lattice::new(origin, resolution);
+        let cells = CellRegion::from_size(UVec2::new(width as u32, height as u32));
 
-        OccupancyGrid::from_vec(info, data).expect("grid should build")
+        OccupancyGrid::from_vec(lattice, cells, data).expect("grid should build")
     }
 
     #[test]

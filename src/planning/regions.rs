@@ -118,20 +118,25 @@ mod tests {
     use super::*;
     use crate::{
         plan,
-        types::{COST_FREE, COST_LETHAL, MapInfo},
+        types::{COST_FREE, COST_LETHAL, CellRegion, Lattice},
     };
+    use glam::{DVec2, UVec2};
 
     #[test]
     fn cells_touching_only_at_a_blocked_corner_are_separate_regions() {
         // Two free 3 x 3 blocks that touch only at a corner: the planner's diagonal move
         // between them needs both blocked cells beside it to be passable.
-        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |cell| {
-            if (cell.x < 3 && cell.y < 3) || (cell.x >= 3 && cell.y >= 3) {
-                COST_FREE
-            } else {
-                COST_LETHAL
-            }
-        });
+        let grid = Costmap::from_fn(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(6)),
+            |cell| {
+                if (cell.x < 3 && cell.y < 3) || (cell.x >= 3 && cell.y >= 3) {
+                    COST_FREE
+                } else {
+                    COST_LETHAL
+                }
+            },
+        );
         let options = PlanOptions::default();
         let regions = Regions::new(&grid, &options);
         let (a, b) = (IVec2::new(2, 2), IVec2::new(3, 3));
@@ -147,9 +152,13 @@ mod tests {
     #[test]
     fn largest_region_ignores_smaller_islands() {
         // Column 2 is a wall: a 2-wide island on the left, a 3-wide region on the right.
-        let grid = Costmap::from_fn(MapInfo::square(6, 1.0), |cell| {
-            if cell.x == 2 { COST_LETHAL } else { COST_FREE }
-        });
+        let grid = Costmap::from_fn(
+            Lattice::new(DVec2::ZERO, 1.0),
+            CellRegion::from_size(UVec2::splat(6)),
+            |cell| {
+                if cell.x == 2 { COST_LETHAL } else { COST_FREE }
+            },
+        );
         let regions = Regions::new(&grid, &PlanOptions::default());
         let largest = regions.largest().unwrap();
         assert_eq!(regions.size(largest), 18);

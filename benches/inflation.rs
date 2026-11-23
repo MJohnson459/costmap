@@ -1,9 +1,9 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::{DVec2, IVec2};
+use glam::{DVec2, IVec2, UVec2};
 
-use costmap::types::{Bounds, COST_FREE, COST_LETHAL, CellRegion, MapInfo, Pose2};
+use costmap::types::{Bounds, COST_FREE, COST_LETHAL, CellRegion, Lattice, Pose2};
 use costmap::{Costmap, InflationConfig, Layer, LayeredCostmap, WavefrontInflationLayer};
 
 #[derive(Clone, Copy)]
@@ -15,13 +15,11 @@ enum LethalPattern {
 }
 
 fn grid_with_lethals(width: u32, height: u32, resolution: f64, pattern: LethalPattern) -> Costmap {
-    let info = MapInfo {
-        width,
-        height,
-        resolution,
-        ..Default::default()
-    };
-    let mut grid = Costmap::filled(info, COST_FREE);
+    let mut grid = Costmap::filled(
+        Lattice::new(DVec2::ZERO, resolution),
+        CellRegion::from_size(UVec2::new(width, height)),
+        COST_FREE,
+    );
 
     match pattern {
         LethalPattern::Empty => {}
@@ -54,7 +52,8 @@ fn grid_with_lethals(width: u32, height: u32, resolution: f64, pattern: LethalPa
 /// Layer that sets a fixed set of cells to COST_LETHAL (for benchmarking inflation).
 struct StaticLethalsLayer {
     positions: Vec<IVec2>,
-    info: MapInfo,
+    lattice: Lattice,
+    cells: CellRegion,
 }
 
 impl Layer for StaticLethalsLayer {
@@ -65,10 +64,8 @@ impl Layer for StaticLethalsLayer {
     }
 
     fn update_bounds(&mut self, _robot: Pose2, bounds: &mut Bounds) {
-        bounds.expand_to_include(self.info.origin);
-        bounds.expand_to_include(
-            self.info.origin + DVec2::new(self.info.world_width(), self.info.world_height()),
-        );
+        bounds.expand_to_include(self.lattice.cell_corner(self.cells.min));
+        bounds.expand_to_include(self.lattice.cell_corner(self.cells.max));
     }
 
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
@@ -216,24 +213,24 @@ fn bench_inflation(c: &mut Criterion) {
         );
     });
     group.bench_function("inflation_layer_typical", |b| {
-        let info = MapInfo {
-            width: 256,
-            height: 256,
-            resolution: res_005,
-            ..Default::default()
-        };
+        let lattice = Lattice::new(DVec2::ZERO, res_005);
+        let cells = CellRegion::from_size(UVec2::splat(256));
         let positions: Vec<IVec2> = (0..256)
             .step_by(32)
             .flat_map(|y| (0..256).step_by(32).map(move |x| IVec2::new(x, y)))
             .collect();
-        let static_layer = StaticLethalsLayer { positions, info };
+        let static_layer = StaticLethalsLayer {
+            positions,
+            lattice,
+            cells,
+        };
         let inflation_layer = WavefrontInflationLayer::new(InflationConfig {
             inflation_radius_m: 0.5,
             inscribed_radius_m: 0.1,
             cost_scaling_factor: 1.0,
             ..Default::default()
         });
-        let mut layered = LayeredCostmap::new(info, COST_FREE, false);
+        let mut layered = LayeredCostmap::new(lattice, cells, COST_FREE, false);
         layered.add_layer(Box::new(static_layer)).unwrap();
         layered.add_layer(Box::new(inflation_layer)).unwrap();
         let robot = Pose2 {

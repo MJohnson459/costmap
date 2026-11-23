@@ -1,18 +1,16 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::DVec2;
+use glam::{DVec2, UVec2};
 
 use costmap::DenseGrid;
-use costmap::types::MapInfo;
+use costmap::types::{CellRegion, Lattice};
 
 fn bench_update_origin(c: &mut Criterion) {
-    let info = MapInfo {
-        width: 256,
-        height: 256,
-        ..Default::default()
-    };
-    let grid = DenseGrid::<u8>::new(info);
+    let grid = DenseGrid::<u8>::new(
+        Lattice::new(DVec2::ZERO, 0.05),
+        CellRegion::from_size(UVec2::splat(256)),
+    );
 
     c.bench_function("dense_grid_update_origin_shift", |b| {
         b.iter_batched(

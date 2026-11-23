@@ -1,10 +1,10 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use glam::{DVec2, Vec2};
+use glam::{DVec2, UVec2, Vec2};
 
 use costmap::iterators::line::{LineIterator, LineValueIterator, LineValueMutIterator};
-use costmap::types::{FREE, MapInfo};
+use costmap::types::{CellRegion, FREE, Lattice};
 
 fn bench_line_iterator(c: &mut Criterion) {
     let grid = build_empty_grid(256, 256, 0.05);
@@ -57,13 +57,12 @@ fn bench_line_iterator(c: &mut Criterion) {
 
 fn build_empty_grid(width: usize, height: usize, resolution: f64) -> costmap::OccupancyGrid {
     let data = vec![FREE; width * height];
-    let info = MapInfo {
-        width: width as u32,
-        height: height as u32,
-        resolution,
-        ..Default::default()
-    };
-    costmap::DenseGrid::from_vec(info, data).expect("grid should build")
+    costmap::DenseGrid::from_vec(
+        Lattice::new(DVec2::ZERO, resolution),
+        CellRegion::from_size(UVec2::new(width as u32, height as u32)),
+        data,
+    )
+    .expect("grid should build")
 }
 
 fn build_rays() -> Vec<(DVec2, Vec2, f32)> {

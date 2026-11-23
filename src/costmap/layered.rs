@@ -13,7 +13,7 @@ use glam::DVec2;
 
 use crate::{
     Costmap,
-    types::{Bounds, CellRegion, Footprint, MapInfo, Pose2, VoxelError},
+    types::{Bounds, CellRegion, Footprint, Lattice, Pose2, VoxelError},
 };
 
 /// Identifier returned by [`LayeredCostmap::add_layer`], used to fetch a layer
@@ -78,8 +78,8 @@ impl LayeredCostmap {
     /// If `rolling_window` is true, the grid is recentered on the robot each
     /// [`update_map`](Self::update_map): it moves by whole cells of its lattice and
     /// keeps its size (local costmap). If false, the grid is fixed in world frame.
-    pub fn new(info: MapInfo, fill_value: u8, rolling_window: bool) -> Self {
-        let master = Costmap::filled(info, fill_value);
+    pub fn new(lattice: Lattice, cells: CellRegion, fill_value: u8, rolling_window: bool) -> Self {
+        let master = Costmap::filled(lattice, cells, fill_value);
         Self {
             master,
             layers: Vec::new(),
@@ -189,16 +189,15 @@ fn clip_to_cells(bounds: Bounds, grid: &Costmap) -> Option<CellRegion> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::MapInfo;
-    use glam::IVec2;
+    use crate::types::Lattice;
+    use glam::{IVec2, UVec2};
 
-    fn default_info() -> MapInfo {
-        MapInfo {
-            width: 10,
-            height: 10,
-            resolution: 0.1,
-            ..Default::default()
-        }
+    fn default_lattice() -> Lattice {
+        Lattice::new(DVec2::ZERO, 0.1)
+    }
+
+    fn default_cells() -> CellRegion {
+        CellRegion::from_size(UVec2::splat(10))
     }
 
     #[test]
@@ -234,7 +233,7 @@ mod tests {
             fn update_costs(&mut self, _master: &mut Costmap, _region: CellRegion) {}
         }
 
-        let mut layered = LayeredCostmap::new(default_info(), 0, false);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), 0, false);
         layered
             .add_layer(Box::new(BoundsLayer { margin: 0.5 }))
             .unwrap();
@@ -258,7 +257,7 @@ mod tests {
     fn clip_to_cells_inside_includes_max_cell() {
         let region = clip_to_cells(
             bounds(DVec2::new(0.25, 0.25), DVec2::new(0.55, 0.35)),
-            &Costmap::new(default_info()),
+            &Costmap::new(default_lattice(), default_cells()),
         )
         .unwrap();
         assert_eq!(region.min, IVec2::new(2, 2));
@@ -269,7 +268,7 @@ mod tests {
     fn clip_to_cells_partial_overlap_clips_to_edge() {
         let region = clip_to_cells(
             bounds(DVec2::new(-5.0, 0.85), DVec2::new(0.15, 50.0)),
-            &Costmap::new(default_info()),
+            &Costmap::new(default_lattice(), default_cells()),
         )
         .unwrap();
         assert_eq!(region.min, IVec2::new(0, 8));
@@ -278,7 +277,7 @@ mod tests {
 
     #[test]
     fn clip_to_cells_no_overlap_is_none() {
-        let grid = Costmap::new(default_info());
+        let grid = Costmap::new(default_lattice(), default_cells());
         let beyond = bounds(DVec2::new(5.0, 5.0), DVec2::new(6.0, 6.0));
         let before = bounds(DVec2::new(-6.0, -6.0), DVec2::new(-5.0, -5.0));
         assert!(clip_to_cells(beyond, &grid).is_none());
@@ -287,7 +286,7 @@ mod tests {
 
     #[test]
     fn clip_to_cells_of_a_moved_grid_gives_its_cells() {
-        let mut grid = Costmap::new(default_info());
+        let mut grid = Costmap::new(default_lattice(), default_cells());
         grid.update_origin(DVec2::new(2.0, -1.0));
         assert_eq!(
             grid.cells(),
@@ -317,7 +316,7 @@ mod tests {
             }
         }
 
-        let mut layered = LayeredCostmap::new(default_info(), 0, false);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), 0, false);
         layered.master_mut().set(IVec2::new(3, 3), 42).unwrap();
         layered.add_layer(Box::new(FarLayer)).unwrap();
         layered.update_map(Pose2::new(DVec2::ZERO, 0.0));

@@ -9,8 +9,6 @@
 //! This layer pattern is inspired by Nav2's `CostmapLayer`, but generalized to
 //! support any cell type `T` with a semantic → cost projection closure.
 
-use glam::DVec2;
-
 use crate::{
     DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project_into},
@@ -89,9 +87,9 @@ impl<T: Clone + 'static> Layer for ProjectionLayer<T> {
         }
 
         // Expand bounds to the source grid's (now current) world extent.
-        let info = self.source.info();
-        bounds.expand_to_include(info.origin);
-        bounds.expand_to_include(info.origin + DVec2::new(info.world_width(), info.world_height()));
+        let extent = self.source.world_bounds();
+        bounds.expand_to_include(extent.min);
+        bounds.expand_to_include(extent.max);
     }
 
     fn update_costs(&mut self, master: &mut Costmap, region: CellRegion) {
@@ -116,19 +114,24 @@ impl<T: Clone + 'static> Layer for ProjectionLayer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{COST_FREE, COST_LETHAL, MapInfo};
+    use crate::types::{COST_FREE, COST_LETHAL, CellRegion, Lattice};
     use crate::{InflationConfig, LayeredCostmap, WavefrontInflationLayer};
+    use glam::{DVec2, UVec2};
 
-    fn default_info() -> MapInfo {
-        MapInfo::square(5, 1.0)
+    fn default_lattice() -> Lattice {
+        Lattice::new(DVec2::ZERO, 1.0)
+    }
+
+    fn default_cells() -> CellRegion {
+        CellRegion::from_size(UVec2::splat(5))
     }
 
     #[test]
     fn test_projection_layer_via_layered_costmap() {
         // Create a layered costmap with a projection layer that projects f32 to u8.
-        let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -169,9 +172,9 @@ mod tests {
 
     #[test]
     fn test_projection_layer_wrong_type_returns_none() {
-        let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -193,9 +196,9 @@ mod tests {
     #[test]
     fn test_projection_layer_with_inflation() {
         // Test that projection layer can be stacked with inflation.
-        let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0);
         let proj_id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -246,9 +249,9 @@ mod tests {
 
     #[test]
     fn test_projection_layer_reset() {
-        let mut layered = LayeredCostmap::new(default_info(), COST_FREE, false);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), COST_FREE, false);
 
-        let source = DenseGrid::<f32>::filled(default_info(), 0.0);
+        let source = DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
                 source,
@@ -283,7 +286,7 @@ mod tests {
     #[test]
     fn test_projection_layer_is_clearable() {
         let layer = ProjectionLayer::from_grid(
-            DenseGrid::<f32>::filled(default_info(), 0.0),
+            DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0),
             MergePolicy::Overwrite,
             false,
             |_| Some(100),
@@ -295,7 +298,7 @@ mod tests {
     fn update_bounds_rolling_recenters_and_covers_source_extent() {
         // 5x5 @ 1.0 m → a 5 m square, half-extent 2.5 m.
         let mut layer = ProjectionLayer::from_grid(
-            DenseGrid::<f32>::filled(default_info(), 0.0),
+            DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0),
             MergePolicy::Overwrite,
             true,
             |_| Some(0),
@@ -311,7 +314,7 @@ mod tests {
         // Rolling: the source is re-centred on the robot during update_bounds. The
         // origin snaps to whole cells (update_origin shifts by integer cell offsets),
         // so centring on (5,5) with 1 m cells gives origin (2.0, 2.0), not (2.5, 2.5).
-        assert_eq!(layer.source().info().origin, DVec2::new(2.0, 2.0));
+        assert_eq!(layer.source().world_bounds().min, DVec2::new(2.0, 2.0));
         // Bounds cover exactly the (re-centred) source world extent — i.e. where the
         // layer can actually write, not some larger nominal range.
         assert_eq!(bounds.min, DVec2::new(2.0, 2.0));
@@ -321,7 +324,7 @@ mod tests {
     #[test]
     fn update_bounds_non_rolling_uses_fixed_extent() {
         let mut layer = ProjectionLayer::from_grid(
-            DenseGrid::<f32>::filled(default_info(), 0.0),
+            DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0),
             MergePolicy::Overwrite,
             false,
             |_| Some(0),
@@ -337,7 +340,7 @@ mod tests {
         );
 
         // Not rolling: the source stays put and bounds are its fixed world extent.
-        assert_eq!(layer.source().info().origin, DVec2::ZERO);
+        assert_eq!(layer.source().world_bounds().min, DVec2::ZERO);
         assert_eq!(bounds.min, DVec2::ZERO);
         assert_eq!(bounds.max, DVec2::new(5.0, 5.0));
     }
@@ -345,13 +348,13 @@ mod tests {
     #[test]
     fn rolling_window_projects_to_correct_world_cell_as_window_moves() {
         // The motivating path: a rolling master + rolling projection layer (same
-        // MapInfo) driven through update_map. A cost fixed in *world* space must stay
+        // lattice and cells) driven through update_map. A cost fixed in *world* space must stay
         // in the same cell as the window moves, and master/source must stay on one
         // lattice (project_into's debug_assert fires here, in debug test builds).
-        let mut layered = LayeredCostmap::new(default_info(), COST_FREE, true);
+        let mut layered = LayeredCostmap::new(default_lattice(), default_cells(), COST_FREE, true);
         let id = layered
             .add_layer(Box::new(ProjectionLayer::from_grid(
-                DenseGrid::<f32>::filled(default_info(), 0.0),
+                DenseGrid::<f32>::filled(default_lattice(), default_cells(), 0.0),
                 MergePolicy::Max,
                 true,
                 |t| (*t > 0.5).then_some(COST_LETHAL),

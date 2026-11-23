@@ -22,16 +22,14 @@ impl<T> DenseGrid<T> {
     /// # Example
     ///
     /// ```
-    /// use costmap::{DenseGrid, MapInfo};
-    /// use costmap::types::{COST_LETHAL, Footprint, Pose2};
-    /// use glam::DVec2;
+    /// use costmap::DenseGrid;
+    /// use costmap::types::{COST_LETHAL, CellRegion, Footprint, Lattice, Pose2};
+    /// use glam::{DVec2, UVec2};
     ///
-    /// let info = MapInfo {
-    ///     width: 100,
-    ///     height: 100,
-    ///     ..Default::default()
-    /// };
-    /// let costmap = DenseGrid::<u8>::new(info);
+    /// let costmap = DenseGrid::<u8>::new(
+    ///     Lattice::new(DVec2::ZERO, 0.05),
+    ///     CellRegion::from_size(UVec2::splat(100)),
+    /// );
     ///
     /// // Define a rectangular robot footprint (0.6m x 0.4m)
     /// let footprint = Footprint::rectangle(0.6, 0.4);

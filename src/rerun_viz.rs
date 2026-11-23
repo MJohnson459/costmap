@@ -56,11 +56,10 @@ pub fn log_costmap_static(
 const COSTMAP_OPACITY: f32 = 0.85;
 
 fn costmap_grid_map(costmap: &Costmap, z_world: f32) -> rerun::GridMap {
-    let info = costmap.info();
     let (width, height, cells) = costmap_to_l_bytes(costmap);
     grid_map(
-        info.origin.as_vec2(),
-        info.resolution as f32,
+        costmap.world_bounds().min.as_vec2(),
+        costmap.lattice().resolution as f32,
         z_world,
         width,
         height,
@@ -101,11 +100,10 @@ pub fn log_occupancy_grid_static(
 }
 
 fn occupancy_grid_map(grid: &OccupancyGrid, z_world: f32) -> rerun::GridMap {
-    let info = grid.info();
     let (width, height, cells) = occupancy_to_l_bytes(grid);
     grid_map(
-        info.origin.as_vec2(),
-        info.resolution as f32,
+        grid.world_bounds().min.as_vec2(),
+        grid.lattice().resolution as f32,
         z_world,
         width,
         height,
@@ -288,21 +286,19 @@ fn cost_to_rgb(cost: u8) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{CellRegion, Lattice, OCCUPIED};
     use crate::types::{FREE, UNKNOWN};
-    use crate::{MapInfo, types::OCCUPIED};
+    use glam::{DVec2, UVec2};
 
     #[test]
     fn occupancy_to_l_preserves_values_and_flips() {
-        let info = MapInfo {
-            width: 2,
-            height: 2,
-            resolution: 1.0,
-            ..Default::default()
-        };
+        let lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let cells = CellRegion::from_size(UVec2::splat(2));
         // Grid data is row-major from the bottom row (ROS convention):
         //   grid row 0 (bottom): [UNKNOWN, FREE]
         //   grid row 1 (top):    [OCCUPIED, FREE]
-        let grid = OccupancyGrid::from_vec(info, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
+        let grid =
+            OccupancyGrid::from_vec(lattice, cells, vec![UNKNOWN, FREE, OCCUPIED, FREE]).unwrap();
 
         let (width, height, cells) = occupancy_to_l_bytes(&grid);
         assert_eq!(width, 2);
@@ -323,14 +319,11 @@ mod tests {
 
     #[test]
     fn costmap_to_l_translates_values_and_flips() {
-        let info = MapInfo {
-            width: 2,
-            height: 2,
-            resolution: 1.0,
-            ..Default::default()
-        };
+        let lattice = Lattice::new(DVec2::ZERO, 1.0);
+        let cells = CellRegion::from_size(UVec2::splat(2));
         // grid row 0 (bottom): [0, 10], grid row 1 (top): [LETHAL, UNKNOWN]
-        let costmap = Costmap::from_vec(info, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
+        let costmap =
+            Costmap::from_vec(lattice, cells, vec![0, 10, COST_LETHAL, COST_UNKNOWN]).unwrap();
 
         let (width, height, cells) = costmap_to_l_bytes(&costmap);
         assert_eq!(width, 2);
