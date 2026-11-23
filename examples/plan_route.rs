@@ -11,6 +11,7 @@
 //! tiles from the file.
 
 use std::error::Error;
+use std::process::ExitCode;
 use std::time::Instant;
 
 use costmap::{GraphOrigin, RouteOptions, RoutePlanner};
@@ -33,7 +34,17 @@ fn peak_rss_mb() -> Option<f64> {
     Some(kb / 1024.0)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("error: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [map, start, goal, rest @ ..] = args.as_slice() else {
         return Err(USAGE.into());
