@@ -30,6 +30,7 @@ pub struct LineStep {
 }
 
 impl LineIterator {
+    #[inline]
     pub fn new<T>(grid: &DenseGrid<T>, origin: DVec2, dir: Vec2, max_t: f32) -> Option<Self> {
         if dir.length_squared() == 0.0 {
             return None;
