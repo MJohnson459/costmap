@@ -68,7 +68,8 @@ pub struct Path {
 impl Path {
     /// World coordinates of the cell centres along the path.
     pub fn to_world<T>(&self, grid: &DenseGrid<T>) -> Vec<DVec2> {
-        self.cells.iter().map(|&c| grid.map_to_world(c)).collect()
+        let lattice = grid.lattice();
+        self.cells.iter().map(|&c| lattice.cell_center(c)).collect()
     }
 
     /// Geometric length of the path in metres, ignoring cell costs.

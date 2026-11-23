@@ -15,7 +15,7 @@ use std::time::{Instant, UNIX_EPOCH};
 
 use costmap::types::{COST_UNKNOWN, VoxelError};
 use costmap::{
-    CostGeoTiff, Costmap, MapInfo, RosMapLoader, TileCache, TileGraph, TileGraphOptions,
+    CostGeoTiff, Costmap, Lattice, MapInfo, RosMapLoader, TileCache, TileGraph, TileGraphOptions,
     TileLayout, TileSource, TiledGrid, costmap_from_occupancy,
 };
 use glam::{DVec2, IVec2, UVec2};
@@ -119,7 +119,7 @@ impl RawCosts for Costmap {
             width: size.x,
             height: size.y,
             resolution: self.info().resolution,
-            origin: self.info().origin + low.as_dvec2() * self.info().resolution,
+            origin: self.info().lattice().cell_corner(low),
         };
         let mut window = Costmap::filled(info, COST_UNKNOWN);
         // The rows and columns of the window that lie inside the map.
@@ -193,7 +193,7 @@ fn crop(grid: &Costmap, min: IVec2, size: UVec2) -> Result<Costmap, VoxelError> 
         width: size.x,
         height: size.y,
         resolution: grid.info().resolution,
-        origin: grid.info().origin + min.as_dvec2() * grid.info().resolution,
+        origin: grid.info().lattice().cell_corner(min),
     };
     Costmap::from_vec(info, data)
 }
@@ -490,13 +490,13 @@ impl RoutePlanner {
                 goal: to,
             })?;
 
-        let resolution = self.graph.resolution();
+        let lattice = Lattice::new(self.origin, self.graph.resolution());
         let mut corners = vec![from];
         corners.extend(
             self.graph
                 .shortcut(&path, tiles)?
                 .into_iter()
-                .map(|cell| self.origin + (cell.as_dvec2() + 0.5) * resolution),
+                .map(|cell| lattice.cell_center(cell)),
         );
         corners.push(to);
 
@@ -528,7 +528,7 @@ impl RoutePlanner {
             snap_m: self.options.snap_m,
         };
         let resolution = self.graph.resolution();
-        let local = (point - self.origin) / resolution;
+        let local = Lattice::new(self.origin, resolution).to_cells(point);
         let size = self.graph.layout().size();
         let reach = (self.options.snap_m / resolution).ceil();
         if !local.is_finite()

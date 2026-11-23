@@ -63,7 +63,10 @@ fn simulate_scan(global_grid: &OccupancyGrid, pose: Pose2) -> Vec<f32> {
             global_grid
                 .raycast_dda(pose.position, dir, MAX_RANGE_M)
                 .map_or(f32::INFINITY, |hit| {
-                    global_grid.map_to_world(hit.cell).distance(pose.position) as f32
+                    global_grid
+                        .lattice()
+                        .cell_center(hit.cell)
+                        .distance(pose.position) as f32
                 })
         })
         .collect()

@@ -2,6 +2,8 @@
 
 use glam::DVec2;
 
+use super::Lattice;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MapInfo {
     pub width: u32,
@@ -48,5 +50,11 @@ impl MapInfo {
     #[inline]
     pub fn world_center(&self) -> DVec2 {
         self.origin + DVec2::new(0.5 * self.world_width(), 0.5 * self.world_height())
+    }
+
+    /// Where the cells sit in the world: anchored at `origin`, `resolution` metres square.
+    #[inline]
+    pub fn lattice(&self) -> Lattice {
+        Lattice::new(self.origin, self.resolution)
     }
 }
