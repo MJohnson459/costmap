@@ -19,13 +19,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use costmap::types::Pose2;
-use costmap::{CostWindows, RosMapLoader, costmap_from_occupancy};
+use costmap::{CostWindows, RosMapLoader, RouteOptions, costmap_from_occupancy};
 use costmap_ros::pose::RobotPose;
 use costmap_ros::republish::LastPublish;
 use costmap_ros::route_server::{RouteServerOptions, open_routes, serve_routes};
-use costmap_ros::{
-    GeoTiffSource, RepublishPolicy, RouteOptions, occupancy_grid_from_costmap, window_around,
-};
+use costmap_ros::{GeoTiffSource, RepublishPolicy, occupancy_grid_from_costmap};
 use glam::UVec2;
 use hiroz::Builder;
 use hiroz::context::ZContextBuilder;
@@ -291,7 +289,7 @@ fn publish_window(
     pose: Pose2,
     size: UVec2,
 ) -> anyhow::Result<()> {
-    let window = window_around(source, pose.position, size)?;
+    let window = source.window_around(pose.position, size)?;
     let msg = occupancy_grid_from_costmap(&window, frame_id, now_stamp());
     publisher
         .publish(&msg)
