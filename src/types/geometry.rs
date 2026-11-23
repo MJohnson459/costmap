@@ -80,6 +80,43 @@ impl CellRegion {
         Self::sized(IVec2::ZERO, size)
     }
 
+    /// `size` cells whose middle cell is `center`: `size / 2` cells lie below it on
+    /// each axis. Near the limits of the `i32` cell range the region moves inward so
+    /// it keeps its size; a side longer than that range saturates.
+    pub fn centered(center: IVec2, size: UVec2) -> Self {
+        let axis = |center: i32, size: u32| {
+            let (size, lowest) = (i64::from(size), i64::from(i32::MIN));
+            let highest = (i64::from(i32::MAX) - size).max(lowest);
+            (i64::from(center) - size / 2).clamp(lowest, highest) as i32
+        };
+        Self::sized(
+            IVec2::new(axis(center.x, size.x), axis(center.y, size.y)),
+            size,
+        )
+    }
+
+    /// This region with `cells` more on every side, saturating at the `i32` limits.
+    #[inline]
+    pub fn grown(&self, cells: u32) -> Self {
+        Self::new(
+            self.min.saturating_sub_unsigned(UVec2::splat(cells)),
+            self.max.saturating_add_unsigned(UVec2::splat(cells)),
+        )
+    }
+
+    /// Whether every cell of `other` is in this region. An empty `other` is in any region.
+    #[inline]
+    pub fn contains_region(&self, other: &CellRegion) -> bool {
+        other.size().cmpeq(UVec2::ZERO).any()
+            || (self.min.cmple(other.min).all() && self.max.cmpge(other.max).all())
+    }
+
+    /// Whether the two regions share a cell.
+    #[inline]
+    pub fn overlaps(&self, other: &CellRegion) -> bool {
+        self.min.max(other.min).cmplt(self.max.min(other.max)).all()
+    }
+
     /// Width and height in cells; zero on an axis where `max` is not above `min`.
     #[inline]
     pub fn size(&self) -> UVec2 {

@@ -19,12 +19,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use costmap::types::Pose2;
-use costmap::{RosMapLoader, costmap_from_occupancy};
+use costmap::{CostWindows, RosMapLoader, costmap_from_occupancy};
 use costmap_ros::pose::RobotPose;
 use costmap_ros::republish::LastPublish;
 use costmap_ros::route_server::{RouteServerOptions, open_routes, serve_routes};
 use costmap_ros::{
-    GeoTiffSource, MapSource, RepublishPolicy, RouteOptions, occupancy_grid_from_costmap,
+    GeoTiffSource, RepublishPolicy, RouteOptions, occupancy_grid_from_costmap, window_around,
 };
 use glam::UVec2;
 use hiroz::Builder;
@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let mut map = open_map(&args.map)?;
-    let size = window_cells(args.window_m, map.resolution())?;
+    let size = window_cells(args.window_m, map.lattice().resolution)?;
 
     let ctx = ZContextBuilder::default()
         .build()
@@ -178,7 +178,7 @@ fn main() -> anyhow::Result<()> {
         "serving {} ({} m per cell) on {} as {}x{}-cell windows; robot {} in {}, \
          check {} Hz, republish after {} m{}",
         args.map.display(),
-        map.resolution(),
+        map.lattice().resolution,
         args.topic,
         size.x,
         size.y,
@@ -257,8 +257,8 @@ impl MapKind {
     }
 }
 
-fn open_map(path: &Path) -> anyhow::Result<Box<dyn MapSource>> {
-    let source: Box<dyn MapSource> = match MapKind::of(path)? {
+fn open_map(path: &Path) -> anyhow::Result<Box<dyn CostWindows>> {
+    let source: Box<dyn CostWindows> = match MapKind::of(path)? {
         MapKind::RosYaml => {
             let occupancy = RosMapLoader::load_from_yaml(path)
                 .with_context(|| format!("loading map {}", path.display()))?;
@@ -286,12 +286,12 @@ fn map_qos() -> QosProfile {
 
 fn publish_window(
     publisher: &GridPub,
-    source: &mut dyn MapSource,
+    source: &mut dyn CostWindows,
     frame_id: &str,
     pose: Pose2,
     size: UVec2,
 ) -> anyhow::Result<()> {
-    let window = source.window(pose.position, size)?;
+    let window = window_around(source, pose.position, size)?;
     let msg = occupancy_grid_from_costmap(&window, frame_id, now_stamp());
     publisher
         .publish(&msg)

@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Instant, UNIX_EPOCH};
 
-use costmap::types::{COST_UNKNOWN, CellRegion, VoxelError};
+use costmap::types::{CellRegion, VoxelError};
 use costmap::{
-    CostGeoTiff, Costmap, Lattice, RosMapLoader, TileCache, TileGraph, TileGraphOptions,
-    TileLayout, TileSource, TiledGrid, costmap_from_occupancy,
+    CostWindows, Costmap, GeoTiffWindows, Lattice, RosMapLoader, TileCache, TileGraph,
+    TileGraphOptions, costmap_from_occupancy,
 };
-use glam::{DVec2, IVec2, UVec2};
+use glam::{DVec2, IVec2};
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -28,7 +28,7 @@ const COST_SCALING: f32 = 2.0;
 /// Inflated tiles kept between plans: 16 MB at the default tile size.
 const TILES_HELD: usize = 256;
 /// First bytes of a stored graph, ending in the format version.
-const GRAPH_MAGIC: [u8; 8] = *b"CMROUTE\x01";
+const GRAPH_MAGIC: [u8; 8] = *b"CMROUTE\x02";
 
 /// How a [`RoutePlanner`] plans.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -89,113 +89,43 @@ pub struct Route {
     pub length_m: f64,
 }
 
-/// Cells of a map before inflation, read a rectangle at a time.
-trait RawCosts {
-    /// The cells `[low, low + size)`, unknown where the map has none.
-    fn window(&mut self, low: IVec2, size: UVec2) -> Result<Costmap, VoxelError>;
-}
-
-/// A cost GeoTIFF, of which the pixels around the last tile stay decoded.
-struct GeoTiffCosts {
-    map: CostGeoTiff,
-    decoded: TiledGrid<u8>,
-}
-
-impl RawCosts for GeoTiffCosts {
-    fn window(&mut self, low: IVec2, size: UVec2) -> Result<Costmap, VoxelError> {
-        // Neighbouring tiles are asked for next and share this one's margin.
-        let reach = size.max_element();
-        self.decoded
-            .evict_outside(low + (size / 2).as_ivec2(), reach);
-        self.map
-            .load_region(&mut self.decoded, low, low + size.as_ivec2())?;
-        Ok(self.decoded.window(low, size))
-    }
-}
-
-impl RawCosts for Costmap {
-    fn window(&mut self, low: IVec2, size: UVec2) -> Result<Costmap, VoxelError> {
-        let lattice = self.lattice();
-        let corner = lattice.cell_corner(self.cells().min + low);
-        let mut window = Costmap::filled(
-            Lattice::new(corner, lattice.resolution),
-            CellRegion::from_size(size),
-            COST_UNKNOWN,
-        );
-        // The rows and columns of the window that lie inside the map.
-        let first = low.max(IVec2::ZERO);
-        let last = (low + size.as_ivec2()).min(self.size().as_ivec2());
-        if first.cmplt(last).all() {
-            let (width, out_width) = (self.size().x as usize, size.x as usize);
-            let columns = (last.x - first.x) as usize;
-            for y in first.y..last.y {
-                let from = y as usize * width + first.x as usize;
-                let to = (y - low.y) as usize * out_width + (first.x - low.x) as usize;
-                window.as_mut_slice()[to..to + columns]
-                    .copy_from_slice(&self.as_slice()[from..from + columns]);
-            }
-        }
-        Ok(window)
-    }
-}
-
-/// Inflated tiles of a map, each read with a margin as wide as inflation
-/// reaches, so every obstacle that raises a cost in the tile is in the window.
-struct InflatedTiles<R> {
-    raw: R,
-    layout: TileLayout,
-    /// Cells read beyond each edge of a tile.
+/// A map whose windows come inflated. Each is read with a margin as wide as
+/// inflation reaches, so every obstacle that raises a cost in the window is in
+/// what is read.
+struct Inflated<M> {
+    map: M,
+    /// Cells read beyond each edge of a window.
     margin: u32,
     /// Distance from an obstacle that inflation reaches: `inflation_m`, or the
     /// robot radius if that is larger, so cells the robot cannot occupy are
     /// impassable whatever `inflation_m` is.
     reach_m: f32,
-    options: RouteOptions,
+    robot_radius_m: f32,
 }
 
-impl<R: RawCosts> InflatedTiles<R> {
-    fn new(
-        raw: R,
-        size: UVec2,
-        resolution: f64,
-        options: &RouteOptions,
-    ) -> Result<Self, VoxelError> {
+impl<M: CostWindows> Inflated<M> {
+    fn new(map: M, options: &RouteOptions) -> Self {
         let reach_m = options.inflation_m.max(options.robot_radius_m);
-        Ok(Self {
-            raw,
-            layout: TileLayout::new(size, options.graph.tile_cells)?,
+        let resolution = map.lattice().resolution;
+        Self {
             margin: (f64::from(reach_m) / resolution).ceil() as u32 + 1,
+            map,
             reach_m,
-            options: *options,
-        })
+            robot_radius_m: options.robot_radius_m,
+        }
     }
 }
 
-impl<R: RawCosts> TileSource for InflatedTiles<R> {
-    fn tile(&mut self, tile: IVec2) -> Result<Costmap, VoxelError> {
-        let (min, size) = (self.layout.tile_min(tile), self.layout.tile_size(tile));
-        let low = min - IVec2::splat(self.margin as i32);
-        let mut costs = self.raw.window(low, size + 2 * self.margin)?;
-        costs.inflate(self.reach_m, self.options.robot_radius_m, COST_SCALING);
-        crop(&costs, IVec2::splat(self.margin as i32), size)
+impl<M: CostWindows> CostWindows for Inflated<M> {
+    fn lattice(&self) -> Lattice {
+        self.map.lattice()
     }
-}
 
-/// The `size` cells of `grid` from `min`.
-fn crop(grid: &Costmap, min: IVec2, size: UVec2) -> Result<Costmap, VoxelError> {
-    let width = grid.size().x as usize;
-    let mut data = Vec::with_capacity(size.x as usize * size.y as usize);
-    for y in min.y..min.y + size.y as i32 {
-        let row = y as usize * width + min.x as usize;
-        data.extend_from_slice(&grid.as_slice()[row..row + size.x as usize]);
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+        let mut costs = self.map.window(cells.grown(self.margin))?;
+        costs.inflate(self.reach_m, self.robot_radius_m, COST_SCALING);
+        (&costs).window(cells)
     }
-    let lattice = grid.lattice();
-    let corner = lattice.cell_corner(grid.cells().min + min);
-    Costmap::from_vec(
-        Lattice::new(corner, lattice.resolution),
-        CellRegion::from_size(size),
-        data,
-    )
 }
 
 /// What a stored graph of a raster was built from: the raster's length,
@@ -225,14 +155,18 @@ fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError
 }
 
 /// What a stored graph of a map held in memory was built from: the map's
-/// size and resolution, a hash of every cell, and [`options_fingerprint`].
-/// A ROS map's image and the thresholds in its YAML both show in the cells.
+/// lattice and cells, a hash of every cell, and [`options_fingerprint`]. A ROS
+/// map's image, origin and thresholds all show in these.
 fn costs_fingerprint(costs: &Costmap, options: &RouteOptions) -> Vec<u8> {
+    let (lattice, cells) = (costs.lattice(), costs.cells());
     let mut bytes = GRAPH_MAGIC.to_vec();
     bytes.extend(b"cells");
-    bytes.extend(costs.size().x.to_le_bytes());
-    bytes.extend(costs.size().y.to_le_bytes());
-    bytes.extend(costs.lattice().resolution.to_le_bytes());
+    for value in [cells.min.x, cells.min.y, cells.max.x, cells.max.y] {
+        bytes.extend(value.to_le_bytes());
+    }
+    for value in [lattice.anchor.x, lattice.anchor.y, lattice.resolution] {
+        bytes.extend(value.to_le_bytes());
+    }
     bytes.extend(fnv1a(FNV_OFFSET, costs.as_slice()).to_le_bytes());
     bytes.extend(options_fingerprint(options));
     bytes
@@ -314,10 +248,9 @@ fn write_graph(path: &Path, fingerprint: &[u8], graph: &TileGraph) -> std::io::R
 fn stored_or_built(
     map: &Path,
     fingerprint: &[u8],
-    size: UVec2,
-    resolution: f64,
+    cells: CellRegion,
     options: &RouteOptions,
-    source: &mut impl TileSource,
+    source: &mut impl CostWindows,
 ) -> Result<TileGraph, VoxelError> {
     let stored = graph_path(map);
     if let Some(graph) = read_graph(&stored, fingerprint, options) {
@@ -325,7 +258,7 @@ fn stored_or_built(
         return Ok(graph);
     }
     let started = Instant::now();
-    let graph = TileGraph::build(size, resolution, options.graph, source)?;
+    let graph = TileGraph::build(source, cells, options.graph)?;
     info!(
         "built the tile graph in {:.1} s",
         started.elapsed().as_secs_f64()
@@ -342,9 +275,7 @@ fn stored_or_built(
 /// Plans routes across a whole cost map.
 pub struct RoutePlanner {
     graph: TileGraph,
-    tiles: Mutex<TileCache<Box<dyn TileSource + Send>>>,
-    /// Map-frame position of the corner of cell `(0, 0)`.
-    origin: DVec2,
+    tiles: Mutex<TileCache<Box<dyn CostWindows + Send>>>,
     options: RouteOptions,
 }
 
@@ -372,13 +303,11 @@ impl RoutePlanner {
             Some("yaml" | "yml") => {
                 let occupancy = RosMapLoader::load_from_yaml(path)?;
                 let costs = costmap_from_occupancy(&occupancy)?;
-                let (size, resolution) = (costs.size(), costs.lattice().resolution);
-                let origin = costs.world_bounds().min;
+                let cells = costs.cells();
                 let fingerprint = costs_fingerprint(&costs, &options);
-                let mut source = InflatedTiles::new(costs, size, resolution, &options)?;
-                let graph =
-                    stored_or_built(path, &fingerprint, size, resolution, &options, &mut source)?;
-                return Ok(Self::new(graph, Box::new(source), origin, options));
+                let mut source = Inflated::new(costs, &options);
+                let graph = stored_or_built(path, &fingerprint, cells, &options, &mut source)?;
+                return Self::new(graph, Box::new(source), options);
             }
             Some("tif" | "tiff") => {}
             _ => {
@@ -388,40 +317,36 @@ impl RoutePlanner {
                 )));
             }
         }
-        let map = CostGeoTiff::open(path)?;
-        let (size, resolution) = (map.size(), map.resolution());
-        let raw = GeoTiffCosts {
-            decoded: TiledGrid::new(resolution, CHUNK_CELLS, COST_UNKNOWN)?,
-            map,
-        };
-        let mut source = InflatedTiles::new(raw, size, resolution, &options)?;
+        // A tile is read with its neighbours next, which share its margin.
+        let map =
+            GeoTiffWindows::open(path, CHUNK_CELLS)?.with_margins(0, options.graph.tile_cells / 2);
+        let cells = map.cells();
+        let mut source = Inflated::new(map, &options);
         let fingerprint = fingerprint(path, &options)?;
-        let graph = stored_or_built(path, &fingerprint, size, resolution, &options, &mut source)?;
-        Ok(Self::new(graph, Box::new(source), DVec2::ZERO, options))
+        let graph = stored_or_built(path, &fingerprint, cells, &options, &mut source)?;
+        Self::new(graph, Box::new(source), options)
     }
 
     /// Plan on `costs`, held in memory and inflated a tile at a time. The map
-    /// frame is the frame `costs` is placed in by its origin.
+    /// frame is the frame of `costs`'s lattice.
     pub fn from_costmap(costs: Costmap, options: RouteOptions) -> Result<Self, VoxelError> {
-        let (size, resolution) = (costs.size(), costs.lattice().resolution);
-        let origin = costs.world_bounds().min;
-        let mut source = InflatedTiles::new(costs, size, resolution, &options)?;
-        let graph = TileGraph::build(size, resolution, options.graph, &mut source)?;
-        Ok(Self::new(graph, Box::new(source), origin, options))
+        let cells = costs.cells();
+        let mut source = Inflated::new(costs, &options);
+        let graph = TileGraph::build(&mut source, cells, options.graph)?;
+        Self::new(graph, Box::new(source), options)
     }
 
+    /// Fails if `source` is not on the lattice the graph was built on.
     fn new(
         graph: TileGraph,
-        source: Box<dyn TileSource + Send>,
-        origin: DVec2,
+        source: Box<dyn CostWindows + Send>,
         options: RouteOptions,
-    ) -> Self {
-        Self {
-            tiles: Mutex::new(TileCache::new(source, &graph, TILES_HELD)),
+    ) -> Result<Self, VoxelError> {
+        Ok(Self {
+            tiles: Mutex::new(TileCache::new(source, &graph, TILES_HELD)?),
             graph,
-            origin,
             options,
-        }
+        })
     }
 
     /// The graph routes are planned on.
@@ -468,7 +393,7 @@ impl RoutePlanner {
     /// Appends the leg between two named stops to `route`, which ends at `from`.
     fn extend(
         &self,
-        tiles: &mut TileCache<Box<dyn TileSource + Send>>,
+        tiles: &mut TileCache<Box<dyn CostWindows + Send>>,
         route: &mut Route,
         (from, from_name): (DVec2, &'static str),
         (to, to_name): (DVec2, &'static str),
@@ -483,7 +408,7 @@ impl RoutePlanner {
                 goal: to,
             })?;
 
-        let lattice = Lattice::new(self.origin, self.graph.resolution());
+        let lattice = self.graph.lattice();
         let mut corners = vec![from];
         corners.extend(
             self.graph
@@ -511,7 +436,7 @@ impl RoutePlanner {
     /// The passable cell nearest `point`, within `snap_m`.
     fn snap(
         &self,
-        tiles: &mut TileCache<Box<dyn TileSource + Send>>,
+        tiles: &mut TileCache<Box<dyn CostWindows + Send>>,
         point: DVec2,
         name: &'static str,
     ) -> Result<IVec2, RouteError> {
@@ -520,22 +445,19 @@ impl RoutePlanner {
             point,
             snap_m: self.options.snap_m,
         };
-        let resolution = self.graph.resolution();
-        let local = Lattice::new(self.origin, resolution).to_cells(point);
-        let size = self.graph.layout().size();
+        let lattice = self.graph.lattice();
+        let resolution = lattice.resolution;
+        let local = lattice.to_cells(point);
+        let cells = self.graph.layout().cells();
         let reach = (self.options.snap_m / resolution).ceil();
         if !local.is_finite()
-            || local.cmplt(DVec2::splat(-reach)).any()
-            || local.cmpgt(size.as_dvec2() + reach).any()
+            || local.cmplt(cells.min.as_dvec2() - reach).any()
+            || local.cmpgt(cells.max.as_dvec2() + reach).any()
         {
             return Err(blocked);
         }
-        let inside = |cell: IVec2| {
-            let within =
-                cell.x >= 0 && cell.y >= 0 && (cell.x as u32) < size.x && (cell.y as u32) < size.y;
-            within.then_some(cell)
-        };
-        let centre = local.floor().as_ivec2();
+        let inside = |cell: IVec2| cells.contains(cell).then_some(cell);
+        let centre = lattice.cell_at(point);
         if let Some(cell) = inside(centre)
             && tiles.cost(cell)?.is_some()
         {
@@ -546,7 +468,7 @@ impl RoutePlanner {
         let mut best: Option<(f64, IVec2)> = None;
         for dy in -reach..=reach {
             for dx in -reach..=reach {
-                let Some(cell) = inside(centre + IVec2::new(dx, dy)) else {
+                let Some(cell) = inside(centre.saturating_add(IVec2::new(dx, dy))) else {
                     continue;
                 };
                 let distance = (cell.as_dvec2() + 0.5).distance(local) * resolution;
@@ -565,7 +487,9 @@ impl RoutePlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use costmap::types::{COST_FREE, COST_LETHAL};
+    use costmap::TiledGrid;
+    use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
+    use glam::UVec2;
 
     /// Small tiles, so the 20 m test maps span several.
     const OPTIONS: RouteOptions = RouteOptions {

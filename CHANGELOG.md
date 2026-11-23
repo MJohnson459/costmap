@@ -10,6 +10,7 @@ Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 - **`TileGraph`.** Plans across a map a tile at a time. On a 30.5 M-cell map it plans corner to corner in 28 ms where `plan` takes 2,270 ms, at most 0.9 % costlier, and reads only the tiles on the route. `write_to` and `read_from` store the graph.
 - **Tiled maps.** `TiledGrid<T>` stores a map as sparse chunks; `TiledMapLayer` stamps the part under a rolling costmap.
 - **Cost GeoTIFFs** (feature `geotiff`). `CostGeoTiff` reads the chunks a region needs; `write_cost_geotiff` writes them with max-pooled overviews; `GeoReference` places them.
+- **`CostWindows`.** One request for every cost map: the cells of a `CellRegion` as a dense window on the map's lattice, unknown where the map holds nothing. `Costmap`, `TiledGrid<u8>` and `GeoTiffWindows`, a cost GeoTIFF that holds only the chunks near the last window, implement it. `CellRegion::centered` and `CellRegion::grown` build the regions.
 - **`ObstacleLayer`.** Marks sensor hits, clears along beams and forgets obstacles after a set time.
 - **`cost_from_occupancy`, `occupancy_from_cost`, `costmap_from_occupancy`.** Nav2's `StaticLayer` rule and its inverse.
 - **`tiled_map_server`.** A ROS 2 package for Nav2 on `rmw_zenoh_cpp`, built from the `costmap_ros` crate. Its node takes the place of `nav2_map_server`: it publishes a window of the map around the robot and plans routes across the whole map for Nav2's planner to follow. `costmap-from-ros-map` converts a ROS map to a cost GeoTIFF. It installs from a Debian package, with colcon, or as a conda package.
@@ -26,6 +27,9 @@ Breaking changes have their own guide: [MIGRATION.md](MIGRATION.md).
 - `Layer::attach` takes the master grid, and `Layer::match_size` is removed.
 - `MapInfo` and `DenseGrid::info()` are removed. `DenseGrid`'s constructors, `LayeredCostmap::new` and `ObstacleLayer::new` take a `Lattice` and the `CellRegion` of cells to hold. `CellRegion::from_size` and `CellRegion::sized` build the rectangle; `DenseGrid::world_bounds` gives the world rectangle a grid covers.
 - Grids are logged to Rerun as `GridMap` archetypes.
+- `TileGraph::build` and `TileCache` read tiles through `CostWindows`; `TileSource` and `DenseTiles` are removed. A graph covers any `CellRegion` of a map and keeps its `Lattice`, so it plans on a moved grid. The stored format is version 2.
+- `TiledGrid::window` takes a `CellRegion`; `window_centered` is removed.
+- `costmap_ros` reads every map through `CostWindows`: `MapSource`, `SourceError` and `TileStats` are removed, and `window_around` cuts the published window.
 
 ## 0.2.0
 

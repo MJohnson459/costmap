@@ -1,147 +1,38 @@
-//! Sources of costmap windows.
+//! Windows of the served map around the robot.
 
-use std::ops::Range;
-
-use costmap::types::{COST_UNKNOWN, CellRegion, VoxelError};
-use costmap::{Costmap, Lattice};
-use glam::{DVec2, I64Vec2, UVec2};
-use thiserror::Error;
+use costmap::types::{CellRegion, VoxelError};
+use costmap::{CostWindows, Costmap};
+use glam::{DVec2, UVec2};
 
 mod geotiff;
 
-pub use geotiff::{GeoTiffSource, TileStats};
+pub use geotiff::GeoTiffSource;
 
-/// A map could not supply a window.
-#[derive(Debug, Error)]
-#[error("reading map data: {0}")]
-pub struct SourceError(#[from] pub VoxelError);
-
-/// A map that hands out rectangular windows of itself.
+/// The window of `size` cells of `map` whose middle cell holds `center`, in the
+/// map frame.
 ///
-/// Implementations place every window on their own cell grid, so a cell keeps
-/// its world position and value from one window to the next.
-pub trait MapSource {
-    /// Window of `size_cells` cells around `center` (world metres).
-    ///
-    /// Cells with no data are `COST_UNKNOWN`. Fails if the backing store
-    /// cannot be read.
-    fn window(&mut self, center: DVec2, size_cells: UVec2) -> Result<Costmap, SourceError>;
-
-    /// Cell size in metres.
-    fn resolution(&self) -> f64;
-}
-
-/// A dense costmap held in memory; cells outside it are `COST_UNKNOWN`.
-impl MapSource for Costmap {
-    /// A window that does not touch the map, however far away its centre, is all
-    /// unknown. Fails if `center` is not finite.
-    fn window(&mut self, center: DVec2, size_cells: UVec2) -> Result<Costmap, SourceError> {
-        let (corner, resolution) = (self.world_bounds().min, self.lattice().resolution);
-        let cells = WindowCells::around(center, corner, resolution, size_cells)?;
-        let mut window = cells.unknown_window(corner, resolution);
-        copy_overlap(self, &mut window, cells.min);
-        Ok(window)
+/// A centre beyond the `i32` cell range gives the window at the edge of that range,
+/// which is all unknown. Fails if `center` is not finite or `map` cannot be read.
+pub fn window_around(
+    map: &mut (impl CostWindows + ?Sized),
+    center: DVec2,
+    size: UVec2,
+) -> Result<Costmap, VoxelError> {
+    if !center.is_finite() {
+        return Err(VoxelError::InvalidArgument(format!(
+            "window centre {center} is not finite"
+        )));
     }
-
-    fn resolution(&self) -> f64 {
-        self.lattice().resolution
-    }
-}
-
-/// Largest magnitude, in cells, of a window centre. Farther centres are clamped to it,
-/// which keeps every cell-rectangle sum far from `i64` overflow.
-const MAX_CENTER_CELL: i64 = 1 << 40;
-
-/// The cells of a window in the cell coordinates of the map it is cut from, where cell
-/// (0, 0) has its lower-left corner at the map's origin. Computed in `i64`, so a window
-/// may lie far outside the map.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct WindowCells {
-    /// The cell holding the requested centre, clamped to [`MAX_CENTER_CELL`].
-    center: I64Vec2,
-    /// First cell of the window, inclusive.
-    min: I64Vec2,
-    /// Last cell of the window, exclusive.
-    max: I64Vec2,
-}
-
-impl WindowCells {
-    /// The window of `size` cells whose middle cell contains `center`, on the grid of
-    /// cells of `resolution` metres whose cell (0, 0) has its lower-left corner at
-    /// `origin`. Fails if `center` is not finite.
-    fn around(
-        center: DVec2,
-        origin: DVec2,
-        resolution: f64,
-        size: UVec2,
-    ) -> Result<Self, SourceError> {
-        if !center.is_finite() {
-            return Err(SourceError(VoxelError::InvalidArgument(format!(
-                "window centre {center} is not finite"
-            ))));
-        }
-        let limit = I64Vec2::splat(MAX_CENTER_CELL);
-        let center = ((center - origin) / resolution)
-            .floor()
-            .as_i64vec2()
-            .clamp(-limit, limit);
-        let min = center - (size / 2).as_i64vec2();
-        Ok(Self {
-            center,
-            min,
-            max: min + size.as_i64vec2(),
-        })
-    }
-
-    /// Whether the window shares a cell with a map of `size` cells.
-    fn overlaps(&self, size: UVec2) -> bool {
-        self.min.cmplt(size.as_i64vec2()).all() && self.max.cmpgt(I64Vec2::ZERO).all()
-    }
-
-    /// An all-unknown costmap covering the window, on the grid described at
-    /// [`around`](Self::around).
-    fn unknown_window(&self, origin: DVec2, resolution: f64) -> Costmap {
-        let size = (self.max - self.min).as_uvec2();
-        let lattice = Lattice::new(origin + self.min.as_dvec2() * resolution, resolution);
-        Costmap::filled(lattice, CellRegion::from_size(size), COST_UNKNOWN)
-    }
-}
-
-/// Copies the cells `map` and `window` share, one row slice at a time.
-/// `lower_left` is the window's cell (0, 0) in map cell coordinates.
-fn copy_overlap(map: &Costmap, window: &mut Costmap, lower_left: I64Vec2) {
-    let (Some(cols), Some(rows)) = (
-        overlap(lower_left.x, window.size().x, map.size().x),
-        overlap(lower_left.y, window.size().y, map.size().y),
-    ) else {
-        return;
-    };
-    let map_width = map.size().x as usize;
-    let window_width = window.size().x as usize;
-    // Offsets of the overlap's first column and row inside the window.
-    let col_offset = (cols.start as i64 - lower_left.x) as usize;
-    let row_offset = (rows.start as i64 - lower_left.y) as usize;
-
-    let src_rows = map.as_slice().chunks_exact(map_width).skip(rows.start);
-    let dst_rows = window
-        .as_mut_slice()
-        .chunks_exact_mut(window_width)
-        .skip(row_offset);
-    for (src, dst) in src_rows.zip(dst_rows).take(rows.len()) {
-        dst[col_offset..col_offset + cols.len()].copy_from_slice(&src[cols.clone()]);
-    }
-}
-
-/// Map indices covered by `len` cells starting at map index `start`, clipped
-/// to `0..limit`. `None` if nothing overlaps.
-fn overlap(start: i64, len: u32, limit: u32) -> Option<Range<usize>> {
-    let lo = start.max(0);
-    let hi = (start + i64::from(len)).min(i64::from(limit));
-    (lo < hi).then_some(lo as usize..hi as usize)
+    let cell = map.lattice().cell_at(center);
+    map.window(CellRegion::centered(cell, size))
 }
 
 #[cfg(test)]
 mod tests {
+    use costmap::Lattice;
+    use costmap::types::COST_UNKNOWN;
+    use glam::IVec2;
+
     use super::*;
 
     /// 10 x 8 map at 0.5 m whose cell (x, y) holds `10 * y + x`.
@@ -151,52 +42,14 @@ mod tests {
         Costmap::from_fn(lattice, cells, |cell| (10 * cell.y + cell.x) as u8)
     }
 
-    /// Value of the map cell under the centre of each window cell, or
-    /// `COST_UNKNOWN` where the window lies outside the map.
-    fn expected_by_world_position(map: &Costmap, window: &Costmap) -> Vec<u8> {
-        window
-            .indexed_iter()
-            .map(|(cell, _)| {
-                let world = window.lattice().cell_center(cell);
-                map.get(map.lattice().cell_at(world))
-                    .copied()
-                    .unwrap_or(COST_UNKNOWN)
-            })
-            .collect()
-    }
-
     #[test]
-    fn interior_window_copies_cells_at_their_world_position() {
+    fn the_window_is_centred_on_the_cell_holding_the_centre() {
         let mut map = numbered_map();
-        let window = map.window(DVec2::new(0.3, 2.9), UVec2::new(4, 3)).unwrap();
-        assert_eq!(window.lattice().resolution, 0.5);
-        assert_eq!(window.size(), UVec2::new(4, 3));
+        let window = window_around(&mut map, DVec2::new(0.3, 2.9), UVec2::new(4, 3)).unwrap();
         // centre cell (4, 3); lower-left (2, 2)
+        assert_eq!(window.cells().min, IVec2::new(2, 2));
         assert_eq!(window.world_bounds().min, DVec2::new(-1.0, 2.0));
-        assert_eq!(
-            window.as_slice(),
-            expected_by_world_position(&map, &window).as_slice()
-        );
-        assert_eq!(window.get(glam::IVec2::ZERO), Some(&22));
-    }
-
-    #[test]
-    fn window_over_the_edge_is_unknown_outside_the_map() {
-        let mut map = numbered_map();
-        let window = map.window(DVec2::new(-2.2, 4.8), UVec2::new(6, 6)).unwrap();
-        let expected = expected_by_world_position(&map, &window);
-        assert_eq!(window.as_slice(), expected.as_slice());
-        assert!(expected.contains(&COST_UNKNOWN));
-        assert!(expected.iter().any(|&c| c != COST_UNKNOWN));
-    }
-
-    #[test]
-    fn window_off_the_map_is_all_unknown() {
-        let mut map = numbered_map();
-        let window = map
-            .window(DVec2::new(100.0, -50.0), UVec2::new(5, 5))
-            .unwrap();
-        assert!(window.as_slice().iter().all(|&c| c == COST_UNKNOWN));
+        assert_eq!(window.get(IVec2::new(2, 2)), Some(&22));
     }
 
     #[test]
@@ -209,8 +62,8 @@ mod tests {
             DVec2::new(1.0e10, -1.0e10),
             DVec2::new(f64::MAX, f64::MIN),
         ] {
-            let window = map.window(centre, size).unwrap();
-            assert_eq!(window.size(), UVec2::new(5, 4), "{centre}");
+            let window = window_around(&mut map, centre, size).unwrap();
+            assert_eq!(window.size(), size, "{centre}");
             assert!(
                 window.as_slice().iter().all(|&c| c == COST_UNKNOWN),
                 "{centre}"
@@ -226,47 +79,25 @@ mod tests {
             DVec2::new(5.0, f64::INFINITY),
             DVec2::new(f64::NEG_INFINITY, f64::NAN),
         ] {
-            assert!(map.window(centre, UVec2::ONE).is_err(), "{centre}");
+            assert!(
+                window_around(&mut map, centre, UVec2::ONE).is_err(),
+                "{centre}"
+            );
         }
     }
 
     #[test]
-    fn window_larger_than_the_map_contains_all_of_it() {
+    fn nearby_centres_in_one_cell_give_the_same_window() {
         let mut map = numbered_map();
-        let bounds = map.world_bounds();
-        let window = map
-            .window((bounds.min + bounds.max) * 0.5, UVec2::new(30, 30))
-            .unwrap();
-        let known = window
-            .as_slice()
-            .iter()
-            .filter(|&&c| c != COST_UNKNOWN)
-            .count();
-        assert_eq!(known, 80);
-        assert_eq!(
-            window.as_slice(),
-            expected_by_world_position(&map, &window).as_slice()
-        );
+        let a = window_around(&mut map, DVec2::new(0.51, 2.01), UVec2::new(4, 4)).unwrap();
+        let b = window_around(&mut map, DVec2::new(0.99, 2.49), UVec2::new(4, 4)).unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
-    fn origin_snaps_to_the_map_grid() {
-        let mut map = numbered_map();
-        let a = map
-            .window(DVec2::new(0.51, 2.01), UVec2::new(4, 4))
-            .unwrap();
-        let b = map
-            .window(DVec2::new(0.99, 2.49), UVec2::new(4, 4))
-            .unwrap();
-        assert_eq!((a.lattice(), a.cells()), (b.lattice(), b.cells()));
-        let offset = (a.world_bounds().min - map.world_bounds().min) / map.lattice().resolution;
-        assert_eq!(offset, offset.round());
-    }
-
-    #[test]
-    fn trait_is_object_safe() {
-        let mut source: Box<dyn MapSource> = Box::new(numbered_map());
-        assert_eq!(source.resolution(), 0.5);
-        assert_eq!(source.window(DVec2::ZERO, UVec2::ONE).unwrap().size().x, 1);
+    fn a_boxed_map_answers() {
+        let mut map: Box<dyn CostWindows> = Box::new(numbered_map());
+        let window = window_around(&mut *map, DVec2::ZERO, UVec2::ONE).unwrap();
+        assert_eq!(window.size(), UVec2::ONE);
     }
 }

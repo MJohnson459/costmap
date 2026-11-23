@@ -4,7 +4,7 @@ use std::time::Instant;
 use criterion::{Criterion, criterion_group, criterion_main};
 use glam::IVec2;
 
-use costmap::planning::{DenseTiles, Regions, TileCache, TileGraph, TileGraphOptions};
+use costmap::planning::{Regions, TileCache, TileGraph, TileGraphOptions};
 use costmap::{Costmap, PlanOptions, RosMapLoader, costmap_from_occupancy, plan};
 
 /// The warehouse map, inflated for a robot of 0.3 m radius.
@@ -36,9 +36,7 @@ fn bench_tile_graph(c: &mut Criterion) {
     let pairs = queries(&grid, &options.plan);
 
     let built = Instant::now();
-    let mut source = DenseTiles::new(&grid, options.tile_cells).unwrap();
-    let graph = TileGraph::build(grid.size(), grid.lattice().resolution, options, &mut source)
-        .expect("the graph builds");
+    let graph = TileGraph::build(&mut &grid, grid.cells(), options).expect("the graph builds");
     eprintln!(
         "{} x {} cells: built in {:.2} s, {} nodes, {:.1} MB",
         grid.size().x,
@@ -54,8 +52,7 @@ fn bench_tile_graph(c: &mut Criterion) {
         let whole = plan(&grid, start, goal, &options.plan).expect("the pair is joined");
         let whole_s = whole_started.elapsed().as_secs_f64();
 
-        let source = DenseTiles::new(&grid, options.tile_cells).unwrap();
-        let mut tiles = TileCache::new(source, &graph, 4096);
+        let mut tiles = TileCache::new(&grid, &graph, 4096).unwrap();
         let tiled_started = Instant::now();
         let tiled = graph.plan(start, goal, &mut tiles).unwrap().unwrap();
         let tiled_s = tiled_started.elapsed().as_secs_f64();
@@ -83,8 +80,7 @@ fn bench_tile_graph(c: &mut Criterion) {
     let (start, goal) = pairs[0];
     c.bench_function("tile_graph_warehouse_corner_to_corner", |b| {
         b.iter(|| {
-            let source = DenseTiles::new(&grid, options.tile_cells).unwrap();
-            let mut tiles = TileCache::new(source, &graph, 4096);
+            let mut tiles = TileCache::new(&grid, &graph, 4096).unwrap();
             graph
                 .plan(std::hint::black_box(start), goal, &mut tiles)
                 .unwrap()
