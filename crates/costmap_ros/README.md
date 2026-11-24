@@ -464,12 +464,11 @@ at their defaults.
 The crate is also a Rust library, built with cargo alone and no ROS install.
 
 - `convert`: `Costmap` to and from `nav_msgs/OccupancyGrid`.
-- `source`: `window_around`, the window around the robot from any map that
-  implements `costmap::CostWindows`, and `GeoTiffSource`, a GeoTIFF read on
-  demand.
+- `source`: `GeoTiffSource`, a GeoTIFF read on demand around the robot.
 - `republish`: when a new window is due.
-- `route`: `RoutePlanner`. The `plan_route` example plans one route and
-  prints its timings, without ROS.
+- `route_server`: `costmap::RoutePlanner` served as Nav2's `ComputePathToPose`
+  action. The planner itself is in the `costmap` crate; its `plan_route`
+  example plans one route and prints its timings.
 - `nav2_msgs`: the `ComputePathToPose` action type, generated at build time
   from `msgs/nav2_msgs`; `hiroz-msgs` does not bundle Nav2's interfaces.
 - `tf`: a transform tree fed from `/tf` and `/tf_static`. Hiroz has no tf2

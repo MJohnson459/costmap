@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
+use costmap::{GraphOrigin, Route, RouteError, RouteOptions, RoutePlanner};
 use glam::DVec2;
 use hiroz::Builder;
 use hiroz::action::server::ExecutingGoal;
@@ -22,7 +23,6 @@ use tracing::{info, warn};
 use crate::nav2_msgs::action::ComputePathToPose;
 use crate::nav2_msgs::{ComputePathToPoseGoal, ComputePathToPoseResult};
 use crate::pose::RobotPose;
-use crate::{Route, RouteError, RoutePlanner};
 
 /// Error codes of `nav2_msgs/action/ComputePathToPose`.
 const ERROR_NONE: u16 = 0;
@@ -233,13 +233,23 @@ fn now_stamp() -> Time {
 }
 
 /// Open the map at `path` for routes and log what was opened.
-pub fn open_routes(
-    path: &std::path::Path,
-    options: crate::RouteOptions,
-) -> anyhow::Result<RoutePlanner> {
+pub fn open_routes(path: &std::path::Path, options: RouteOptions) -> anyhow::Result<RoutePlanner> {
     let loaded = Instant::now();
     let routes = RoutePlanner::open(path, options)
         .map_err(|e| anyhow!("opening map {}: {e}", path.display()))?;
+    match routes.origin() {
+        GraphOrigin::Read(stored) => info!("read the tile graph from {}", stored.display()),
+        GraphOrigin::Stored { took, .. } | GraphOrigin::Built { took } => {
+            info!("built the tile graph in {:.1} s", took.as_secs_f64())
+        }
+        GraphOrigin::NotStored { took, path, error } => {
+            info!("built the tile graph in {:.1} s", took.as_secs_f64());
+            warn!(
+                "could not store the tile graph at {}: {error}",
+                path.display()
+            );
+        }
+    }
     let graph = routes.graph();
     info!(
         "{} is {}x{} cells at {:.3} m; its tile graph has {} crossings in {:.1} MB, ready in {:.1} s",

@@ -5,19 +5,17 @@
 //! which interoperates with ROS 2 nodes running `rmw_zenoh_cpp`.
 //!
 //! - [`convert`]: `Costmap` ↔ `nav_msgs/OccupancyGrid`.
-//! - [`source`]: the window around the robot, cut from any `costmap::CostWindows`
-//!   map, and [`GeoTiffSource`], a GeoTIFF read on demand.
+//! - [`source`]: [`GeoTiffSource`], a GeoTIFF read on demand around the robot.
 //! - [`republish`]: when the node publishes a new window.
 //! - [`pose`]: the robot's pose, from `/tf` or from a pose topic.
-//! - [`route`]: routes across a whole map, planned on a graph of its tiles.
-//! - [`route_server`]: those routes served as Nav2's `ComputePathToPose` action.
+//! - [`route_server`]: `costmap::RoutePlanner` routes served as Nav2's
+//!   `ComputePathToPose` action.
 //! - [`tf`]: a latest-value transform tree and its `/tf` listener.
 
 pub mod convert;
 pub mod nav2_msgs;
 pub mod pose;
 pub mod republish;
-pub mod route;
 pub mod route_server;
 pub mod source;
 pub mod tf;
@@ -26,8 +24,7 @@ pub use convert::{costmap_from_occupancy_grid, occupancy_grid_from_costmap};
 #[doc(hidden)]
 pub use hiroz_msgs::size_estimation;
 pub use republish::RepublishPolicy;
-pub use route::{Route, RouteError, RouteOptions, RoutePlanner};
-pub use source::{GeoTiffSource, window_around};
+pub use source::GeoTiffSource;
 
 #[cfg(test)]
 mod tests {

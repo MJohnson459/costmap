@@ -8,9 +8,9 @@ use costmap::types::{
     COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, FREE, Footprint, Lattice, OCCUPIED, Pose2,
 };
 use costmap::{
-    CostWindows, Costmap, DenseGrid, InflationConfig, Layer, OccupancyGrid, PlanOptions, Resample,
-    TileCache, TileGraph, TileGraphOptions, WavefrontInflationLayer, costmap_from_occupancy,
-    line_passable, plan, resample,
+    CostWindows, Costmap, DenseGrid, InflatedWindows, InflationConfig, Layer, OccupancyGrid,
+    PlanOptions, Resample, RouteOptions, RoutePlanner, TileCache, TileGraph, TileGraphOptions,
+    WavefrontInflationLayer, costmap_from_occupancy, line_passable, plan, resample,
 };
 use glam::{DVec2, IVec2, UVec2, Vec2};
 
@@ -385,4 +385,59 @@ fn resampling_reads_the_same_places() {
     .unwrap();
     assert_eq!(window.cells(), moved.cells());
     assert_eq!(window.as_slice(), moved.as_slice());
+}
+
+#[test]
+fn an_inflated_window_holds_the_same_costs_shifted() {
+    let grid = costs();
+    let cells = CellRegion::sized(IVec2::new(14, 2), UVec2::new(12, 16));
+    let window = InflatedWindows::new(grid.clone(), 1.5, 0.5, 2.0)
+        .window(cells)
+        .unwrap();
+    let moved_window = InflatedWindows::new(moved(&grid), 1.5, 0.5, 2.0)
+        .window(CellRegion::new(cells.min + SHIFT, cells.max + SHIFT))
+        .unwrap();
+    assert_eq!(moved_window.as_slice(), window.as_slice());
+    assert_eq!(moved_window.cells().min, window.cells().min + SHIFT);
+}
+
+#[test]
+fn a_window_around_a_position_covers_the_same_place() {
+    let grid = costs();
+    let centre = DVec2::new(8.1, 6.3);
+    let window = grid
+        .clone()
+        .window_around(centre, UVec2::new(9, 7))
+        .unwrap();
+    let moved_window = moved(&grid)
+        .window_around(centre, UVec2::new(9, 7))
+        .unwrap();
+    assert_eq!(moved_window.as_slice(), window.as_slice());
+    assert_eq!(moved_window.world_bounds(), window.world_bounds());
+}
+
+#[test]
+fn a_route_is_the_same_on_a_moved_map() {
+    let grid = costs();
+    let options = RouteOptions {
+        robot_radius_m: 0.3,
+        inflation_m: 1.0,
+        graph: TileGraphOptions {
+            tile_cells: 16,
+            node_spacing_cells: 4,
+            plan: PlanOptions::default(),
+        },
+        ..RouteOptions::default()
+    };
+    // Either side of the wall at x = 20, so the route goes through the door.
+    let (start, goal) = (DVec2::new(1.0, 3.0), DVec2::new(14.0, 3.0));
+    let route = RoutePlanner::from_costmap(grid.clone(), options)
+        .unwrap()
+        .plan(start, goal)
+        .unwrap();
+    let moved_route = RoutePlanner::from_costmap(moved(&grid), options)
+        .unwrap()
+        .plan(start, goal)
+        .unwrap();
+    assert_eq!(moved_route, route);
 }
