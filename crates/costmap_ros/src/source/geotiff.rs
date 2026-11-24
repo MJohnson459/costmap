@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use costmap::types::{CellRegion, VoxelError};
+use costmap::types::{CellRegion, CostmapError};
 use costmap::{ChunkStats, CostWindows, Costmap, GeoTiffReading, GeoTiffWindows, Lattice, Margin};
 use tracing::{debug, info};
 
@@ -27,7 +27,7 @@ impl GeoTiffSource {
 
     /// Open `path` as [`READING`](Self::READING) sets out, and log its size and
     /// georeference. No cells are read yet.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, VoxelError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, CostmapError> {
         Ok(Self::new(Self::READING.open(path)?))
     }
 
@@ -64,7 +64,7 @@ impl CostWindows for GeoTiffSource {
         self.windows.lattice()
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         let window = self.windows.window(cells)?;
         let stats = self.stats();
         debug!(

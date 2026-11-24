@@ -14,13 +14,13 @@ use std::{
     slice::{Iter, IterMut},
 };
 
-use crate::types::{Bounds, CellRegion, Lattice, VoxelError};
+use crate::types::{Bounds, CellRegion, CostmapError, Lattice};
 
 /// A bounded grid that stores every cell of a rectangle of a [`Lattice`], row-major
 /// from the rectangle's first cell. [`TiledGrid`](crate::TiledGrid) is the sparse
 /// counterpart for maps too large to hold whole.
 ///
-/// Moving the grid with [`Self::update_origin`] changes which cells it holds and
+/// Moving the grid with [`Self::move_to`] changes which cells it holds and
 /// leaves the lattice alone, so a cell keeps its name.
 ///
 /// ```
@@ -100,14 +100,14 @@ impl<T> DenseGrid<T> {
 
     /// Create a grid holding `cells` of `lattice` from values in row-major order.
     /// Fails if `data` does not hold one value per cell.
-    pub fn from_vec(lattice: Lattice, cells: CellRegion, data: Vec<T>) -> Result<Self, VoxelError>
+    pub fn from_vec(lattice: Lattice, cells: CellRegion, data: Vec<T>) -> Result<Self, CostmapError>
     where
         T: Default,
     {
         let size = cells.size();
         let expected_len = size.x as usize * size.y as usize;
         if data.len() != expected_len {
-            return Err(VoxelError::InvalidMetadata(format!(
+            return Err(CostmapError::InvalidMetadata(format!(
                 "data length {} does not match map size {}",
                 data.len(),
                 expected_len
@@ -122,8 +122,8 @@ impl<T> DenseGrid<T> {
         })
     }
 
-    /// Set the fill value: the value [`Self::clear`], [`Self::update_origin`],
-    /// [`Self::resize_map`] and [`Self::reset_map`] give to new or reset cells.
+    /// Set the fill value: the value [`Self::clear`], [`Self::move_to`],
+    /// [`Self::reset_to`] and [`Self::clear_region`] give to new or reset cells.
     /// Constructors other than [`Self::filled`] start with [`Default::default`].
     pub fn with_fill(mut self, fill_value: T) -> Self {
         self.fill_value = fill_value;
@@ -207,13 +207,13 @@ impl<T> DenseGrid<T> {
     }
 
     #[inline]
-    pub fn set(&mut self, pos: IVec2, value: T) -> Result<(), VoxelError> {
+    pub fn set(&mut self, pos: IVec2, value: T) -> Result<(), CostmapError> {
         match self.get_mut(pos) {
             Some(cell) => {
                 *cell = value;
                 Ok(())
             }
-            None => Err(VoxelError::OutOfBounds(format!(
+            None => Err(CostmapError::OutOfBounds(format!(
                 "cell ({}, {}) is outside the grid's cells {:?}",
                 pos.x,
                 pos.y,
@@ -381,25 +381,37 @@ impl<T> DenseGrid<T> {
         self.data.fill(self.fill_value.clone());
     }
 
+    /// Replace the grid with the `cells` of `lattice`, every cell set to the fill
+    /// value.
+    pub fn reset_to(&mut self, lattice: Lattice, cells: CellRegion)
+    where
+        T: Clone,
+    {
+        *self = Self::filled(lattice, cells, self.fill_value.clone());
+    }
+
     /// Replace the grid with `size` cells from (0, 0) of a new lattice anchored at
     /// `origin`, every cell set to the fill value.
+    #[deprecated(
+        since = "0.3.0",
+        note = "use `reset_to(Lattice::new(origin, resolution), CellRegion::from_size(size))`"
+    )]
     pub fn resize_map(&mut self, size: UVec2, resolution: f64, origin: DVec2)
     where
         T: Clone,
     {
-        *self = Self::filled(
+        self.reset_to(
             Lattice::new(origin, resolution),
             CellRegion::from_size(size),
-            self.fill_value.clone(),
         );
     }
 
-    /// Reset the cells of `[lower, upper)` that lie in the grid to the fill value.
-    pub fn reset_map(&mut self, lower: IVec2, upper: IVec2)
+    /// Set the cells of `region` that the grid holds to the fill value.
+    pub fn clear_region(&mut self, region: CellRegion)
     where
         T: Clone,
     {
-        let Some(region) = self.offsets_in(CellRegion::new(lower, upper)) else {
+        let Some(region) = self.offsets_in(region) else {
             return;
         };
         let stride = self.size.x as usize;
@@ -409,16 +421,28 @@ impl<T> DenseGrid<T> {
         }
     }
 
-    /// Move the grid so that its first cell is the one containing `origin`. Cells
+    /// Reset the cells of `[lower, upper)` that lie in the grid to the fill value.
+    #[deprecated(
+        since = "0.3.0",
+        note = "use `clear_region(CellRegion::new(lower, upper))`"
+    )]
+    pub fn reset_map(&mut self, lower: IVec2, upper: IVec2)
+    where
+        T: Clone,
+    {
+        self.clear_region(CellRegion::new(lower, upper));
+    }
+
+    /// Move the grid so that its first cell is the one containing `position`. Cells
     /// held before and after keep their values; cells that come into the grid take
     /// the fill value. The lattice does not change.
-    pub fn update_origin(&mut self, origin: DVec2)
+    pub fn move_to(&mut self, position: DVec2)
     where
         T: Clone,
     {
         let grid_size = self.size().as_ivec2();
         // Keeps the last cell held within the `i32` range.
-        let min = self.lattice.cell_at(origin).min(IVec2::MAX - grid_size);
+        let min = self.lattice.cell_at(position).min(IVec2::MAX - grid_size);
         let cell_offset = min.saturating_sub(self.min);
         let grid_size = self.size.as_usizevec2();
 
@@ -444,17 +468,32 @@ impl<T> DenseGrid<T> {
         self.min = min;
     }
 
-    /// Updates the origin based on the desired center of the map.
-    ///
-    /// # Arguments
-    ///
-    /// * `center` - The desired center of the map in world coordinates.
+    /// Move the grid so that `position` lies at the middle of the rectangle it holds,
+    /// as [`Self::move_to`] does for its first cell.
+    pub fn center_on(&mut self, position: DVec2)
+    where
+        T: Clone,
+    {
+        let first = position - self.size().as_dvec2() * self.lattice.resolution * 0.5;
+        self.move_to(first);
+    }
+
+    /// Move the grid so that its first cell is the one containing `origin`.
+    #[deprecated(since = "0.3.0", note = "renamed to `move_to`")]
+    pub fn update_origin(&mut self, origin: DVec2)
+    where
+        T: Clone,
+    {
+        self.move_to(origin);
+    }
+
+    /// Move the grid so that it is centred on `center`.
+    #[deprecated(since = "0.3.0", note = "renamed to `center_on`")]
     pub fn update_center(&mut self, center: DVec2)
     where
         T: Clone,
     {
-        let origin = center - self.size().as_dvec2() * self.lattice.resolution * 0.5;
-        self.update_origin(origin);
+        self.center_on(center);
     }
 
     /// Position in `data` of an in-grid `offset`. Going through `u32` zero-extends;
@@ -545,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn update_origin_moves_the_grid_and_cells_keep_their_names() {
+    fn move_to_moves_the_grid_and_cells_keep_their_names() {
         let mut grid = DenseGrid::<i8>::from_vec(
             Lattice::new(DVec2::ZERO, 1.0),
             CellRegion::from_size(UVec2::new(4, 4)),
@@ -555,7 +594,7 @@ mod tests {
 
         let lattice = grid.lattice();
         grid.set(IVec2::new(1, 1), 7).unwrap();
-        grid.update_origin(DVec2::new(1.0, 0.0));
+        grid.move_to(DVec2::new(1.0, 0.0));
 
         assert_eq!(grid.lattice(), lattice);
         assert_eq!(
@@ -571,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_map_clears_data() {
+    fn reset_to_clears_data() {
         let mut grid = DenseGrid::<i8>::from_vec(
             Lattice::new(DVec2::ZERO, 1.0),
             CellRegion::from_size(UVec2::new(4, 4)),
@@ -580,7 +619,10 @@ mod tests {
         .unwrap();
 
         grid.set(IVec2::new(1, 1), 9).unwrap();
-        grid.resize_map(UVec2::new(6, 6), 1.0, DVec2::new(1.0, 0.0));
+        grid.reset_to(
+            Lattice::new(DVec2::new(1.0, 0.0), 1.0),
+            CellRegion::from_size(UVec2::new(6, 6)),
+        );
 
         assert_eq!(grid.get(IVec2::new(1, 1)), Some(&0));
     }
@@ -695,7 +737,7 @@ mod tests {
         let mut centre = (bounds.min + bounds.max) * 0.5;
         for _ in 0..10_000 {
             centre += step;
-            grid.update_center(centre);
+            grid.center_on(centre);
         }
         let travelled = (grid.world_bounds().min - start).length();
         assert!(travelled > 1_400.0, "{travelled}");

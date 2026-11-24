@@ -23,7 +23,7 @@ use glam::{IVec2, UVec2};
 
 use crate::{
     CostWindows,
-    types::{COST_FREE, COST_UNKNOWN, CellRegion, Lattice, VoxelError},
+    types::{COST_FREE, COST_UNKNOWN, CellRegion, CostmapError, Lattice},
 };
 
 use super::astar::{COST_SCALE, Path, PlanOptions, effective_cost_weight};
@@ -91,10 +91,10 @@ pub struct TileLayout {
 impl TileLayout {
     /// Fails if `tile_cells` is zero, `tile_cells` exceeds the `i32` range, or `cells`
     /// is empty.
-    pub fn new(cells: CellRegion, tile_cells: u32) -> Result<Self, VoxelError> {
+    pub fn new(cells: CellRegion, tile_cells: u32) -> Result<Self, CostmapError> {
         let size = cells.size();
         if tile_cells == 0 || tile_cells > i32::MAX as u32 || size.x == 0 || size.y == 0 {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "tile layout needs a non-empty map and tile, got {size} cells in tiles of {tile_cells}"
             )));
         }
@@ -180,11 +180,11 @@ impl TileCosts {
         layout: &TileLayout,
         tile: IVec2,
         options: &PlanOptions,
-    ) -> Result<Self, VoxelError> {
+    ) -> Result<Self, CostmapError> {
         let cells = layout.tile_region(tile);
         let grid = map.window(cells)?;
         if grid.cells() != cells {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "tile {tile} came back as cells {:?}, expected {cells:?}",
                 grid.cells()
             )));
@@ -492,9 +492,9 @@ impl TileGraph {
         map: &mut impl CostWindows,
         cells: CellRegion,
         options: TileGraphOptions,
-    ) -> Result<Self, VoxelError> {
+    ) -> Result<Self, CostmapError> {
         if options.node_spacing_cells == 0 {
-            return Err(VoxelError::InvalidArgument(
+            return Err(CostmapError::InvalidArgument(
                 "node_spacing_cells must be at least 1".into(),
             ));
         }
@@ -673,17 +673,17 @@ impl TileGraph {
 
     /// Read a graph written by [`write_to`](Self::write_to).
     ///
-    /// Fails with [`VoxelError::InvalidMetadata`] if the bytes are not a tile graph of
+    /// Fails with [`CostmapError::InvalidMetadata`] if the bytes are not a tile graph of
     /// this format version or are inconsistent. Whether the graph describes a given
     /// map is for the caller to know: nothing of the map is stored.
-    pub fn read_from(input: &mut impl Read) -> Result<Self, VoxelError> {
-        let invalid = |what: &str| VoxelError::InvalidMetadata(format!("tile graph: {what}"));
+    pub fn read_from(input: &mut impl Read) -> Result<Self, CostmapError> {
+        let invalid = |what: &str| CostmapError::InvalidMetadata(format!("tile graph: {what}"));
         let mut magic = [0; 8];
         input.read_exact(&mut magic)?;
         if magic != MAGIC {
             return Err(invalid("not a tile graph of this format version"));
         }
-        let mut word = || -> Result<u32, VoxelError> {
+        let mut word = || -> Result<u32, CostmapError> {
             let mut bytes = [0; 4];
             input.read_exact(&mut bytes)?;
             Ok(u32::from_le_bytes(bytes))
@@ -700,7 +700,7 @@ impl TileGraph {
             },
         };
         let node_count = word()? as usize;
-        let mut float = || -> Result<f64, VoxelError> {
+        let mut float = || -> Result<f64, CostmapError> {
             let mut bytes = [0; 8];
             input.read_exact(&mut bytes)?;
             Ok(f64::from_le_bytes(bytes))
@@ -720,7 +720,7 @@ impl TileGraph {
         // A tile has at most this many border cells, and so nodes.
         let most_nodes = 4 * options.tile_cells as usize;
 
-        let mut word = || -> Result<u32, VoxelError> {
+        let mut word = || -> Result<u32, CostmapError> {
             let mut bytes = [0; 4];
             input.read_exact(&mut bytes)?;
             Ok(u32::from_le_bytes(bytes))
@@ -823,7 +823,7 @@ impl TileGraph {
         start: IVec2,
         goal: IVec2,
         tiles: &mut TileCache<S>,
-    ) -> Result<Option<Path>, VoxelError> {
+    ) -> Result<Option<Path>, CostmapError> {
         tiles.check(self)?;
         let layout = &self.layout;
         if !layout.contains(start) || !layout.contains(goal) {
@@ -1021,7 +1021,7 @@ impl TileGraph {
         tile_index: usize,
         from: IVec2,
         to: IVec2,
-    ) -> Result<Stretch, VoxelError> {
+    ) -> Result<Stretch, CostmapError> {
         if from == to {
             return Ok(Stretch {
                 cells: Vec::new(),
@@ -1040,7 +1040,7 @@ impl TileGraph {
             &[target],
         );
         if search.g[target].is_infinite() {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "no path from {from} to {to} inside their tile: the tile graph was built from a different map"
             )));
         }
@@ -1062,7 +1062,7 @@ impl TileGraph {
         &self,
         path: &Path,
         tiles: &mut TileCache<S>,
-    ) -> Result<Vec<IVec2>, VoxelError> {
+    ) -> Result<Vec<IVec2>, CostmapError> {
         tiles.check(self)?;
         let mut failure = None;
         let waypoints = shortcut_cells(&path.cells, |cell| match tiles.cost(cell) {
@@ -1114,9 +1114,9 @@ impl<S: CostWindows> TileCache<S> {
     /// tiles its route passes through; with fewer held, tiles are read again.
     ///
     /// Fails if `source` is not on the lattice `graph` was built on.
-    pub fn new(source: S, graph: &TileGraph, capacity: usize) -> Result<Self, VoxelError> {
+    pub fn new(source: S, graph: &TileGraph, capacity: usize) -> Result<Self, CostmapError> {
         if source.lattice() != graph.lattice {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "tile cache source is on {:?}, but the graph was built on {:?}",
                 source.lattice(),
                 graph.lattice
@@ -1147,16 +1147,16 @@ impl<S: CostWindows> TileCache<S> {
         self.tiles.len()
     }
 
-    fn check(&self, graph: &TileGraph) -> Result<(), VoxelError> {
+    fn check(&self, graph: &TileGraph) -> Result<(), CostmapError> {
         if self.graph != graph.id {
-            return Err(VoxelError::InvalidArgument(
+            return Err(CostmapError::InvalidArgument(
                 "tile cache was made for a different tile graph".into(),
             ));
         }
         Ok(())
     }
 
-    fn get(&mut self, index: usize) -> Result<Arc<TileCosts>, VoxelError> {
+    fn get(&mut self, index: usize) -> Result<Arc<TileCosts>, CostmapError> {
         self.clock += 1;
         if let Some((stamp, tile)) = self.tiles.get_mut(&index) {
             *stamp = self.clock;
@@ -1180,7 +1180,7 @@ impl<S: CostWindows> TileCache<S> {
     }
 
     /// Cost of entering `cell`, or `None` if it is impassable or outside the map.
-    pub fn cost(&mut self, cell: IVec2) -> Result<Option<u8>, VoxelError> {
+    pub fn cost(&mut self, cell: IVec2) -> Result<Option<u8>, CostmapError> {
         if !self.layout.contains(cell) {
             return Ok(None);
         }
@@ -1477,12 +1477,12 @@ mod tests {
         wrong_partner[72 + 16..72 + 20].copy_from_slice(&0u32.to_le_bytes());
         assert!(matches!(
             TileGraph::read_from(&mut wrong_partner.as_slice()),
-            Err(VoxelError::InvalidMetadata(_))
+            Err(CostmapError::InvalidMetadata(_))
         ));
         bytes[7] ^= 0xff;
         assert!(matches!(
             TileGraph::read_from(&mut bytes.as_slice()),
-            Err(VoxelError::InvalidMetadata(_))
+            Err(CostmapError::InvalidMetadata(_))
         ));
     }
 
@@ -1495,7 +1495,7 @@ mod tests {
         assert!(graph.plan(cell(0, 0), cell(39, 29), &mut tiles).is_ok());
         assert!(matches!(
             other.plan(cell(0, 0), cell(39, 29), &mut tiles),
-            Err(VoxelError::InvalidArgument(_))
+            Err(CostmapError::InvalidArgument(_))
         ));
     }
 
@@ -1507,7 +1507,7 @@ mod tests {
         let other = Costmap::filled(shifted, cells(40, 30), COST_FREE);
         assert!(matches!(
             TileCache::new(&other, &graph, 64),
-            Err(VoxelError::InvalidArgument(_))
+            Err(CostmapError::InvalidArgument(_))
         ));
     }
 

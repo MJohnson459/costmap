@@ -6,25 +6,25 @@ use serde::Deserialize;
 
 use crate::OccupancyGrid;
 use crate::types::{
-    CellRegion, DEFAULT_FREE_THRESH, DEFAULT_OCCUPIED_THRESH, FREE, Lattice, OCCUPIED, UNKNOWN,
-    VoxelError,
+    CellRegion, CostmapError, DEFAULT_FREE_THRESH, DEFAULT_OCCUPIED_THRESH, FREE, Lattice,
+    OCCUPIED, UNKNOWN,
 };
 
 pub struct RosMapLoader;
 
 impl RosMapLoader {
-    pub fn load_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
+    pub fn load_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid, CostmapError> {
         load_occupancy_grid_from_yaml(path)
     }
 
-    pub fn load_from_image(metadata: &RosMapMetadata) -> Result<OccupancyGrid, VoxelError> {
+    pub fn load_from_image(metadata: &RosMapMetadata) -> Result<OccupancyGrid, CostmapError> {
         load_occupancy_grid_from_image(metadata)
     }
 
     pub fn load_from_memory(
         image: image::DynamicImage,
         metadata: &RosMapMetadata,
-    ) -> Result<OccupancyGrid, VoxelError> {
+    ) -> Result<OccupancyGrid, CostmapError> {
         load_occupancy_grid_from_memory(image, metadata)
     }
 }
@@ -107,7 +107,7 @@ where
 }
 
 /// Loads an occupancy grid from a YAML.
-fn load_occupancy_grid_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid, VoxelError> {
+fn load_occupancy_grid_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid, CostmapError> {
     let path = path.as_ref();
     let yaml_str = std::fs::read_to_string(path)?;
     let mut metadata: RosMapMetadata = serde_yaml::from_str(&yaml_str)?;
@@ -117,11 +117,13 @@ fn load_occupancy_grid_from_yaml(path: impl AsRef<Path>) -> Result<OccupancyGrid
 }
 
 /// Loads an occupancy grid from an image file.
-fn load_occupancy_grid_from_image(metadata: &RosMapMetadata) -> Result<OccupancyGrid, VoxelError> {
+fn load_occupancy_grid_from_image(
+    metadata: &RosMapMetadata,
+) -> Result<OccupancyGrid, CostmapError> {
     if matches!(metadata.mode, MapMode::Trinary | MapMode::Scale)
         && metadata.occupied_thresh <= metadata.free_thresh
     {
-        return Err(VoxelError::InvalidMetadata(
+        return Err(CostmapError::InvalidMetadata(
             "occupied_thresh must be greater than free_thresh".to_string(),
         ));
     }
@@ -133,7 +135,7 @@ fn load_occupancy_grid_from_image(metadata: &RosMapMetadata) -> Result<Occupancy
 fn load_occupancy_grid_from_memory(
     image: image::DynamicImage,
     metadata: &RosMapMetadata,
-) -> Result<OccupancyGrid, VoxelError> {
+) -> Result<OccupancyGrid, CostmapError> {
     let (data, width, height) = map_image_to_data(image, metadata)?;
     let lattice = Lattice::new(metadata.origin.truncate(), metadata.resolution);
     OccupancyGrid::from_vec(
@@ -157,11 +159,11 @@ fn resolve_image_path(yaml_path: &Path, image_ref: &Path) -> PathBuf {
 fn map_image_to_data(
     image: image::DynamicImage,
     metadata: &RosMapMetadata,
-) -> Result<(Vec<i8>, u32, u32), VoxelError> {
+) -> Result<(Vec<i8>, u32, u32), CostmapError> {
     if matches!(metadata.mode, MapMode::Trinary | MapMode::Scale)
         && metadata.occupied_thresh <= metadata.free_thresh
     {
-        return Err(VoxelError::InvalidMetadata(
+        return Err(CostmapError::InvalidMetadata(
             "occupied_thresh must be greater than free_thresh".to_string(),
         ));
     }

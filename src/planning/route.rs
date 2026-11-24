@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use glam::{DVec2, IVec2};
 use thiserror::Error;
 
-use crate::types::{CellRegion, VoxelError};
+use crate::types::{CellRegion, CostmapError};
 use crate::{
     CostWindows, Costmap, GeoTiffReading, InflatedWindows, MapFile, Margin, TileCache, TileGraph,
     TileGraphOptions,
@@ -73,8 +73,8 @@ pub enum RouteError {
     Map(String),
 }
 
-impl From<VoxelError> for RouteError {
-    fn from(error: VoxelError) -> Self {
+impl From<CostmapError> for RouteError {
+    fn from(error: CostmapError) -> Self {
         Self::Map(error.to_string())
     }
 }
@@ -122,7 +122,7 @@ fn inflated<M: CostWindows>(map: M, options: &RouteOptions) -> InflatedWindows<M
 /// modification time, inode and inode change time, a hash of its first and
 /// last 64 KiB, and [`options_fingerprint`].
 #[cfg(feature = "geotiff")]
-fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
+fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, CostmapError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
         .modified()?
@@ -187,7 +187,7 @@ fn fnv1a(hash: u64, bytes: &[u8]) -> u64 {
 /// a TIFF's header, its directory and its first and last strips or tiles. A
 /// raster written again with the same size and time differs there.
 #[cfg(feature = "geotiff")]
-fn ends_hash(path: &Path, length: u64) -> Result<u64, VoxelError> {
+fn ends_hash(path: &Path, length: u64) -> Result<u64, CostmapError> {
     use std::io::{Seek, SeekFrom};
     const SPAN: u64 = 64 * 1024;
     let mut file = File::open(path)?;
@@ -244,7 +244,7 @@ fn stored_or_built(
     cells: CellRegion,
     options: &RouteOptions,
     windows: &mut impl CostWindows,
-) -> Result<(TileGraph, GraphOrigin), VoxelError> {
+) -> Result<(TileGraph, GraphOrigin), CostmapError> {
     let path = graph_path(map);
     if let Some(graph) = read_graph(&path, fingerprint, options) {
         return Ok((graph, GraphOrigin::Read(path)));
@@ -278,7 +278,7 @@ impl RoutePlanner {
     /// `nav2_map_server` holds it.
     ///
     /// With the `geotiff` feature, `.tif` and `.tiff` are a cost GeoTIFF, of
-    /// which only the tiles a route passes are held. Any other extension is an
+    /// which only the chunks near the last window are held. Any other extension is an
     /// error.
     ///
     /// The graph is read from [`graph_path`] if the file there was built from
@@ -286,7 +286,7 @@ impl RoutePlanner {
     /// GeoTIFF reads the whole raster twice, a few tiles at a time, and
     /// stored there for the next start. [`origin`](Self::origin) says which
     /// happened, and whether storing failed.
-    pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
+    pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, CostmapError> {
         let path = path.as_ref();
         let reading = GeoTiffReading {
             chunk_cells: CHUNK_CELLS,
@@ -308,7 +308,7 @@ impl RoutePlanner {
 
     /// Plan on `costs`, held in memory and inflated a tile at a time. The map
     /// frame is the frame of `costs`'s lattice.
-    pub fn from_costmap(costs: Costmap, options: RouteOptions) -> Result<Self, VoxelError> {
+    pub fn from_costmap(costs: Costmap, options: RouteOptions) -> Result<Self, CostmapError> {
         let cells = costs.cells();
         let mut windows = inflated(costs, &options);
         let started = Instant::now();
@@ -325,7 +325,7 @@ impl RoutePlanner {
         origin: GraphOrigin,
         windows: Box<dyn CostWindows + Send>,
         options: RouteOptions,
-    ) -> Result<Self, VoxelError> {
+    ) -> Result<Self, CostmapError> {
         Ok(Self {
             tiles: Mutex::new(TileCache::new(windows, &graph, TILES_HELD)?),
             graph,
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn an_unknown_map_extension_is_an_error() {
         let opened = RoutePlanner::open("site.png", OPTIONS);
-        assert!(matches!(opened, Err(VoxelError::InvalidArgument(_))));
+        assert!(matches!(opened, Err(CostmapError::InvalidArgument(_))));
     }
 
     #[test]
@@ -756,13 +756,13 @@ mod tests {
                 COST_FREE
             }
         });
-        let mut tiles = crate::TiledGrid::new(0.25, 64, crate::types::COST_UNKNOWN).unwrap();
-        tiles.write_window(&costs).unwrap();
+        let mut chunked = crate::TiledGrid::new(0.25, 64, crate::types::COST_UNKNOWN).unwrap();
+        chunked.write_window(&costs).unwrap();
         let georef = crate::GeoReference {
             epsg: Some(32633),
             anchor: DVec2::new(500_000.0, 5_000_000.0),
         };
-        crate::write_cost_geotiff_region(&map, &tiles, &georef, IVec2::ZERO, IVec2::splat(100))
+        crate::write_cost_geotiff_region(&map, &chunked, &georef, IVec2::ZERO, IVec2::splat(100))
             .unwrap();
 
         let (start, goal) = (DVec2::new(2.0, 20.0), DVec2::new(22.0, 20.0));

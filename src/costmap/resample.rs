@@ -7,7 +7,7 @@ use glam::{DVec2, IVec2};
 use crate::{
     CostWindows, Costmap,
     types::{
-        COST_LETHAL, COST_UNKNOWN, CellRegion, Lattice, Pose2, VoxelError, lattice::floor_i32,
+        COST_LETHAL, COST_UNKNOWN, CellRegion, CostmapError, Lattice, Pose2, lattice::floor_i32,
     },
 };
 
@@ -64,7 +64,7 @@ const EDGE_TOLERANCE: f64 = 1e-6;
 /// let cells = CellRegion::from_size(UVec2::splat(10));
 /// let window = resample(&mut &map, Pose2::default(), coarse, cells, Resample::WorstCost)?;
 /// assert_eq!(window.get(IVec2::new(3, 3)), Some(&254));
-/// # Ok::<(), costmap::VoxelError>(())
+/// # Ok::<(), costmap::CostmapError>(())
 /// ```
 pub fn resample(
     map: &mut (impl CostWindows + ?Sized),
@@ -72,7 +72,7 @@ pub fn resample(
     lattice: Lattice,
     cells: CellRegion,
     policy: Resample,
-) -> Result<Costmap, VoxelError> {
+) -> Result<Costmap, CostmapError> {
     let needed = source_cells(map.lattice(), transform, lattice, cells);
     let source = map.window(needed)?;
     Ok(resample_window(&source, transform, lattice, cells, policy))

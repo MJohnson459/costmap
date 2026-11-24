@@ -20,7 +20,7 @@ use gdal::{gdal_available, run_gdal};
 
 use costmap::types::{CellRegion, Lattice};
 use costmap::{
-    CostGeoTiff, DenseGrid, GeoReference, TiledGrid, VoxelError, write_cost_geotiff,
+    CostGeoTiff, CostmapError, DenseGrid, GeoReference, TiledGrid, write_cost_geotiff,
     write_cost_geotiff_region,
 };
 
@@ -270,7 +270,7 @@ fn load_region_rejects_mismatched_grids() {
     for grid in [&mut wrong_resolution, &mut wrong_fill] {
         assert!(matches!(
             tiff.load_region(grid, IVec2::ZERO, IVec2::splat(8)),
-            Err(VoxelError::InvalidArgument(_))
+            Err(CostmapError::InvalidArgument(_))
         ));
     }
 }
@@ -306,7 +306,7 @@ fn writing_an_empty_region_fails() {
         IVec2::ZERO,
         IVec2::new(0, 5),
     );
-    assert!(matches!(result, Err(VoxelError::InvalidArgument(_))));
+    assert!(matches!(result, Err(CostmapError::InvalidArgument(_))));
 }
 
 #[test]
@@ -315,7 +315,7 @@ fn writing_an_empty_grid_fails() {
     let grid = TiledGrid::new(0.05, 16, UNKNOWN).unwrap();
     assert!(matches!(
         write_cost_geotiff(dir.file("empty.tif"), &grid, &UTM_17N),
-        Err(VoxelError::InvalidArgument(_))
+        Err(CostmapError::InvalidArgument(_))
     ));
 }
 
@@ -328,7 +328,7 @@ fn writing_an_epsg_code_beyond_16_bits_fails() {
     };
     assert!(matches!(
         write_cost_geotiff(dir.file("big-epsg.tif"), &small_grid(), &georef),
-        Err(VoxelError::Unsupported(_))
+        Err(CostmapError::Unsupported(_))
     ));
 }
 
@@ -343,7 +343,7 @@ fn open_rejects_other_sample_formats_and_band_counts() {
         .unwrap();
     assert!(matches!(
         CostGeoTiff::open(&float),
-        Err(VoxelError::Unsupported(_))
+        Err(CostmapError::Unsupported(_))
     ));
 
     let rgb = dir.file("rgb.tif");
@@ -353,7 +353,7 @@ fn open_rejects_other_sample_formats_and_band_counts() {
         .unwrap();
     assert!(matches!(
         CostGeoTiff::open(&rgb),
-        Err(VoxelError::Unsupported(_))
+        Err(CostmapError::Unsupported(_))
     ));
 }
 
@@ -367,7 +367,7 @@ fn open_rejects_unreferenced_and_non_tiff_files() {
         .unwrap();
     assert!(matches!(
         CostGeoTiff::open(&plain),
-        Err(VoxelError::InvalidMetadata(_))
+        Err(CostmapError::InvalidMetadata(_))
     ));
 
     let text = dir.file("text.tif");
@@ -375,7 +375,7 @@ fn open_rejects_unreferenced_and_non_tiff_files() {
     assert!(CostGeoTiff::open(&text).is_err());
     assert!(matches!(
         CostGeoTiff::open(dir.file("missing.tif")),
-        Err(VoxelError::Io(_))
+        Err(CostmapError::Io(_))
     ));
 }
 
@@ -571,7 +571,7 @@ fn raster_nodata_other_than_255_reads_as_unknown() {
 }
 
 /// 8x8 blocks of pseudo-random cost with scattered unknown cells: compresses like a real
-/// cost map but not so well that tiles become trivial.
+/// cost map but not so well that chunks become trivial.
 fn blocky_noise_grid(side: u32, seed: u64) -> TiledGrid<u8> {
     let mix = |mut z: u64| {
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -633,7 +633,7 @@ fn undecodable_lzw_tile_reports_the_deflate_workaround() {
     assert_same_cells(&grid, &reread, size);
 
     let message = match CostGeoTiff::open(&lzw).unwrap().read_all(64) {
-        Err(VoxelError::Unsupported(message)) => message,
+        Err(CostmapError::Unsupported(message)) => message,
         other => panic!("expected an Unsupported error, got {:?}", other.map(|_| ())),
     };
     assert!(message.contains("LZW"), "{message}");
@@ -695,7 +695,7 @@ fn written_overviews_are_listed_and_read_as_max_pooled_levels() {
     }
     assert!(matches!(
         base.overview(2),
-        Err(VoxelError::InvalidArgument(_))
+        Err(CostmapError::InvalidArgument(_))
     ));
 }
 
@@ -924,15 +924,15 @@ fn load_region_does_not_decode_unknown_chunks_twice() {
     write_cost_geotiff(&path, &grid, &UTM_17N).unwrap();
 
     let mut tiff = CostGeoTiff::open(&path).unwrap();
-    let mut tiles = TiledGrid::new(0.5, 8, UNKNOWN).unwrap();
+    let mut loaded = TiledGrid::new(0.5, 8, UNKNOWN).unwrap();
     let (min, max) = (IVec2::new(16, 16), IVec2::new(40, 40));
-    assert_eq!(tiff.load_region(&mut tiles, min, max).unwrap(), 0);
+    assert_eq!(tiff.load_region(&mut loaded, min, max).unwrap(), 0);
 
     // With the file emptied, any further decode fails, so success means nothing was decoded.
     File::create(&path).unwrap();
-    assert_eq!(tiff.load_region(&mut tiles, min, max).unwrap(), 0);
+    assert_eq!(tiff.load_region(&mut loaded, min, max).unwrap(), 0);
     assert!(
-        tiff.load_region(&mut tiles, IVec2::ZERO, IVec2::ONE)
+        tiff.load_region(&mut loaded, IVec2::ZERO, IVec2::ONE)
             .is_err()
     );
 }
@@ -979,7 +979,7 @@ fn open_rejects_pixels_that_drift_apart_across_the_raster() {
     let tall = with_pixel_size(&dir, &source, DVec2::new(0.05, 0.04996));
 
     let message = match CostGeoTiff::open(&tall) {
-        Err(VoxelError::Unsupported(message)) => message,
+        Err(CostmapError::Unsupported(message)) => message,
         other => panic!("expected an Unsupported error, got {:?}", other.map(|_| ())),
     };
     assert!(message.contains("0.05 x 0.04996"), "{message}");

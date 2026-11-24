@@ -13,7 +13,7 @@ use glam::DVec2;
 
 use crate::{
     Costmap,
-    types::{Bounds, CellRegion, Footprint, Lattice, Pose2, VoxelError},
+    types::{Bounds, CellRegion, CostmapError, Footprint, Lattice, Pose2},
 };
 
 /// Identifier returned by [`LayeredCostmap::add_layer`], used to fetch a layer
@@ -55,7 +55,7 @@ pub trait Layer: Any {
     /// whether it is a rolling window. Return an error if the layer cannot work
     /// with that costmap, so a misconfigured layer fails when it is added
     /// instead of contributing nothing at run time. Default: accept.
-    fn attach(&mut self, _master: &Costmap, _rolling_window: bool) -> Result<(), VoxelError> {
+    fn attach(&mut self, _master: &Costmap, _rolling_window: bool) -> Result<(), CostmapError> {
         Ok(())
     }
 }
@@ -94,7 +94,7 @@ impl LayeredCostmap {
     /// [`Self::layer_mut`] to access the layer by its concrete type later, or the
     /// error from [`Layer::attach`] if the layer rejects this costmap; a rejected
     /// layer is not added.
-    pub fn add_layer(&mut self, mut layer: Box<dyn Layer>) -> Result<LayerId, VoxelError> {
+    pub fn add_layer(&mut self, mut layer: Box<dyn Layer>) -> Result<LayerId, CostmapError> {
         layer.attach(&self.master, self.rolling_window)?;
         let id = LayerId(self.layers.len());
         self.layers.push(layer);
@@ -142,7 +142,7 @@ impl LayeredCostmap {
     /// layers, reset the master in that region, then call each layer's update_costs.
     pub fn update_map(&mut self, robot: Pose2) {
         if self.rolling_window {
-            self.master.update_center(robot.position);
+            self.master.center_on(robot.position);
         }
 
         let mut bounds = Bounds::empty();
@@ -160,7 +160,7 @@ impl LayeredCostmap {
             return;
         };
 
-        self.master.reset_map(region.min, region.max);
+        self.master.clear_region(region);
 
         for layer in &mut self.layers {
             layer.update_costs(&mut self.master, region);
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn clip_to_cells_of_a_moved_grid_gives_its_cells() {
         let mut grid = Costmap::new(default_lattice(), default_cells());
-        grid.update_origin(DVec2::new(2.0, -1.0));
+        grid.move_to(DVec2::new(2.0, -1.0));
         assert_eq!(
             grid.cells(),
             CellRegion::new(IVec2::new(20, -10), IVec2::new(30, 0))

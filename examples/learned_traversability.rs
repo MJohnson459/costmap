@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // Mock "learned traversability model": fill the source world-anchored. The
         // rolling-window ProjectionLayer re-centres the grid on the robot during
-        // update_map, and update_origin preserves data by world position, so we just
+        // update_map, and move_to preserves data by world position, so we just
         // write each cell's cost from its current world location.
         {
             let proj = layered.layer_mut::<ProjectionLayer<f32>>(id).unwrap();

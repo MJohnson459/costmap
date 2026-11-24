@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Features
 
 - **Occupancy grids and costmaps** — `DenseGrid<i8>` and `DenseGrid<u8>` with resolution, origin and coordinate transforms. Cost values follow costmap_2d: free, graded, inscribed, lethal, unknown.
-- **Rolling windows** — `update_origin` moves a grid by whole cells and keeps the cells it still holds, for a costmap that follows the robot. A cell keeps its position as the grid moves.
+- **Rolling windows** — `move_to` and `center_on` move a grid by whole cells and keeps the cells it still holds, for a costmap that follows the robot. A cell keeps its position as the grid moves.
 - **Raycasting** — DDA and grid-step algorithms in world coordinates.
 - **Obstacle layer** — `ObstacleLayer` marks sensor hits, clears along beams, and forgets obstacles after a set time, including when the sensor stream stops.
 - **Static layer** — `StaticLayer` writes any map, dense, tiled or on disk, into a layered costmap. `resample` copies a map onto another resolution or into another frame, such as `map` under `odom`, given the transform between them.

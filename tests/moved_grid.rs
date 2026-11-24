@@ -52,7 +52,7 @@ fn moved<T: Clone + Default>(grid: &DenseGrid<T>) -> DenseGrid<T> {
         lattice.resolution,
     );
     let mut moved = DenseGrid::<T>::new(start, CellRegion::from_size(grid.size()));
-    moved.update_origin(grid.world_bounds().min + DVec2::splat(0.25 * lattice.resolution));
+    moved.move_to(grid.world_bounds().min + DVec2::splat(0.25 * lattice.resolution));
     moved.as_mut_slice().clone_from_slice(grid.as_slice());
 
     assert_eq!(moved.cells().min, SHIFT);
@@ -95,13 +95,13 @@ fn cells_are_read_and_written_by_name() {
 }
 
 #[test]
-fn reset_map_takes_cells() {
+fn clear_region_takes_cells() {
     let mut grid = costs();
     let mut moved = moved(&grid);
     let (lower, upper) = (IVec2::new(4, 19), IVec2::new(9, 22));
 
-    grid.reset_map(lower, upper);
-    moved.reset_map(lower + SHIFT, upper + SHIFT);
+    grid.clear_region(CellRegion::new(lower, upper));
+    moved.clear_region(CellRegion::new(lower + SHIFT, upper + SHIFT));
 
     assert_eq!(grid[IVec2::new(6, 20)], COST_FREE);
     assert_eq!(grid[IVec2::new(6, 22)], COST_LETHAL);
@@ -306,7 +306,7 @@ fn a_costmap_from_occupancy_keeps_the_cells() {
 fn grids_holding_different_cells_of_one_lattice_merge_where_they_overlap() {
     let mut master = Costmap::new(lattice(), cells());
     let mut source = Costmap::filled(lattice(), cells(), COST_UNKNOWN);
-    source.update_origin(master.lattice().cell_corner(IVec2::new(10, 5)));
+    source.move_to(master.lattice().cell_corner(IVec2::new(10, 5)));
     assert_eq!(source.lattice(), master.lattice());
     assert_eq!(source.cells().min, IVec2::new(10, 5));
 

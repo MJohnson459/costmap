@@ -115,7 +115,7 @@ fn occupancy_grid_map(grid: &OccupancyGrid, z_world: f32) -> rerun::GridMap {
 /// Build a `GridMap` archetype from a single-channel (L/U8) grid.
 ///
 /// `origin_xy_world` is the lower-left corner of the grid in world XY coordinates
-/// (meters); `cell_size` is the world size of one cell (meters/pixel); `z_world` is
+/// (meters); `cell_size` is the world size of one cell (meters/cell); `z_world` is
 /// the height the grid is lifted to. `cells` are the raw u8 cell values laid out
 /// with row 0 at the top of the image (Rerun's image convention), and `colormap`
 /// selects how those values are coloured.

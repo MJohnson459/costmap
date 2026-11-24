@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{
     CostGeoTiff, CostWindows, Costmap, TiledGrid,
-    types::{COST_UNKNOWN, CellRegion, Lattice, VoxelError},
+    types::{COST_UNKNOWN, CellRegion, CostmapError, Lattice},
 };
 
 /// Chunk traffic of a [`GeoTiffWindows`].
@@ -42,7 +42,7 @@ pub struct GeoTiffWindows {
 impl GeoTiffWindows {
     /// Read windows of `file` through chunks of `chunk_cells` cells a side, with no
     /// margins. Fails if `chunk_cells` is not a valid chunk size.
-    pub fn new(file: CostGeoTiff, chunk_cells: u32) -> Result<Self, VoxelError> {
+    pub fn new(file: CostGeoTiff, chunk_cells: u32) -> Result<Self, CostmapError> {
         let chunks = TiledGrid::new(file.resolution(), chunk_cells, COST_UNKNOWN)?;
         Ok(Self {
             file,
@@ -56,7 +56,7 @@ impl GeoTiffWindows {
     }
 
     /// Open the GeoTIFF at `path`; see [`new`](Self::new). No cells are read yet.
-    pub fn open(path: impl AsRef<Path>, chunk_cells: u32) -> Result<Self, VoxelError> {
+    pub fn open(path: impl AsRef<Path>, chunk_cells: u32) -> Result<Self, CostmapError> {
         Self::new(CostGeoTiff::open(path)?, chunk_cells)
     }
 
@@ -89,7 +89,7 @@ impl GeoTiffWindows {
     }
 
     /// Drop distant chunks, then load the chunks under `wanted` plus the load margin.
-    fn refill(&mut self, wanted: CellRegion) -> Result<(), VoxelError> {
+    fn refill(&mut self, wanted: CellRegion) -> Result<(), CostmapError> {
         let region = wanted.grown(self.load_margin);
         let size = region.size();
         // Square around the middle of the region that holds it plus the keep margin.
@@ -111,7 +111,7 @@ impl CostWindows for GeoTiffWindows {
         self.chunks.lattice()
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         if !cells.overlaps(&self.cells()) {
             return Ok(Costmap::filled(self.lattice(), cells, COST_UNKNOWN));
         }
