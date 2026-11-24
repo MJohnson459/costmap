@@ -2,6 +2,7 @@ pub mod layered;
 pub mod merge;
 pub mod occupancy;
 pub mod project;
+pub mod resample;
 
 pub use layered::{Layer, LayerId, LayeredCostmap};
 pub use merge::{merge_max, merge_max_keep_unknown, merge_overwrite};

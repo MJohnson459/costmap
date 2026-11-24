@@ -34,6 +34,32 @@ pub(crate) fn merge_cost(policy: MergePolicy, old: u8, src: u8) -> Option<u8> {
     }
 }
 
+/// Merge `window`, on the master's lattice, into the cells of `master` it covers.
+/// Unknown window cells leave the master unchanged.
+pub(crate) fn merge_window(master: &mut Costmap, window: &Costmap, policy: MergePolicy) {
+    debug_assert!(master.lattice() == window.lattice());
+    let Some(offsets) = master.offsets_in(window.cells()) else {
+        return;
+    };
+    let width = master.size().x as usize;
+    let window_width = window.size().x as usize;
+    let skip = master.cell_of(offsets.min) - window.cells().min;
+    let columns = offsets.min.x as usize..offsets.max.x as usize;
+    for (row, y) in (offsets.min.y as usize..offsets.max.y as usize).enumerate() {
+        let from = (skip.y as usize + row) * window_width + skip.x as usize;
+        let source = &window.as_slice()[from..from + columns.len()];
+        let target = &mut master.as_mut_slice()[y * width..][columns.clone()];
+        for (cell, &cost) in target.iter_mut().zip(source) {
+            if cost == COST_UNKNOWN {
+                continue;
+            }
+            if let Some(merged) = merge_cost(policy, *cell, cost) {
+                *cell = merged;
+            }
+        }
+    }
+}
+
 /// Project a source grid into the master costmap within a region.
 ///
 /// For each cell in `region`, applies the projection function `f` to the source value.

@@ -6,7 +6,9 @@
 //!   [`types`] follow Nav2's costmap_2d.
 //! - [`LayeredCostmap`] combines [`Layer`]s into one costmap that can follow a robot:
 //!   [`ObstacleLayer`] from sensor beams, [`WavefrontInflationLayer`], and
-//!   [`TiledMapLayer`] for a static map of any size.
+//!   [`StaticLayer`] for a map of any size, on any lattice and in any frame.
+//! - [`resample`] copies a map onto another lattice, given the transform between
+//!   their frames.
 //! - [`raycast`] and [`iterators`] walk cells along rays and inside polygons.
 //! - [`plan`] is an 8-connected, cost-weighted A*. [`TileGraph`] plans across a map a
 //!   tile at a time and reads only the tiles on the route. [`RoutePlanner`] plans
@@ -37,6 +39,7 @@ pub mod types;
 #[cfg(feature = "rerun")]
 pub mod rerun_viz;
 
+pub use costmap::resample::{Resample, resample};
 pub use costmap::{
     Costmap, Layer, LayerId, LayeredCostmap, MergePolicy, cost_from_occupancy,
     costmap_from_occupancy, occupancy_from_cost, project_into,
@@ -45,7 +48,7 @@ pub use costmap::{
 pub use grid::Grid2d;
 pub use grid::{CostWindows, DenseGrid, InflatedWindows};
 pub use layers::{
-    Beam, InflationConfig, ObstacleConfig, ObstacleLayer, ProjectionLayer, TiledMapLayer,
+    Beam, InflationConfig, ObstacleConfig, ObstacleLayer, ProjectionLayer, StaticLayer,
     WavefrontInflationLayer,
 };
 #[cfg(feature = "geotiff")]

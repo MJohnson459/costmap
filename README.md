@@ -87,6 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Rolling windows** — `update_origin` moves a grid by whole cells and keeps the cells it still holds, for a costmap that follows the robot. A cell keeps its position as the grid moves.
 - **Raycasting** — DDA and grid-step algorithms in world coordinates.
 - **Obstacle layer** — `ObstacleLayer` marks sensor hits, clears along beams, and forgets obstacles after a set time, including when the sensor stream stops.
+- **Static layer** — `StaticLayer` writes any map, dense, tiled or on disk, into a layered costmap. `resample` copies a map onto another resolution or into another frame, such as `map` under `odom`, given the transform between them.
 - **Inflation** — Nav2-style inscribed radius and exponential decay.
 - **Planning** — `plan` is an 8-connected, cost-weighted A* with no corner cutting. `TileGraph` plans across a map a tile at a time: 28 ms where `plan` takes 2,270 ms on a 30.5 M-cell map, at most 0.9 % costlier, reading only the tiles on the route. `RoutePlanner` plans between world positions on a whole map and stores its graph beside the map.
 - **Line and polygon iterators** — the cells along a ray or inside a convex polygon, with read and write access.

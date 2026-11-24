@@ -9,8 +9,8 @@ use costmap::types::{
 };
 use costmap::{
     CostWindows, Costmap, DenseGrid, InflatedWindows, InflationConfig, Layer, OccupancyGrid,
-    PlanOptions, RouteOptions, RoutePlanner, TileCache, TileGraph, TileGraphOptions,
-    WavefrontInflationLayer, costmap_from_occupancy, line_passable, plan,
+    PlanOptions, Resample, RouteOptions, RoutePlanner, TileCache, TileGraph, TileGraphOptions,
+    WavefrontInflationLayer, costmap_from_occupancy, line_passable, plan, resample,
 };
 use glam::{DVec2, IVec2, UVec2, Vec2};
 
@@ -360,6 +360,31 @@ fn a_tile_graph_plans_the_same_path_shifted() {
         moved_path.map(|p| p.cells),
         path.map(|p| p.cells.iter().map(|&c| c + SHIFT).collect())
     );
+}
+
+#[test]
+fn resampling_reads_the_same_places() {
+    let grid = costs();
+    let moved = moved(&grid);
+    let coarse = Lattice::new(DVec2::new(-1.9, 1.3), 1.1);
+    let cells = CellRegion::new(IVec2::new(-1, -1), IVec2::new(20, 15));
+    for transform in [Pose2::default(), Pose2::new(DVec2::new(0.3, -0.2), 0.2)] {
+        for policy in [Resample::WorstCost, Resample::Nearest] {
+            let expected = resample(&mut &grid, transform, coarse, cells, policy).unwrap();
+            let got = resample(&mut &moved, transform, coarse, cells, policy).unwrap();
+            assert_eq!(got, expected, "{policy:?} {transform:?}");
+        }
+    }
+    let window = resample(
+        &mut &moved,
+        Pose2::default(),
+        moved.lattice(),
+        moved.cells(),
+        Resample::Nearest,
+    )
+    .unwrap();
+    assert_eq!(window.cells(), moved.cells());
+    assert_eq!(window.as_slice(), moved.as_slice());
 }
 
 #[test]
