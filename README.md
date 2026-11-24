@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Raycasting** — DDA and grid-step algorithms in world coordinates.
 - **Obstacle layer** — `ObstacleLayer` marks sensor hits, clears along beams, and forgets obstacles after a set time, including when the sensor stream stops.
 - **Inflation** — Nav2-style inscribed radius and exponential decay.
-- **Planning** — `plan` is an 8-connected, cost-weighted A* with no corner cutting. `TileGraph` plans across a map a tile at a time: 28 ms where `plan` takes 2,270 ms on a 30.5 M-cell map, at most 0.9 % costlier, reading only the tiles on the route.
+- **Planning** — `plan` is an 8-connected, cost-weighted A* with no corner cutting. `TileGraph` plans across a map a tile at a time: 28 ms where `plan` takes 2,270 ms on a 30.5 M-cell map, at most 0.9 % costlier, reading only the tiles on the route. `RoutePlanner` plans between world positions on a whole map and stores its graph beside the map.
 - **Line and polygon iterators** — the cells along a ray or inside a convex polygon, with read and write access.
 - **ROS 2 map loading** — the standard YAML and image format.
 - **Tiled maps** — `TiledGrid<T>` stores a map as sparse fixed-size chunks with signed cell coordinates. `window()` returns a `DenseGrid<T>`, so every algorithm in the crate runs on a piece of a map of any size.
@@ -103,8 +103,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [occupancy_raycast](examples/occupancy_raycast.rs) | loading a ROS map and a 360° DDA raycast sweep | `cargo run --example occupancy_raycast --features rerun` |
 | [local_costmap_lidar](examples/local_costmap_lidar.rs) | a rolling local costmap fed by simulated lidar, with inflation | `cargo run --example local_costmap_lidar --features rerun` |
 | [learned_traversability](examples/learned_traversability.rs) | a costmap layer from a traversability estimate | `cargo run --example learned_traversability --features rerun` |
+| [plan_route](examples/plan_route.rs) | `RoutePlanner` across a whole cost GeoTIFF or ROS map, with timings and peak memory | `cargo run --release --features geotiff --example plan_route -- MAP X,Y X,Y` |
 
-The examples open the [Rerun](https://rerun.io) viewer, which must be installed (`cargo install rerun-cli`).
+Every example except `plan_route` opens the [Rerun](https://rerun.io) viewer, which must be installed (`cargo install rerun-cli`).
 
 ![Raycast example](docs/images/rerun_raycast.png)
 

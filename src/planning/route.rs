@@ -1,26 +1,25 @@
-//! Routes across a whole map: a cost GeoTIFF or a ROS map.
+//! Routes across a whole map, from one world position to another.
 //!
-//! Nav2 holds a window of the map, so its own planner cannot reach a goal
-//! outside it. [`RoutePlanner`] plans on a [`TileGraph`] of the whole raster:
-//! the places each tile's border can be crossed and the costs between them.
-//! The graph is built at the raster's own resolution, so a doorway the robot
-//! fits through stays open. Planning reads only the tiles a route passes
-//! through, so memory use does not grow with the raster.
+//! [`RoutePlanner`] plans on a [`TileGraph`] of the whole map: the places each
+//! tile's border can be crossed and the costs between them. The graph is built
+//! at the map's own resolution, so a doorway the robot fits through stays open.
+//! Planning reads only the tiles a route passes through, so memory use does not
+//! grow with the map.
 
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
-use costmap::types::{CellRegion, VoxelError};
-use costmap::{
-    CostWindows, Costmap, GeoTiffReading, Lattice, MapFile, Margin, TileCache, TileGraph,
-    TileGraphOptions,
-};
 use glam::{DVec2, IVec2};
 use thiserror::Error;
-use tracing::{info, warn};
+
+use crate::types::{CellRegion, VoxelError};
+use crate::{
+    CostWindows, Costmap, GeoTiffReading, InflatedWindows, MapFile, Margin, TileCache, TileGraph,
+    TileGraphOptions,
+};
 
 /// Chunk edge of the grid raster pixels are decoded into.
 const CHUNK_CELLS: u32 = 256;
@@ -89,53 +88,45 @@ pub struct Route {
     pub length_m: f64,
 }
 
-/// A map whose windows come inflated. Each is read with a margin as wide as
-/// inflation reaches, so every obstacle that raises a cost in the window is in
-/// what is read.
-struct Inflated<M> {
-    map: M,
-    /// Cells read beyond each edge of a window.
-    margin: u32,
-    /// Distance from an obstacle that inflation reaches: `inflation_m`, or the
-    /// robot radius if that is larger, so cells the robot cannot occupy are
-    /// impassable whatever `inflation_m` is.
-    reach_m: f32,
-    robot_radius_m: f32,
+/// Where a [`RoutePlanner`]'s graph came from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GraphOrigin {
+    /// Read from the file at this path, stored by an earlier build from the same
+    /// map with the same options.
+    Read(PathBuf),
+    /// Built in `took` and stored at `path` for the next start.
+    Stored { took: Duration, path: PathBuf },
+    /// Built in `took`, but storing it at `path` failed with `error`; it is
+    /// built again next time.
+    NotStored {
+        took: Duration,
+        path: PathBuf,
+        error: String,
+    },
+    /// Built in `took` from a map held in memory, and not stored.
+    Built { took: Duration },
 }
 
-impl<M: CostWindows> Inflated<M> {
-    fn new(map: M, options: &RouteOptions) -> Self {
-        let reach_m = options.inflation_m.max(options.robot_radius_m);
-        let resolution = map.lattice().resolution;
-        Self {
-            margin: (f64::from(reach_m) / resolution).ceil() as u32 + 1,
-            map,
-            reach_m,
-            robot_radius_m: options.robot_radius_m,
-        }
-    }
-}
-
-impl<M: CostWindows> CostWindows for Inflated<M> {
-    fn lattice(&self) -> Lattice {
-        self.map.lattice()
-    }
-
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
-        let mut costs = self.map.window(cells.grown(self.margin))?;
-        costs.inflate(self.reach_m, self.robot_radius_m, COST_SCALING);
-        (&costs).window(cells)
-    }
+/// `map`'s windows inflated for planning. Cells nearer an obstacle than the robot
+/// radius are impassable whatever `inflation_m` is.
+fn inflated<M: CostWindows>(map: M, options: &RouteOptions) -> InflatedWindows<M> {
+    InflatedWindows::new(
+        map,
+        options.inflation_m,
+        options.robot_radius_m,
+        COST_SCALING,
+    )
 }
 
 /// What a stored graph of a raster was built from: the raster's length,
 /// modification time, inode and inode change time, a hash of its first and
 /// last 64 KiB, and [`options_fingerprint`].
+#[cfg(feature = "geotiff")]
 fn fingerprint(map: &Path, options: &RouteOptions) -> Result<Vec<u8>, VoxelError> {
     let metadata = fs::metadata(map)?;
     let modified = metadata
         .modified()?
-        .duration_since(UNIX_EPOCH)
+        .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let mut bytes = GRAPH_MAGIC.to_vec();
     bytes.extend(metadata.len().to_le_bytes());
@@ -195,7 +186,9 @@ fn fnv1a(hash: u64, bytes: &[u8]) -> u64 {
 /// FNV-1a hash of the first and last 64 KiB of the file at `path`, which hold
 /// a TIFF's header, its directory and its first and last strips or tiles. A
 /// raster written again with the same size and time differs there.
+#[cfg(feature = "geotiff")]
 fn ends_hash(path: &Path, length: u64) -> Result<u64, VoxelError> {
+    use std::io::{Seek, SeekFrom};
     const SPAN: u64 = 64 * 1024;
     let mut file = File::open(path)?;
     let mut hash = FNV_OFFSET;
@@ -244,37 +237,36 @@ fn write_graph(path: &Path, fingerprint: &[u8], graph: &TileGraph) -> std::io::R
 }
 
 /// The graph stored beside `map` if `fingerprint` matches it; otherwise one
-/// built from `source` and stored there.
+/// built from `windows` and stored there.
 fn stored_or_built(
     map: &Path,
     fingerprint: &[u8],
     cells: CellRegion,
     options: &RouteOptions,
-    source: &mut impl CostWindows,
-) -> Result<TileGraph, VoxelError> {
-    let stored = graph_path(map);
-    if let Some(graph) = read_graph(&stored, fingerprint, options) {
-        info!("read the tile graph from {}", stored.display());
-        return Ok(graph);
+    windows: &mut impl CostWindows,
+) -> Result<(TileGraph, GraphOrigin), VoxelError> {
+    let path = graph_path(map);
+    if let Some(graph) = read_graph(&path, fingerprint, options) {
+        return Ok((graph, GraphOrigin::Read(path)));
     }
     let started = Instant::now();
-    let graph = TileGraph::build(source, cells, options.graph)?;
-    info!(
-        "built the tile graph in {:.1} s",
-        started.elapsed().as_secs_f64()
-    );
-    if let Err(error) = write_graph(&stored, fingerprint, &graph) {
-        warn!(
-            "could not store the tile graph at {}: {error}",
-            stored.display()
-        );
-    }
-    Ok(graph)
+    let graph = TileGraph::build(windows, cells, options.graph)?;
+    let took = started.elapsed();
+    let origin = match write_graph(&path, fingerprint, &graph) {
+        Ok(()) => GraphOrigin::Stored { took, path },
+        Err(error) => GraphOrigin::NotStored {
+            took,
+            path,
+            error: error.to_string(),
+        },
+    };
+    Ok((graph, origin))
 }
 
 /// Plans routes across a whole cost map.
 pub struct RoutePlanner {
     graph: TileGraph,
+    origin: GraphOrigin,
     tiles: Mutex<TileCache<Box<dyn CostWindows + Send>>>,
     options: RouteOptions,
 }
@@ -285,14 +277,15 @@ impl RoutePlanner {
     /// `.yaml` and `.yml` are a ROS map. It is held whole in memory, as
     /// `nav2_map_server` holds it.
     ///
-    /// `.tif` and `.tiff` are a cost GeoTIFF, of which only the tiles a route
-    /// passes are held. Any other extension is an error.
+    /// With the `geotiff` feature, `.tif` and `.tiff` are a cost GeoTIFF, of
+    /// which only the tiles a route passes are held. Any other extension is an
+    /// error.
     ///
     /// The graph is read from [`graph_path`] if the file there was built from
     /// this map with these options. Otherwise it is built, which for a
     /// GeoTIFF reads the whole raster twice, a few tiles at a time, and
-    /// stored there for the next start. If it cannot be stored, a warning is
-    /// logged and it is built again next time.
+    /// stored there for the next start. [`origin`](Self::origin) says which
+    /// happened, and whether storing failed.
     pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
         let path = path.as_ref();
         let reading = GeoTiffReading {
@@ -304,32 +297,39 @@ impl RoutePlanner {
         let map = MapFile::open(path, reading)?;
         let fingerprint = match &map {
             MapFile::Ros(costs) => costs_fingerprint(costs, &options),
+            #[cfg(feature = "geotiff")]
             MapFile::GeoTiff(_) => fingerprint(path, &options)?,
         };
         let cells = map.cells();
-        let mut source = Inflated::new(map, &options);
-        let graph = stored_or_built(path, &fingerprint, cells, &options, &mut source)?;
-        Self::new(graph, Box::new(source), options)
+        let mut windows = inflated(map, &options);
+        let (graph, origin) = stored_or_built(path, &fingerprint, cells, &options, &mut windows)?;
+        Self::new(graph, origin, Box::new(windows), options)
     }
 
     /// Plan on `costs`, held in memory and inflated a tile at a time. The map
     /// frame is the frame of `costs`'s lattice.
     pub fn from_costmap(costs: Costmap, options: RouteOptions) -> Result<Self, VoxelError> {
         let cells = costs.cells();
-        let mut source = Inflated::new(costs, &options);
-        let graph = TileGraph::build(&mut source, cells, options.graph)?;
-        Self::new(graph, Box::new(source), options)
+        let mut windows = inflated(costs, &options);
+        let started = Instant::now();
+        let graph = TileGraph::build(&mut windows, cells, options.graph)?;
+        let origin = GraphOrigin::Built {
+            took: started.elapsed(),
+        };
+        Self::new(graph, origin, Box::new(windows), options)
     }
 
-    /// Fails if `source` is not on the lattice the graph was built on.
+    /// Fails if `windows` is not on the lattice the graph was built on.
     fn new(
         graph: TileGraph,
-        source: Box<dyn CostWindows + Send>,
+        origin: GraphOrigin,
+        windows: Box<dyn CostWindows + Send>,
         options: RouteOptions,
     ) -> Result<Self, VoxelError> {
         Ok(Self {
-            tiles: Mutex::new(TileCache::new(source, &graph, TILES_HELD)?),
+            tiles: Mutex::new(TileCache::new(windows, &graph, TILES_HELD)?),
             graph,
+            origin,
             options,
         })
     }
@@ -337,6 +337,11 @@ impl RoutePlanner {
     /// The graph routes are planned on.
     pub fn graph(&self) -> &TileGraph {
         &self.graph
+    }
+
+    /// Whether the graph was read from a stored file or built.
+    pub fn origin(&self) -> &GraphOrigin {
+        &self.origin
     }
 
     /// The route from `start` to `goal`, both in the map frame.
@@ -472,8 +477,8 @@ impl RoutePlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use costmap::types::{COST_FREE, COST_LETHAL, COST_UNKNOWN};
-    use costmap::{RosMapLoader, TiledGrid, costmap_from_occupancy};
+    use crate::types::{COST_FREE, COST_LETHAL};
+    use crate::{Lattice, RosMapLoader, costmap_from_occupancy};
     use glam::UVec2;
 
     /// Small tiles, so the 20 m test maps span several.
@@ -485,8 +490,8 @@ mod tests {
         graph: TileGraphOptions {
             tile_cells: 32,
             node_spacing_cells: 8,
-            plan: costmap::PlanOptions {
-                lethal_threshold: costmap::types::COST_INSCRIBED,
+            plan: crate::PlanOptions {
+                lethal_threshold: crate::types::COST_INSCRIBED,
                 allow_unknown: false,
                 cost_weight: 3.0,
             },
@@ -708,6 +713,7 @@ mod tests {
         .unwrap();
 
         let planner = RoutePlanner::open(dir.join("map.yaml"), OPTIONS).unwrap();
+        assert!(matches!(planner.origin(), GraphOrigin::Stored { .. }));
         let (start, goal) = (DVec2::new(-3.0, -3.0), DVec2::new(3.0, -3.0));
         let route = planner.plan(start, goal).unwrap();
         assert_eq!(route.points.first(), Some(&start));
@@ -723,6 +729,7 @@ mod tests {
         let fingerprint = costs_fingerprint(&costs(&yaml), &OPTIONS);
         assert!(read_graph(&graph_path(&yaml), &fingerprint, &OPTIONS).is_some());
         let reopened = RoutePlanner::open(&yaml, OPTIONS).unwrap();
+        assert_eq!(reopened.origin(), &GraphOrigin::Read(graph_path(&yaml)));
         assert_eq!(reopened.plan(start, goal).unwrap(), route);
 
         // One more wall cell in the image, and the stored graph no longer fits.
@@ -735,6 +742,7 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(feature = "geotiff")]
     #[test]
     fn a_stored_graph_is_used_until_the_options_change() {
         let dir = std::env::temp_dir().join(format!("costmap_route_{}", std::process::id()));
@@ -748,13 +756,13 @@ mod tests {
                 COST_FREE
             }
         });
-        let mut tiles = TiledGrid::new(0.25, 64, COST_UNKNOWN).unwrap();
+        let mut tiles = crate::TiledGrid::new(0.25, 64, crate::types::COST_UNKNOWN).unwrap();
         tiles.write_window(&costs).unwrap();
-        let georef = costmap::GeoReference {
+        let georef = crate::GeoReference {
             epsg: Some(32633),
             anchor: DVec2::new(500_000.0, 5_000_000.0),
         };
-        costmap::write_cost_geotiff_region(&map, &tiles, &georef, IVec2::ZERO, IVec2::splat(100))
+        crate::write_cost_geotiff_region(&map, &tiles, &georef, IVec2::ZERO, IVec2::splat(100))
             .unwrap();
 
         let (start, goal) = (DVec2::new(2.0, 20.0), DVec2::new(22.0, 20.0));
@@ -788,6 +796,7 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(feature = "geotiff")]
     fn fingerprint_of(map: &Path, options: &RouteOptions) -> Vec<u8> {
         fingerprint(map, options).unwrap()
     }

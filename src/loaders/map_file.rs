@@ -2,8 +2,10 @@
 
 use std::path::Path;
 
+#[cfg(feature = "geotiff")]
+use crate::GeoTiffWindows;
 use crate::{
-    CostWindows, Costmap, GeoTiffWindows, RosMapLoader, costmap_from_occupancy,
+    CostWindows, Costmap, RosMapLoader, costmap_from_occupancy,
     types::{CellRegion, Lattice, VoxelError},
 };
 
@@ -26,7 +28,7 @@ impl Margin {
 }
 
 /// How a cost GeoTIFF is read: its chunk edge and the margins of
-/// [`GeoTiffWindows::with_margins`].
+/// `GeoTiffWindows::with_margins`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GeoTiffReading {
     /// Edge of a held chunk, in cells.
@@ -37,6 +39,7 @@ pub struct GeoTiffReading {
     pub keep_margin: Margin,
 }
 
+#[cfg(feature = "geotiff")]
 impl GeoTiffReading {
     /// Open the GeoTIFF at `path` with these chunks and margins. No cells are
     /// read yet.
@@ -51,23 +54,30 @@ impl GeoTiffReading {
 }
 
 /// A map file, chosen by extension.
-#[allow(clippy::large_enum_variant)]
+#[cfg_attr(feature = "geotiff", allow(clippy::large_enum_variant))]
 pub enum MapFile {
     /// A ROS map YAML and its image, held whole in memory as costs.
     Ros(Costmap),
     /// A cost GeoTIFF, of which only the chunks near the last window are held.
+    #[cfg(feature = "geotiff")]
     GeoTiff(GeoTiffWindows),
 }
 
 impl MapFile {
     /// Extensions [`open`](Self::open) accepts.
+    #[cfg(feature = "geotiff")]
     pub const EXTENSIONS: &str = ".yaml, .yml (ROS map), .tif, .tiff (cost GeoTIFF)";
+    /// Extensions [`open`](Self::open) accepts.
+    #[cfg(not(feature = "geotiff"))]
+    pub const EXTENSIONS: &str = ".yaml, .yml (ROS map); .tif, .tiff need the geotiff feature";
 
     /// Open the map at `path`.
     ///
     /// `.yaml` and `.yml` are a ROS map, loaded whole and converted to costs.
-    /// `.tif` and `.tiff` are a cost GeoTIFF, opened as `geotiff` says. Case is
-    /// ignored. Any other extension is [`VoxelError::InvalidArgument`].
+    /// `.tif` and `.tiff` are a cost GeoTIFF, opened as `geotiff` says, and
+    /// need the `geotiff` feature. Case is ignored. Any other extension is
+    /// [`VoxelError::InvalidArgument`].
+    #[cfg_attr(not(feature = "geotiff"), allow(unused_variables))]
     pub fn open(path: impl AsRef<Path>, geotiff: GeoTiffReading) -> Result<Self, VoxelError> {
         let path = path.as_ref();
         let extension = path
@@ -79,6 +89,7 @@ impl MapFile {
                 let occupancy = RosMapLoader::load_from_yaml(path)?;
                 Ok(Self::Ros(costmap_from_occupancy(&occupancy)?))
             }
+            #[cfg(feature = "geotiff")]
             Some("tif" | "tiff") => Ok(Self::GeoTiff(geotiff.open(path)?)),
             _ => Err(VoxelError::InvalidArgument(format!(
                 "{}: unsupported extension; accepted: {}",
@@ -92,6 +103,7 @@ impl MapFile {
     pub fn cells(&self) -> CellRegion {
         match self {
             Self::Ros(costs) => costs.cells(),
+            #[cfg(feature = "geotiff")]
             Self::GeoTiff(windows) => windows.cells(),
         }
     }
@@ -101,6 +113,7 @@ impl CostWindows for MapFile {
     fn lattice(&self) -> Lattice {
         match self {
             Self::Ros(costs) => costs.lattice(),
+            #[cfg(feature = "geotiff")]
             Self::GeoTiff(windows) => windows.lattice(),
         }
     }
@@ -108,6 +121,7 @@ impl CostWindows for MapFile {
     fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
         match self {
             Self::Ros(costs) => (&*costs).window(cells),
+            #[cfg(feature = "geotiff")]
             Self::GeoTiff(windows) => windows.window(cells),
         }
     }
@@ -125,7 +139,11 @@ mod tests {
 
     #[test]
     fn an_unknown_extension_is_an_error_naming_those_accepted() {
-        for path in ["site.png", "site"] {
+        #[cfg(not(feature = "geotiff"))]
+        let paths = ["site.png", "site", "site.tif"];
+        #[cfg(feature = "geotiff")]
+        let paths = ["site.png", "site"];
+        for path in paths {
             let Err(VoxelError::InvalidArgument(message)) = MapFile::open(path, READING) else {
                 panic!("{path} opened");
             };
