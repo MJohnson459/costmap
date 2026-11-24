@@ -17,17 +17,11 @@ use thiserror::Error;
 
 use crate::types::{CellRegion, VoxelError};
 use crate::{
-    CostWindows, Costmap, InflatedWindows, RosMapLoader, TileCache, TileGraph, TileGraphOptions,
-    costmap_from_occupancy,
+    CostWindows, Costmap, GeoTiffReading, InflatedWindows, MapFile, Margin, TileCache, TileGraph,
+    TileGraphOptions,
 };
 
-/// Map files [`RoutePlanner::open`] accepts, by extension.
-#[cfg(feature = "geotiff")]
-const MAP_EXTENSIONS: &str = ".yaml, .yml (ROS map), .tif, .tiff (cost GeoTIFF)";
-#[cfg(not(feature = "geotiff"))]
-const MAP_EXTENSIONS: &str = ".yaml, .yml (ROS map); .tif, .tiff need the geotiff feature";
 /// Chunk edge of the grid raster pixels are decoded into.
-#[cfg(feature = "geotiff")]
 const CHUNK_CELLS: u32 = 256;
 const COST_SCALING: f32 = 2.0;
 /// Inflated tiles kept between plans: 16 MB at the default tile size.
@@ -294,38 +288,22 @@ impl RoutePlanner {
     /// happened, and whether storing failed.
     pub fn open(path: impl AsRef<Path>, options: RouteOptions) -> Result<Self, VoxelError> {
         let path = path.as_ref();
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(str::to_ascii_lowercase);
-        match extension.as_deref() {
-            Some("yaml" | "yml") => {
-                let occupancy = RosMapLoader::load_from_yaml(path)?;
-                let costs = costmap_from_occupancy(&occupancy)?;
-                let cells = costs.cells();
-                let fingerprint = costs_fingerprint(&costs, &options);
-                let mut windows = inflated(costs, &options);
-                let (graph, origin) =
-                    stored_or_built(path, &fingerprint, cells, &options, &mut windows)?;
-                Self::new(graph, origin, Box::new(windows), options)
-            }
+        let reading = GeoTiffReading {
+            chunk_cells: CHUNK_CELLS,
+            load_margin: Margin::Cells(0),
+            // A tile is read with its neighbours next, which share its margin.
+            keep_margin: Margin::Cells(options.graph.tile_cells / 2),
+        };
+        let map = MapFile::open(path, reading)?;
+        let fingerprint = match &map {
+            MapFile::Ros(costs) => costs_fingerprint(costs, &options),
             #[cfg(feature = "geotiff")]
-            Some("tif" | "tiff") => {
-                // A tile is read with its neighbours next, which share its margin.
-                let map = crate::GeoTiffWindows::open(path, CHUNK_CELLS)?
-                    .with_margins(0, options.graph.tile_cells / 2);
-                let cells = map.cells();
-                let mut windows = inflated(map, &options);
-                let fingerprint = fingerprint(path, &options)?;
-                let (graph, origin) =
-                    stored_or_built(path, &fingerprint, cells, &options, &mut windows)?;
-                Self::new(graph, origin, Box::new(windows), options)
-            }
-            _ => Err(VoxelError::InvalidArgument(format!(
-                "{}: unsupported extension; accepted: {MAP_EXTENSIONS}",
-                path.display()
-            ))),
-        }
+            MapFile::GeoTiff(_) => fingerprint(path, &options)?,
+        };
+        let cells = map.cells();
+        let mut windows = inflated(map, &options);
+        let (graph, origin) = stored_or_built(path, &fingerprint, cells, &options, &mut windows)?;
+        Self::new(graph, origin, Box::new(windows), options)
     }
 
     /// Plan on `costs`, held in memory and inflated a tile at a time. The map
@@ -499,8 +477,8 @@ impl RoutePlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Lattice;
     use crate::types::{COST_FREE, COST_LETHAL};
+    use crate::{Lattice, RosMapLoader, costmap_from_occupancy};
     use glam::UVec2;
 
     /// Small tiles, so the 20 m test maps span several.
