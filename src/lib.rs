@@ -62,4 +62,6 @@ pub use planning::{
     TileGraph, TileGraphOptions, TileLayout, line_passable, plan,
 };
 pub use tiled::{GeoReference, TiledGrid};
-pub use types::{Lattice, OccupancyGrid, VoxelError, cost_from_range, cost_from_unit};
+#[allow(deprecated)]
+pub use types::VoxelError;
+pub use types::{CostmapError, Lattice, OccupancyGrid, cost_from_range, cost_from_unit};

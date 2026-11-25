@@ -4,7 +4,7 @@ use glam::{DVec2, IVec2, UVec2};
 
 use crate::{
     Costmap,
-    types::{COST_UNKNOWN, CellRegion, Lattice, VoxelError},
+    types::{COST_UNKNOWN, CellRegion, CostmapError, Lattice},
 };
 
 /// A cost map that answers one request: the cells of a rectangle, as a dense window
@@ -36,7 +36,7 @@ pub trait CostWindows {
     /// The cells of `cells`: a [`Costmap`] on [`lattice`](Self::lattice) whose
     /// [`cells`](crate::DenseGrid::cells) equal `cells`. Cells the map does not hold
     /// are [`COST_UNKNOWN`]. Fails only if the map's storage cannot be read.
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError>;
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError>;
 
     /// The window of `size` cells whose middle cell holds `center`, a position in
     /// the lattice's frame.
@@ -44,9 +44,9 @@ pub trait CostWindows {
     /// A centre beyond the `i32` cell range gives the window at the edge of that
     /// range, which is all unknown. Fails if `center` is not finite or the map
     /// cannot be read.
-    fn window_around(&mut self, center: DVec2, size: UVec2) -> Result<Costmap, VoxelError> {
+    fn window_around(&mut self, center: DVec2, size: UVec2) -> Result<Costmap, CostmapError> {
         if !center.is_finite() {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "window centre {center} is not finite"
             )));
         }
@@ -60,7 +60,7 @@ impl CostWindows for Costmap {
         Costmap::lattice(self)
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         Ok(dense_window(self, cells))
     }
 }
@@ -70,7 +70,7 @@ impl CostWindows for &Costmap {
         Costmap::lattice(self)
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         Ok(dense_window(self, cells))
     }
 }
@@ -80,7 +80,7 @@ impl<W: CostWindows + ?Sized> CostWindows for &mut W {
         (**self).lattice()
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         (**self).window(cells)
     }
 }
@@ -90,7 +90,7 @@ impl<W: CostWindows + ?Sized> CostWindows for Box<W> {
         (**self).lattice()
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         (**self).window(cells)
     }
 }
@@ -154,7 +154,7 @@ impl<M: CostWindows> CostWindows for InflatedWindows<M> {
         self.map.lattice()
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         let mut costs = self.map.window(cells.grown(self.margin))?;
         costs.inflate(
             self.radius_m,

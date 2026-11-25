@@ -3,7 +3,7 @@
 //! Cells are converted with [`costmap::occupancy_from_cost`] and
 //! [`costmap::cost_from_occupancy`], the rule Nav2's `StaticLayer` applies.
 
-use costmap::types::{COST_UNKNOWN, CellRegion, VoxelError};
+use costmap::types::{COST_UNKNOWN, CellRegion, CostmapError};
 use costmap::{Costmap, DenseGrid, Lattice, cost_from_occupancy, occupancy_from_cost};
 use glam::{DVec2, UVec2};
 use hiroz_msgs::builtin_interfaces::Time;
@@ -59,10 +59,10 @@ pub fn occupancy_grid_from_costmap(
 /// Fails if the data length does not match the dimensions, or if the origin
 /// is rotated: a [`Lattice`] has no yaw. The grid holds the cells from (0, 0)
 /// of a lattice anchored at the message origin.
-pub fn costmap_from_occupancy_grid(msg: &OccupancyGridMsg) -> Result<Costmap, VoxelError> {
+pub fn costmap_from_occupancy_grid(msg: &OccupancyGridMsg) -> Result<Costmap, CostmapError> {
     let q = &msg.info.origin.orientation;
     if q.x != 0.0 || q.y != 0.0 || q.z != 0.0 {
-        return Err(VoxelError::InvalidMetadata(format!(
+        return Err(CostmapError::InvalidMetadata(format!(
             "rotated map origin ({}, {}, {}, {}) is not supported",
             q.x, q.y, q.z, q.w
         )));

@@ -32,8 +32,12 @@ The constructors take a `Lattice` and a `CellRegion` where they took a `MapInfo`
 | `grid.height()` (deprecated) | `grid.size().y` |
 | `grid.iter()` (deprecated) | `grid.as_slice().iter()` |
 | `grid.iter_mut()` (deprecated) | `grid.as_mut_slice().iter_mut()` |
+| `grid.update_origin(origin)` (deprecated) | `grid.move_to(origin)` |
+| `grid.update_center(center)` (deprecated) | `grid.center_on(center)` |
+| `grid.resize_map(size, resolution, origin)` (deprecated) | `grid.reset_to(Lattice::new(origin, resolution), CellRegion::from_size(size))` |
+| `grid.reset_map(lower, upper)` (deprecated) | `grid.clear_region(CellRegion::new(lower, upper))` |
 
-`with_fill` sets the value that `clear`, `update_origin`, `resize_map` and `reset_map` give to new or reset cells. `filled` uses its value as the fill value; the other constructors use `Default::default`.
+`with_fill` sets the value that `clear`, `move_to`, `reset_to` and `clear_region` give to new or reset cells. `filled` uses its value as the fill value; the other constructors use `Default::default`.
 
 ### `MapInfo` is removed
 
@@ -59,7 +63,7 @@ let map = Costmap::filled(lattice, CellRegion::from_size(UVec2::splat(200)), COS
 | `LayeredCostmap::new(info, fill, rolling)` | `LayeredCostmap::new(lattice, cells, fill, rolling)` |
 | `ObstacleLayer::new(info, config)` | `ObstacleLayer::new(lattice, cells, config)` |
 
-`world_bounds()` runs from the lower-left corner of the first cell held to the upper-right corner of the last; after `update_origin` it is where the grid now lies. A window of another grid shares its lattice: `Costmap::from_vec(map.lattice(), CellRegion::sized(min, size), data)`.
+`world_bounds()` runs from the lower-left corner of the first cell held to the upper-right corner of the last; after `move_to` it is where the grid now lies. A window of another grid shares its lattice: `Costmap::from_vec(map.lattice(), CellRegion::sized(min, size), data)`.
 
 ### World coordinates are `f64`
 
@@ -70,7 +74,7 @@ Positions in the world frame, map resolution and map extents are now `f64` (`gla
 | `Pose2::position` | `Vec2` | `DVec2` |
 | `Bounds::min`, `max` | `Vec2` | `DVec2` |
 | `Footprint::transform` | `Vec<Vec2>` | `Vec<DVec2>` |
-| `resize_map`, `update_origin`, `update_center` | `f32`, `Vec2` | `f64`, `DVec2` |
+| `resize_map` (now `reset_to`), `update_origin` (now `move_to`), `update_center` (now `center_on`) | `f32`, `Vec2` | `f64`, `DVec2` |
 | `raycast_dda`, `raycast_grid_step`, `line` | `origin: Vec2` | `origin: DVec2` |
 | `polygon`, `polygon_value` | `&[Vec2]` | `&[DVec2]` |
 | `RosMapMetadata::resolution`, `origin` | `f32`, `Vec3` | `f64`, `DVec3` |
@@ -90,13 +94,13 @@ To pass an `f32` vector where a world position is wanted, call `.as_dvec2()`; to
 
 ### Cell positions are `IVec2`
 
-A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsigned: `size()` and `resize_map` are unchanged.
+A cell position is a signed `glam::IVec2`. Sizes and counts of cells stay unsigned: `size()` and the `size` of `resize_map` are unchanged.
 
 | Item | 0.2 | 0.3 |
 | --- | --- | --- |
 | `get`, `get_mut`, `set`, `get_unchecked`, `get_unchecked_mut`, `grid[cell]` | take `UVec2` | take `IVec2` |
 | `indexed_iter`, `indexed_iter_mut` | yield `(UVec2, _)` | yield `(IVec2, _)` |
-| `reset_map` | `lower`, `upper: UVec2` | `lower`, `upper: IVec2` |
+| `reset_map` (now `clear_region`) | `lower`, `upper: UVec2` | `lower`, `upper: IVec2` |
 | `from_fn` (was `new_with`) | `f(x: u32, y: u32)` | `f(cell: IVec2)` |
 | `CellRegion::min`, `max`, `new`, `contains` | `UVec2` | `IVec2` |
 | `LineStep::cell` | `UVec2` | `IVec2` |
@@ -140,7 +144,7 @@ let cost = grid.get(grid.lattice().cell_at(position));
 
 A `DenseGrid` holds a rectangle of its lattice's cells, returned by `cells()`. A grid built with `CellRegion::from_size` holds the cells from (0, 0), as in 0.2. Two things differ:
 
-- **`update_origin` and `update_center` leave the lattice alone.** In 0.2 the first cell was (0, 0) after every move, so a cell's position changed as the grid rolled. Now the grid holds other cells and each keeps its position: after a 4-cell-wide grid moves one cell right, `cells()` is x 1..5 and `get(IVec2::new(0, y))` is `None`.
+- **`move_to` and `center_on` (0.2's `update_origin` and `update_center`) leave the lattice alone.** In 0.2 the first cell was (0, 0) after every move, so a cell's position changed as the grid rolled. Now the grid holds other cells and each keeps its position: after a 4-cell-wide grid moves one cell right, `cells()` is x 1..5 and `get(IVec2::new(0, y))` is `None`.
 - **`TiledGrid::window(cells)` returns the tiled grid's cells.** The window's first cell is `cells.min`, where in 0.2 it was (0, 0).
 
 `as_slice` is unchanged: row-major from the first cell held. `world_bounds().min` is the world corner of that first cell. Code that indexed a moved grid or a window from zero either reads the slice or adds `cells().min`:
@@ -152,7 +156,7 @@ let first = window.get(IVec2::ZERO);
 let first = window.get(window.cells().min);
 ```
 
-`reset_map`, `CellRegion` in `Layer::update_costs` and `project_into`, and the cells of `LineIterator`, `PolygonIterator`, `RayHit2D`, `Path` and `Regions` are all cells of the grid's lattice. `project_into` and the `merge_*` functions accept two grids that hold different rectangles of one lattice and write where they overlap.
+`clear_region`, `CellRegion` in `Layer::update_costs` and `project_into`, and the cells of `LineIterator`, `PolygonIterator`, `RayHit2D`, `Path` and `Regions` are all cells of the grid's lattice. `project_into` and the `merge_*` functions accept two grids that hold different rectangles of one lattice and write where they overlap.
 
 `Layer::attach` takes the master grid (`&Costmap`) where it took a `&MapInfo`. `Layer::match_size` is removed; `LayeredCostmap` never called it.
 
@@ -231,9 +235,11 @@ let id = layered.add_layer(Box::new(layer))?;
 
 Existing `Layer` implementations compile unchanged: `attach` has a default that accepts.
 
-### `VoxelError` is non-exhaustive
+### `VoxelError` is now `CostmapError`, and non-exhaustive
 
-A `match` on `VoxelError` needs a wildcard arm. The enum gains `InvalidArgument`, `Unsupported` and, with the `geotiff` feature, `Tiff`.
+The error type is named for the crate. `VoxelError` remains as a deprecated alias and will be removed in 0.4.
+
+A `match` on `CostmapError` needs a wildcard arm. The enum gains `InvalidArgument`, `Unsupported` and, with the `geotiff` feature, `Tiff`.
 
 ### Removed
 

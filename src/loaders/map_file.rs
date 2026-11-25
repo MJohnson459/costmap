@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::GeoTiffWindows;
 use crate::{
     CostWindows, Costmap, RosMapLoader, costmap_from_occupancy,
-    types::{CellRegion, Lattice, VoxelError},
+    types::{CellRegion, CostmapError, Lattice},
 };
 
 /// A distance beyond a window, in cells or in metres.
@@ -43,7 +43,7 @@ pub struct GeoTiffReading {
 impl GeoTiffReading {
     /// Open the GeoTIFF at `path` with these chunks and margins. No cells are
     /// read yet.
-    pub fn open(&self, path: impl AsRef<Path>) -> Result<GeoTiffWindows, VoxelError> {
+    pub fn open(&self, path: impl AsRef<Path>) -> Result<GeoTiffWindows, CostmapError> {
         let windows = GeoTiffWindows::open(path, self.chunk_cells)?;
         let resolution = windows.file().resolution();
         Ok(windows.with_margins(
@@ -76,9 +76,9 @@ impl MapFile {
     /// `.yaml` and `.yml` are a ROS map, loaded whole and converted to costs.
     /// `.tif` and `.tiff` are a cost GeoTIFF, opened as `geotiff` says, and
     /// need the `geotiff` feature. Case is ignored. Any other extension is
-    /// [`VoxelError::InvalidArgument`].
+    /// [`CostmapError::InvalidArgument`].
     #[cfg_attr(not(feature = "geotiff"), allow(unused_variables))]
-    pub fn open(path: impl AsRef<Path>, geotiff: GeoTiffReading) -> Result<Self, VoxelError> {
+    pub fn open(path: impl AsRef<Path>, geotiff: GeoTiffReading) -> Result<Self, CostmapError> {
         let path = path.as_ref();
         let extension = path
             .extension()
@@ -91,7 +91,7 @@ impl MapFile {
             }
             #[cfg(feature = "geotiff")]
             Some("tif" | "tiff") => Ok(Self::GeoTiff(geotiff.open(path)?)),
-            _ => Err(VoxelError::InvalidArgument(format!(
+            _ => Err(CostmapError::InvalidArgument(format!(
                 "{}: unsupported extension; accepted: {}",
                 path.display(),
                 Self::EXTENSIONS
@@ -118,7 +118,7 @@ impl CostWindows for MapFile {
         }
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<Costmap, CostmapError> {
         match self {
             Self::Ros(costs) => (&*costs).window(cells),
             #[cfg(feature = "geotiff")]
@@ -144,7 +144,7 @@ mod tests {
         #[cfg(feature = "geotiff")]
         let paths = ["site.png", "site"];
         for path in paths {
-            let Err(VoxelError::InvalidArgument(message)) = MapFile::open(path, READING) else {
+            let Err(CostmapError::InvalidArgument(message)) = MapFile::open(path, READING) else {
                 panic!("{path} opened");
             };
             assert!(message.contains(MapFile::EXTENSIONS), "{message}");

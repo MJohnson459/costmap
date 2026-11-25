@@ -56,7 +56,7 @@ impl Bounds {
     }
 }
 
-/// Update window in cell positions. Region is [min.x, max.x) x [min.y, max.y).
+/// A rectangle of cells. Region is [min.x, max.x) x [min.y, max.y).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellRegion {
     pub min: IVec2,

@@ -7,6 +7,8 @@ pub mod occupancy_grid;
 
 pub use constants::*;
 pub use cost::{cost_from_range, cost_from_unit};
+pub use error::CostmapError;
+#[allow(deprecated)]
 pub use error::VoxelError;
 pub use geometry::{Bounds, CellRegion, Footprint, Pose2};
 pub use lattice::Lattice;

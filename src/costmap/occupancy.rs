@@ -17,7 +17,7 @@
 //! [`cost_from_occupancy`] is the rule itself and [`occupancy_from_cost`] is
 //! its inverse.
 
-use crate::types::{COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, VoxelError};
+use crate::types::{COST_INSCRIBED, COST_LETHAL, COST_UNKNOWN, CostmapError};
 use crate::{Costmap, DenseGrid, OccupancyGrid};
 
 /// Occupancy value Nav2 reads as `NO_INFORMATION`.
@@ -68,7 +68,7 @@ pub fn cost_from_occupancy(occ: i8) -> u8 {
 }
 
 /// Cost grid over the same cells as `grid`, through [`cost_from_occupancy`].
-pub fn costmap_from_occupancy(grid: &OccupancyGrid) -> Result<Costmap, VoxelError> {
+pub fn costmap_from_occupancy(grid: &OccupancyGrid) -> Result<Costmap, CostmapError> {
     let data = grid
         .as_slice()
         .iter()

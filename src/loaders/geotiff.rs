@@ -49,7 +49,7 @@ use tiff::{
 
 use crate::{
     tiled::{GeoReference, TiledGrid, max_known},
-    types::{COST_UNKNOWN, Lattice, VoxelError},
+    types::{COST_UNKNOWN, CostmapError, Lattice},
 };
 
 /// Target uncompressed strip size when writing.
@@ -94,8 +94,8 @@ pub struct CostGeoTiff {
     georef: GeoReference,
     /// Raster nodata value when it differs from [`COST_UNKNOWN`]; mapped to unknown on read.
     nodata: Option<u8>,
-    /// Size in pixels of a full strip or tile.
-    chunk: UVec2,
+    /// Size in pixels of a full block: a TIFF strip or tile.
+    block: UVec2,
     /// Projected coordinates of the raster's top-left corner, kept in `f64` for overviews.
     top_left: DVec2,
     /// Pixel edge length in metres, in `f64`.
@@ -126,7 +126,7 @@ impl CostGeoTiff {
     /// and tiepoint, is not in a projected CRS, or has non-square pixels: cells of a
     /// [`TiledGrid`] are square, so the x and y pixel sizes may differ only until the
     /// difference accumulated over the longer raster side reaches 1 % of a pixel.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, VoxelError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, CostmapError> {
         let path = path.as_ref().to_path_buf();
         let mut decoder = Decoder::new(BufReader::new(File::open(&path)?))?;
         check_sample_type(&mut decoder)?;
@@ -139,7 +139,7 @@ impl CostGeoTiff {
             anchor: frame.top_left - DVec2::new(0.0, f64::from(height) * frame.pixel_size.y),
         };
         let nodata = read_nodata(&mut decoder)?;
-        let chunk = tiff_chunk_size(&decoder, size);
+        let block = tiff_block_size(&decoder, size);
         let overviews = find_overviews(&mut decoder, size)?;
         decoder.seek_to_image(0)?;
         Ok(Self {
@@ -149,7 +149,7 @@ impl CostGeoTiff {
             resolution: frame.pixel_size.x,
             georef,
             nodata,
-            chunk,
+            block,
             top_left: frame.top_left,
             pixel_size: frame.pixel_size.x,
             overviews,
@@ -207,9 +207,9 @@ impl CostGeoTiff {
     /// other tools may average or subsample; see
     /// [`overview_is_max_pooled`](Self::overview_is_max_pooled). The returned reader
     /// lists no overviews.
-    pub fn overview(&self, index: usize) -> Result<CostGeoTiff, VoxelError> {
+    pub fn overview(&self, index: usize) -> Result<CostGeoTiff, CostmapError> {
         let overview = self.overviews.get(index).ok_or_else(|| {
-            VoxelError::InvalidArgument(format!(
+            CostmapError::InvalidArgument(format!(
                 "overview {index} does not exist; the file has {}",
                 self.overviews.len()
             ))
@@ -221,7 +221,7 @@ impl CostGeoTiff {
         let height = f64::from(overview.size.y) * pixel_size;
         Ok(Self {
             path: self.path.clone(),
-            chunk: tiff_chunk_size(&decoder, overview.size),
+            block: tiff_block_size(&decoder, overview.size),
             decoder,
             size: overview.size,
             resolution: pixel_size,
@@ -242,7 +242,7 @@ impl CostGeoTiff {
         self.size
     }
 
-    /// Pixel edge length in metres.
+    /// Cell edge length in metres: the size of one raster pixel.
     pub fn resolution(&self) -> f64 {
         self.resolution
     }
@@ -253,7 +253,7 @@ impl CostGeoTiff {
     }
 
     /// Load the whole raster into a new grid with the given chunk size.
-    pub fn read_all(&mut self, chunk_size: u32) -> Result<TiledGrid<u8>, VoxelError> {
+    pub fn read_all(&mut self, chunk_size: u32) -> Result<TiledGrid<u8>, CostmapError> {
         let mut grid = TiledGrid::new(self.resolution, chunk_size, COST_UNKNOWN)?;
         self.load_region(&mut grid, IVec2::ZERO, self.size.as_ivec2())?;
         Ok(grid)
@@ -272,7 +272,7 @@ impl CostGeoTiff {
         grid: &mut TiledGrid<u8>,
         min_cell: IVec2,
         max_cell: IVec2,
-    ) -> Result<usize, VoxelError> {
+    ) -> Result<usize, CostmapError> {
         self.check_grid(grid)?;
         let chunk_size = grid.chunk_size();
         let mut wanted = wanted_chunks(grid, self.size, min_cell, max_cell);
@@ -282,9 +282,9 @@ impl CostGeoTiff {
         };
         let wanted: HashSet<IVec2> = wanted.into_iter().collect();
         let mut stamper = ChunkStamper::new(grid.chunk_size(), self.size.y, self.nodata, &wanted);
-        for chunk in self.tiff_chunks_in(pixels) {
-            let data = self.read_chunk(&chunk)?;
-            stamper.stamp(chunk.rect, &data);
+        for block in self.tiff_blocks_in(pixels) {
+            let data = self.read_block(&block)?;
+            stamper.stamp(block.rect, &data);
         }
         let loaded = stamper.chunks;
         for &coord in &wanted {
@@ -299,22 +299,22 @@ impl CostGeoTiff {
         Ok(count)
     }
 
-    /// Max-pool the raster into a grid of `factor` x `factor` pixel blocks, decoding one
-    /// TIFF strip or tile at a time.
+    /// Max-pool the raster into a grid whose cells each cover `factor` x `factor`
+    /// pixels, decoding one TIFF strip or tile at a time.
     ///
-    /// The result shares this file's local frame: block `(i, j)` covers cells
-    /// `[i * factor, (i + 1) * factor)` by `[j * factor, (j + 1) * factor)`, its
+    /// The result shares this file's local frame: its cell `(i, j)` covers this file's
+    /// cells `[i * factor, (i + 1) * factor)` by `[j * factor, (j + 1) * factor)`, its
     /// resolution is `resolution() * factor`, and its fill value is [`COST_UNKNOWN`].
-    /// A block is unknown only if every pixel in it is, as in
+    /// A cell is unknown only if every pixel in it is, as in
     /// [`TiledGrid::overview_max`]. Memory use is the output grid plus one decoded strip
     /// or tile, so this works on rasters far larger than memory.
     pub fn read_overview_max(
         &mut self,
         factor: u32,
         chunk_size: u32,
-    ) -> Result<TiledGrid<u8>, VoxelError> {
+    ) -> Result<TiledGrid<u8>, CostmapError> {
         if factor == 0 {
-            return Err(VoxelError::InvalidArgument(
+            return Err(CostmapError::InvalidArgument(
                 "overview factor must be >= 1".into(),
             ));
         }
@@ -329,15 +329,15 @@ impl CostGeoTiff {
             width: self.size.x,
             height: self.size.y,
         };
-        for chunk in self.tiff_chunks_in(everything) {
-            let data = self.read_chunk(&chunk)?;
-            let blocks = BlockPool::new(chunk.rect, self.size.y, factor);
-            let pooled = blocks.pool(chunk.rect, &data, self.nodata);
-            let width = blocks.size.x as usize;
+        for block in self.tiff_blocks_in(everything) {
+            let data = self.read_block(&block)?;
+            let coarse = CoarseCells::new(block.rect, self.size.y, factor);
+            let pooled = coarse.pool(block.rect, &data, self.nodata);
+            let width = coarse.size.x as usize;
             for (i, &value) in pooled.iter().enumerate() {
                 if value != COST_UNKNOWN {
-                    let block = blocks.first + IVec2::new((i % width) as i32, (i / width) as i32);
-                    let slot = grid.cell_mut(block);
+                    let cell = coarse.first + IVec2::new((i % width) as i32, (i / width) as i32);
+                    let slot = grid.cell_mut(cell);
                     *slot = max_known(*slot, value);
                 }
             }
@@ -345,62 +345,62 @@ impl CostGeoTiff {
         Ok(grid)
     }
 
-    fn check_grid(&self, grid: &TiledGrid<u8>) -> Result<(), VoxelError> {
+    fn check_grid(&self, grid: &TiledGrid<u8>) -> Result<(), CostmapError> {
         if !grid.resolution_matches(self.resolution) {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "grid resolution {} differs from file resolution {}",
                 grid.resolution(),
                 self.resolution
             )));
         }
         if *grid.fill_value() != COST_UNKNOWN {
-            return Err(VoxelError::InvalidArgument(
+            return Err(CostmapError::InvalidArgument(
                 "grid fill value must be COST_UNKNOWN".into(),
             ));
         }
         Ok(())
     }
 
-    /// The strips or tiles intersecting `pixels`, with each one's pixel rectangle.
-    fn tiff_chunks_in(&self, pixels: PixelRect) -> Vec<TiffChunk> {
-        let per_row = self.size.x.div_ceil(self.chunk.x);
-        let cols = pixels.x / self.chunk.x..=(pixels.x + pixels.width - 1) / self.chunk.x;
-        let rows = pixels.y / self.chunk.y..=(pixels.y + pixels.height - 1) / self.chunk.y;
-        let mut chunks = Vec::new();
+    /// The blocks (strips or tiles) intersecting `pixels`, with each one's pixel rectangle.
+    fn tiff_blocks_in(&self, pixels: PixelRect) -> Vec<TiffBlock> {
+        let per_row = self.size.x.div_ceil(self.block.x);
+        let cols = pixels.x / self.block.x..=(pixels.x + pixels.width - 1) / self.block.x;
+        let rows = pixels.y / self.block.y..=(pixels.y + pixels.height - 1) / self.block.y;
+        let mut blocks = Vec::new();
         for row in rows {
             for col in cols.clone() {
-                let (x, y) = (col * self.chunk.x, row * self.chunk.y);
-                chunks.push(TiffChunk {
+                let (x, y) = (col * self.block.x, row * self.block.y);
+                blocks.push(TiffBlock {
                     index: row * per_row + col,
                     rect: PixelRect {
                         x,
                         y,
-                        width: self.chunk.x.min(self.size.x - x),
-                        height: self.chunk.y.min(self.size.y - y),
+                        width: self.block.x.min(self.size.x - x),
+                        height: self.block.y.min(self.size.y - y),
                     },
                 });
             }
         }
-        chunks
+        blocks
     }
 
-    /// Decode `chunk` and check it holds one sample per pixel of its rectangle.
-    fn read_chunk(&mut self, chunk: &TiffChunk) -> Result<Vec<u8>, VoxelError> {
+    /// Decode `block` and check it holds one sample per pixel of its rectangle.
+    fn read_block(&mut self, block: &TiffBlock) -> Result<Vec<u8>, CostmapError> {
         let decoded = self
             .decoder
-            .read_chunk(chunk.index)
-            .map_err(|err| explain_decode_error(&mut self.decoder, chunk.index, err))?;
+            .read_chunk(block.index)
+            .map_err(|err| explain_decode_error(&mut self.decoder, block.index, err))?;
         let DecodingResult::U8(data) = decoded else {
-            return Err(VoxelError::Unsupported(
-                "TIFF chunk did not decode to 8-bit samples".into(),
+            return Err(CostmapError::Unsupported(
+                "TIFF block did not decode to 8-bit samples".into(),
             ));
         };
-        if data.len() != chunk.rect.area() {
-            return Err(VoxelError::InvalidMetadata(format!(
-                "TIFF chunk {} holds {} samples, expected {}",
-                chunk.index,
+        if data.len() != block.rect.area() {
+            return Err(CostmapError::InvalidMetadata(format!(
+                "TIFF block {} holds {} samples, expected {}",
+                block.index,
                 data.len(),
-                chunk.rect.area()
+                block.rect.area()
             )));
         }
         Ok(data)
@@ -409,17 +409,17 @@ impl CostGeoTiff {
 
 /// Replace the `tiff` crate's LZW end-of-stream failure with an actionable error.
 ///
-/// `err` is the failure of reading chunk `index` from `decoder`. tiff 0.11's `LZWReader`
+/// `err` is the failure of reading block `index` from `decoder`. tiff 0.11's `LZWReader`
 /// turns weezl's `NoProgress` status into `UnexpectedEof("no lzw end code found")` even
 /// when that same call returned the last decoded bytes, so some valid LZW tiles (seen on
 /// partial edge tiles of GDAL COGs) cannot be read. For such a failure on an LZW raster
-/// this returns [`VoxelError::Unsupported`] naming the `COMPRESS=DEFLATE` workaround; any
+/// this returns [`CostmapError::Unsupported`] naming the `COMPRESS=DEFLATE` workaround; any
 /// other failure is returned unchanged.
 pub fn explain_decode_error<R: Read + Seek>(
     decoder: &mut Decoder<R>,
     index: u32,
     err: tiff::TiffError,
-) -> VoxelError {
+) -> CostmapError {
     let truncated = matches!(
         &err,
         tiff::TiffError::IoError(io) if io.kind() == std::io::ErrorKind::UnexpectedEof
@@ -428,8 +428,8 @@ pub fn explain_decode_error<R: Read + Seek>(
         .find_tag_unsigned::<u16>(Tag::Compression)
         .is_ok_and(|method| method == Some(CompressionMethod::LZW.to_u16()));
     if truncated && lzw {
-        VoxelError::Unsupported(format!(
-            "LZW chunk {index} could not be decoded ({err}); the tiff crate fails on some \
+        CostmapError::Unsupported(format!(
+            "LZW block {index} could not be decoded ({err}); the tiff crate fails on some \
              valid LZW tiles, so re-encode the file with \
              `gdal_translate -of COG -co COMPRESS=DEFLATE`"
         ))
@@ -453,20 +453,20 @@ impl PixelRect {
     }
 }
 
-struct TiffChunk {
+struct TiffBlock {
     index: u32,
     rect: PixelRect,
 }
 
-/// The `factor` x `factor` pixel blocks, in cell coordinates, that a raster rectangle touches.
-struct BlockPool {
+/// The overview cells, each `factor` x `factor` pixels, that a raster rectangle touches.
+struct CoarseCells {
     first: IVec2,
     size: UVec2,
     factor: u32,
     raster_height: u32,
 }
 
-impl BlockPool {
+impl CoarseCells {
     fn new(rect: PixelRect, raster_height: u32, factor: u32) -> Self {
         // Raster row r is cell row raster_height - 1 - r, so the rectangle's bottom row
         // holds its lowest cell row.
@@ -482,20 +482,20 @@ impl BlockPool {
         }
     }
 
-    /// Max of the known pixels of `data` (the samples of `rect`) per block, row-major
-    /// from the southern block row; [`COST_UNKNOWN`] where a block has none.
+    /// Max of the known pixels of `data` (the samples of `rect`) per overview cell,
+    /// row-major from the southern row; [`COST_UNKNOWN`] where a cell has none.
     fn pool(&self, rect: PixelRect, data: &[u8], nodata: Option<u8>) -> Vec<u8> {
         let mut pooled = vec![COST_UNKNOWN; self.size.x as usize * self.size.y as usize];
         let first = self.first.as_uvec2();
         for (row, line) in data.chunks_exact(rect.width as usize).enumerate() {
             let cell_y = self.raster_height - 1 - (rect.y + row as u32);
-            let block_row = (cell_y / self.factor - first.y) as usize * self.size.x as usize;
+            let coarse_row = (cell_y / self.factor - first.y) as usize * self.size.x as usize;
             for (col, &value) in line.iter().enumerate() {
                 if value == COST_UNKNOWN || Some(value) == nodata {
                     continue;
                 }
-                let block_x = ((rect.x + col as u32) / self.factor - first.x) as usize;
-                let slot = &mut pooled[block_row + block_x];
+                let coarse_x = ((rect.x + col as u32) / self.factor - first.x) as usize;
+                let slot = &mut pooled[coarse_row + coarse_x];
                 *slot = max_known(*slot, value);
             }
         }
@@ -553,7 +553,7 @@ fn pixel_bounds(chunk_size: u32, size: UVec2, wanted: &[IVec2]) -> Option<PixelR
     })
 }
 
-/// Accumulates decoded TIFF chunks into grid chunks, allocating one only when it receives a known cell.
+/// Accumulates decoded TIFF blocks into grid chunks, allocating one only when it receives a known cell.
 struct ChunkStamper<'a> {
     chunk_size: i64,
     raster_height: i64,
@@ -578,7 +578,7 @@ impl<'a> ChunkStamper<'a> {
         }
     }
 
-    /// Copy the decoded `data` of the TIFF chunk covering `rect` into the wanted grid chunks.
+    /// Copy the decoded `data` of the TIFF block covering `rect` into the wanted grid chunks.
     fn stamp(&mut self, rect: PixelRect, data: &[u8]) {
         let cs = self.chunk_size;
         let (x0, width) = (i64::from(rect.x), i64::from(rect.width));
@@ -629,14 +629,14 @@ impl<'a> ChunkStamper<'a> {
 ///
 /// A [`TiledGrid`] has one cell size, so the raster is read with the x size and the
 /// y positions are off by up to `longer side * |sx - sy|` metres at the far edge.
-fn check_square_cells(pixel_size: DVec2, size: UVec2) -> Result<(), VoxelError> {
+fn check_square_cells(pixel_size: DVec2, size: UVec2) -> Result<(), CostmapError> {
     let drift = f64::from(size.x.max(size.y)) * (pixel_size.x - pixel_size.y).abs();
     if drift <= SQUARE_CELL_DRIFT * pixel_size.x.min(pixel_size.y) {
         return Ok(());
     }
     let rounded = |v: f64| (v * 1e9).round() / 1e9;
     let (x, y) = (rounded(pixel_size.x), rounded(pixel_size.y));
-    Err(VoxelError::Unsupported(format!(
+    Err(CostmapError::Unsupported(format!(
         "pixels are not square ({x} x {y} m) and a cost grid has square cells; \
          resample with `gdalwarp -tr {x} {x}`"
     )))
@@ -653,12 +653,12 @@ pub struct GeoFrame {
     pub epsg: Option<u32>,
 }
 
-fn check_sample_type(decoder: &mut Decoder<BufReader<File>>) -> Result<(), VoxelError> {
+fn check_sample_type(decoder: &mut Decoder<BufReader<File>>) -> Result<(), CostmapError> {
     let color_type = decoder.colortype()?;
     let formats = decoder.find_tag_unsigned_vec::<u16>(Tag::SampleFormat)?;
     let unsigned = formats.as_deref().is_none_or(|f| f.iter().all(|&s| s == 1));
     if color_type != tiff::ColorType::Gray(8) || !unsigned {
-        return Err(VoxelError::Unsupported(format!(
+        return Err(CostmapError::Unsupported(format!(
             "expected a single-band unsigned 8-bit GeoTIFF, found {color_type:?} with sample format {}",
             formats.map_or_else(|| "unsigned (default)".into(), |f| format!("{f:?}"))
         )));
@@ -669,7 +669,7 @@ fn check_sample_type(decoder: &mut Decoder<BufReader<File>>) -> Result<(), Voxel
 fn find_f64s<R: Read + Seek>(
     decoder: &mut Decoder<R>,
     tag: Tag,
-) -> Result<Option<Vec<f64>>, VoxelError> {
+) -> Result<Option<Vec<f64>>, CostmapError> {
     Ok(decoder
         .find_tag(tag)?
         .map(|value| value.into_f64_vec())
@@ -681,9 +681,9 @@ fn find_f64s<R: Read + Seek>(
 /// Fails if the pixel scale or tiepoint is missing or the CRS is not projected. Pixels
 /// need not be square; both sizes are returned. The tiepoint is normalised to the top-left pixel corner whether the
 /// file uses PixelIsArea or PixelIsPoint.
-pub fn read_frame<R: Read + Seek>(decoder: &mut Decoder<R>) -> Result<GeoFrame, VoxelError> {
+pub fn read_frame<R: Read + Seek>(decoder: &mut Decoder<R>) -> Result<GeoFrame, CostmapError> {
     let not_georeferenced = || {
-        VoxelError::InvalidMetadata(
+        CostmapError::InvalidMetadata(
             "GeoTIFF has no ModelPixelScale and ModelTiepoint tags (rotated or unreferenced rasters are unsupported)"
                 .into(),
         )
@@ -691,17 +691,17 @@ pub fn read_frame<R: Read + Seek>(decoder: &mut Decoder<R>) -> Result<GeoFrame, 
     let scale = find_f64s(decoder, Tag::ModelPixelScaleTag)?.ok_or_else(not_georeferenced)?;
     let tiepoint = find_f64s(decoder, Tag::ModelTiepointTag)?.ok_or_else(not_georeferenced)?;
     let &[scale_x, scale_y, ..] = scale.as_slice() else {
-        return Err(VoxelError::InvalidMetadata(
+        return Err(CostmapError::InvalidMetadata(
             "ModelPixelScale needs 3 values".into(),
         ));
     };
     let &[tie_i, tie_j, _, tie_x, tie_y, ..] = tiepoint.as_slice() else {
-        return Err(VoxelError::InvalidMetadata(
+        return Err(CostmapError::InvalidMetadata(
             "ModelTiepoint needs 6 values".into(),
         ));
     };
     if !(scale_x.is_finite() && scale_y.is_finite() && scale_x > 0.0 && scale_y > 0.0) {
-        return Err(VoxelError::InvalidMetadata(format!(
+        return Err(CostmapError::InvalidMetadata(format!(
             "pixel scale ({scale_x}, {scale_y}) must be finite and positive"
         )));
     }
@@ -710,7 +710,7 @@ pub fn read_frame<R: Read + Seek>(decoder: &mut Decoder<R>) -> Result<GeoFrame, 
         .map(|directory| parse_geo_keys(&directory))
         .unwrap_or_default();
     if keys.model_type.is_some_and(|m| m != MODEL_TYPE_PROJECTED) {
-        return Err(VoxelError::Unsupported(
+        return Err(CostmapError::Unsupported(
             "only projected coordinate reference systems are supported".into(),
         ));
     }
@@ -736,7 +736,7 @@ pub fn read_frame<R: Read + Seek>(decoder: &mut Decoder<R>) -> Result<GeoFrame, 
 /// Returns `None` if the tag is absent or its text is not a number.
 pub fn read_gdal_nodata<R: Read + Seek>(
     decoder: &mut Decoder<R>,
-) -> Result<Option<f64>, VoxelError> {
+) -> Result<Option<f64>, CostmapError> {
     let Some(text) = decoder
         .find_tag(Tag::GdalNodata)?
         .map(|value| value.into_string())
@@ -747,15 +747,15 @@ pub fn read_gdal_nodata<R: Read + Seek>(
     Ok(text.trim_end_matches('\0').trim().parse::<f64>().ok())
 }
 
-fn read_nodata(decoder: &mut Decoder<BufReader<File>>) -> Result<Option<u8>, VoxelError> {
+fn read_nodata(decoder: &mut Decoder<BufReader<File>>) -> Result<Option<u8>, CostmapError> {
     let nodata = read_gdal_nodata(decoder)?
         .filter(|v| v.fract() == 0.0 && (0.0..=255.0).contains(v))
         .map(|v| v as u8);
     Ok(nodata.filter(|&v| v != COST_UNKNOWN))
 }
 
-/// Size in pixels of a full strip or tile of the decoder's current image.
-fn tiff_chunk_size(decoder: &Decoder<BufReader<File>>, size: UVec2) -> UVec2 {
+/// Size in pixels of a full block (strip or tile) of the decoder's current image.
+fn tiff_block_size(decoder: &Decoder<BufReader<File>>, size: UVec2) -> UVec2 {
     let (width, height) = decoder.chunk_dimensions();
     UVec2::new(width.min(size.x), height.min(size.y))
 }
@@ -768,7 +768,7 @@ fn tiff_chunk_size(decoder: &Decoder<BufReader<File>>, size: UVec2) -> UVec2 {
 fn find_overviews(
     decoder: &mut Decoder<BufReader<File>>,
     size: UVec2,
-) -> Result<Vec<Overview>, VoxelError> {
+) -> Result<Vec<Overview>, CostmapError> {
     let mut overviews = Vec::new();
     let mut ifd = 0;
     while decoder.more_images() && decoder.next_image().is_ok() {
@@ -798,7 +798,9 @@ fn find_overviews(
 }
 
 /// The `RESAMPLING` item of the decoder's current image's GDAL metadata, if any.
-fn read_resampling<R: Read + Seek>(decoder: &mut Decoder<R>) -> Result<Option<String>, VoxelError> {
+fn read_resampling<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+) -> Result<Option<String>, CostmapError> {
     let Some(xml) = decoder
         .find_tag(GDAL_METADATA)?
         .map(|value| value.into_string())
@@ -910,9 +912,9 @@ pub fn write_cost_geotiff(
     path: impl AsRef<Path>,
     grid: &TiledGrid<u8>,
     georef: &GeoReference,
-) -> Result<(), VoxelError> {
+) -> Result<(), CostmapError> {
     let (min_cell, max_cell) = grid.loaded_cell_bounds().ok_or_else(|| {
-        VoxelError::InvalidArgument(
+        CostmapError::InvalidArgument(
             "cannot write a GeoTIFF for a grid with no loaded chunks".into(),
         )
     })?;
@@ -932,10 +934,10 @@ pub fn write_cost_geotiff_region(
     georef: &GeoReference,
     min_cell: IVec2,
     max_cell: IVec2,
-) -> Result<(), VoxelError> {
+) -> Result<(), CostmapError> {
     let size = raster_size(min_cell, max_cell)?;
     if size.x == 0 || size.y == 0 {
-        return Err(VoxelError::InvalidArgument(
+        return Err(CostmapError::InvalidArgument(
             "cannot write a GeoTIFF for an empty region".into(),
         ));
     }
@@ -968,10 +970,10 @@ pub fn write_cost_geotiff_region(
     Ok(())
 }
 
-fn raster_size(min_cell: IVec2, max_cell: IVec2) -> Result<UVec2, VoxelError> {
+fn raster_size(min_cell: IVec2, max_cell: IVec2) -> Result<UVec2, CostmapError> {
     let extent = max_cell.as_i64vec2() - min_cell.as_i64vec2();
     let too_large = || {
-        VoxelError::InvalidArgument(format!(
+        CostmapError::InvalidArgument(format!(
             "loaded extent {}x{} cells exceeds the TIFF pixel limit",
             extent.x, extent.y
         ))
@@ -1043,7 +1045,7 @@ fn write_geo_tags<W: Write + Seek>(
     resolution: f64,
     top_left: DVec2,
     epsg: Option<u32>,
-) -> Result<(), VoxelError> {
+) -> Result<(), CostmapError> {
     directory.write_tag(Tag::ModelPixelScaleTag, &[resolution, resolution, 0.0][..])?;
     directory.write_tag(
         Tag::ModelTiepointTag,
@@ -1057,14 +1059,14 @@ fn write_geo_tags<W: Write + Seek>(
 /// GeoKeyDirectory for a projected, PixelIsArea raster, with the EPSG code if known.
 ///
 /// Fails if the EPSG code does not fit the 16-bit key value.
-fn geo_key_directory(epsg: Option<u32>) -> Result<Vec<u16>, VoxelError> {
+fn geo_key_directory(epsg: Option<u32>) -> Result<Vec<u16>, CostmapError> {
     let mut keys = vec![
         (GEO_KEY_MODEL_TYPE, MODEL_TYPE_PROJECTED),
         (GEO_KEY_RASTER_TYPE, RASTER_PIXEL_IS_AREA),
     ];
     if let Some(code) = epsg {
         let code = u16::try_from(code).map_err(|_| {
-            VoxelError::Unsupported(format!("EPSG code {code} does not fit a GeoTIFF key"))
+            CostmapError::Unsupported(format!("EPSG code {code} does not fit a GeoTIFF key"))
         })?;
         keys.push((GEO_KEY_PROJECTED_CS, code));
     }

@@ -18,7 +18,9 @@ use crate::{
     DenseGrid,
     costmap::{Costmap, Layer, MergePolicy, project_into},
     iterators::line::LineIterator,
-    types::{Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, Lattice, Pose2, VoxelError},
+    types::{
+        Bounds, COST_FREE, COST_LETHAL, COST_UNKNOWN, CellRegion, CostmapError, Lattice, Pose2,
+    },
 };
 
 /// Distance, in cells, that a clipped ray start is kept inside the grid edge.
@@ -259,9 +261,9 @@ impl ObstacleLayer {
 
     /// Move the grid, and the stamps with it, so that it is centred on `center`.
     fn recenter(&mut self, center: DVec2) {
-        self.grid.update_center(center);
+        self.grid.center_on(center);
         if let Some(stamps) = self.stamps.as_mut() {
-            stamps.update_center(center);
+            stamps.center_on(center);
         }
     }
 
@@ -353,9 +355,9 @@ impl Layer for ObstacleLayer {
         });
     }
 
-    fn attach(&mut self, master: &Costmap, rolling_window: bool) -> Result<(), VoxelError> {
+    fn attach(&mut self, master: &Costmap, rolling_window: bool) -> Result<(), CostmapError> {
         if self.config.rolling_window != rolling_window {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "obstacle layer rolling_window is {}, but the costmap's is {rolling_window}",
                 self.config.rolling_window
             )));
@@ -364,7 +366,7 @@ impl Layer for ObstacleLayer {
         let same_size =
             own.size() == theirs.size() && own.lattice().resolution == theirs.lattice().resolution;
         if !same_size || (!rolling_window && own.world_bounds() != theirs.world_bounds()) {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "obstacle layer grid {:?} on {:?} does not match the costmap's {:?} on {:?}",
                 own.cells(),
                 own.lattice(),
@@ -959,7 +961,7 @@ mod tests {
         layer.insert_beams(DVec2::new(0.5, 5.5), [hit(8.5, 5.5)], 0.0);
 
         let mut master = Costmap::filled(lattice(), cells(), 0);
-        master.update_origin(DVec2::new(3.0, -2.0));
+        master.move_to(DVec2::new(3.0, -2.0));
         layer.attach(&master, true).unwrap();
 
         assert_eq!(layer.grid().cells(), master.cells());
@@ -987,7 +989,7 @@ mod tests {
 
         assert!(matches!(
             layered.add_layer(Box::new(fixed)),
-            Err(VoxelError::InvalidArgument(_))
+            Err(CostmapError::InvalidArgument(_))
         ));
     }
 

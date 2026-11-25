@@ -1,50 +1,84 @@
 # Agents
 
-The goal of this repo is to create a generic implementation of a Voxel Grid that
-we can load from multiple formats.
+`costmap` is a costmap library in Rust. One set of concepts covers everything from a
+10 m window round a robot to a map the size of a farm. The first user is a team with
+a large site: `crates/costmap_ros` builds `tiled_map_server`, a replacement for
+Nav2's `map_server` on Zenoh. The library is meant to outperform the C++ costmap at
+large map sizes. Keep it small enough for the maintainer to understand all of it.
 
-I want to support both 2D Occupancy Grid and a full 3D Voxel Grid. Both should
-be generic over the application if possible, but must support the functions
-required by robotics and ROS.
+3D and voxel grids are not goals. Algorithms are not generic over storage.
 
-An Occupancy Grid is a 2D grid where each cell has a probability value. There
-are different modes this can operate in, but the default is "Trinary" where a
-cell is either `-1` for unknown, `0` for clear, or `100` for occupied.
+## Concepts
 
-## Architecture
+- **Lattice.** An anchor (`DVec2`, metres) and a resolution. It alone converts world
+  positions to cells (`cell_at`, `cell_center`).
+- **Cell.** One lattice square, named by an `IVec2` from the lattice's anchor.
+  Extents of cells are `UVec2`. World positions are `f64`.
+- **Window.** A dense rectangle cut from a map: a `DenseGrid` on the map's lattice.
+  `CostWindows` returns one from any map: `DenseGrid`, `TiledGrid` or a cost GeoTIFF.
+- **Chunk.** The storage unit of `TiledGrid`.
+- **Tile.** The planning unit of `TileGraph`.
+- A TIFF strip or tile is a **block**, GDAL's term, so that neither word above is
+  overloaded.
 
-We want to have some core structs (VoxelGrid, VoxelError) and then traits that
-implement algorithms on it. We should avoid excessive use of generics but I
-would weigh up each case depending on the impact on the useability of the API.
+Use these words for these things only, in code and in prose. The error type is
+`CostmapError`.
 
-We will also want to support loading the grid from multiple formats. This
-implies we will have an extensible builder and a trait so we can have an
-implementation for different file formats.
+Algorithms (inflation, A*, raycasting, footprint checks) take a `DenseGrid`.
+Whole-map operations are library drivers that walk tiles or chunks. `costmap_ros`
+holds no algorithms: it converts messages, tracks pose, decides when to publish and
+serves the route action.
 
-A big emphasis will be on performance so we will need to properly instrument the
-code.
+## Code conventions
 
-We should plan for different types of users and use cases.
+`src/grid/dense.rs` is the reference.
 
-- Offline processing and editing of maps.
-- Online creation of maps
-- Visualisation of the maps
+- Public methods take and return cells of the grid's lattice.
+  - `cells()` is the rectangle the grid holds.
+  - `as_slice()` is row-major from its first cell.
+- Hot loops work in array offsets and convert once where they meet the caller:
+  - `offset_of`, `cell_of`, `at`, `at_mut`, `at_held`, `to_offsets`, `offsets_in`;
+  - `LineIterator::next_offset`, `planning::astar::moves_at`.
+- An operation that takes or returns cells gets a case in `tests/moved_grid.rs`: it
+  gives the same answer on a moved grid in shifted cells.
 
-## Technology
+## Working rules
 
-- Rust will be the primary language.
-- We will need to use the `image` crate to load a 2D grid from an image.
-- `criterion` for benchmarking
-- github actions for CI
-- glam for basic maths types.
+- One kind of change per PR, applied everywhere it occurs. No module-by-module splits.
+- No version bumps: `cargo release` does them.
+- No design documents in the repository.
+- `v0.1.0` and `v0.2.0` are released. To check whether a name was released, run
+  `git grep -n NAME v0.2.0 -- src`.
+  - Released, and only renamed: keep the old name as a type alias or one-line
+    forwarding method, `#[deprecated(since = "0.3.0", note = "...")]`, with a note
+    naming the replacement. Add a use of it to `tests/deprecated.rs`.
+  - Released, but would need old machinery kept alive: delete it.
+  - Not released: change it freely.
+- Every public change goes in `CHANGELOG.md` under "Unreleased". A change that
+  breaks or deprecates released code also goes in `MIGRATION.md`, old name to new.
+- Performance changes and structural changes carry criterion numbers from `main`
+  and the branch in the PR. A regression blocks the PR.
+  - Name every bench: `cargo bench -p costmap --features geotiff --bench NAME`.
+    Save `-- --save-baseline main` on `main`, then compare with
+    `-- --baseline main` on the branch.
+  - Noise is about ±3 %. Confirm a smaller difference with a second run, and with
+    `CARGO_PROFILE_BENCH_CODEGEN_UNITS=1`.
+- Run heavy commands under `nice -n 10` with `-j 6`.
 
-## Reference Links
+## Done when
 
-- [ROS2 voxel grid impl](https://github.com/ros-navigation/navigation2/blob/main/nav2_voxel_grid/src/voxel_grid.cpp)
-- [ROS2 Voxel grid header](https://github.com/ros-navigation/navigation2/blob/main/nav2_voxel_grid/include/nav2_voxel_grid/voxel_grid.hpp)
-- [ROS2 Voxel utils](https://github.com/ros-navigation/navigation2/blob/main/nav2_util/include/nav2_util/occ_grid_utils.hpp)
-- https://github.com/ros-navigation/navigation2/blob/088c423deb97a76f5a5f4ca133cb122338576fe1/nav2_map_server/src/map_io.cpp#L236 implemenation of 2D map loading for ROS2 Occupancy Grid (yaml metadata + image file)
-- [A Fast Voxel Traversal Algorithm for Ray Tracing](http://www.cse.yorku.ca/~amana/research/grid.pdf) which describes a fast method of ray casting on a grid.
-- https://theshoemaker.de/posts/ray-casting-in-2d-grids Comparison of different ray casting methods.
-- https://vercidium.com/blog/optimised-voxel-raymarching/ Implementation of ray casting for 3D voxels stored ini chunks.
-- [Octomap](https://octomap.github.io/) A C++ implemenation of an efficient Voxel grid.
+```sh
+cargo fmt --check
+cargo +1.99 clippy --workspace --all-targets --features costmap/rerun,costmap/geotiff -- -D warnings
+cargo test --workspace --features costmap/geotiff
+RUSTDOCFLAGS="-D warnings" cargo +1.99 doc --workspace --no-deps --features costmap/rerun,costmap/geotiff
+crates/costmap_ros/nav2/test/colcon.sh
+crates/costmap_ros/nav2/test/run.sh
+```
+
+## References
+
+- [Nav2 costmap_2d](https://github.com/ros-navigation/navigation2/tree/main/nav2_costmap_2d)
+- [Nav2 map_io](https://github.com/ros-navigation/navigation2/blob/main/nav2_map_server/src/map_io.cpp): loading a ROS map (YAML and image).
+- [A Fast Voxel Traversal Algorithm for Ray Tracing](http://www.cse.yorku.ca/~amana/research/grid.pdf): the DDA raycast.
+- [Ray casting in 2D grids](https://theshoemaker.de/posts/ray-casting-in-2d-grids): a comparison of methods.

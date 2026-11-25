@@ -9,7 +9,7 @@ use crate::{
         project::merge_window,
         resample::{Resample, resample},
     },
-    types::{Bounds, CellRegion, Pose2, VoxelError},
+    types::{Bounds, CellRegion, CostmapError, Pose2},
 };
 
 /// A layer that writes the part of a map under the master costmap into it.
@@ -35,7 +35,7 @@ pub struct StaticLayer<M> {
     resample: Option<Resample>,
     transform: Pose2,
     coverage: Coverage,
-    error: Option<VoxelError>,
+    error: Option<CostmapError>,
 }
 
 /// The world rectangle the master covers at the next update.
@@ -91,11 +91,11 @@ impl<M: CostWindows> StaticLayer<M> {
 
     /// The error of the last failed read of the map, cleared by this call. A failed
     /// read leaves the master's cells at the costmap's fill value.
-    pub fn take_error(&mut self) -> Option<VoxelError> {
+    pub fn take_error(&mut self) -> Option<CostmapError> {
         self.error.take()
     }
 
-    fn window(&mut self, master: &Costmap, cells: CellRegion) -> Result<Costmap, VoxelError> {
+    fn window(&mut self, master: &Costmap, cells: CellRegion) -> Result<Costmap, CostmapError> {
         let lattice = master.lattice();
         if self.transform == Pose2::default() && self.map.lattice() == lattice {
             return self.map.window(cells);
@@ -128,7 +128,7 @@ impl<M: CostWindows + 'static> Layer for StaticLayer<M> {
         bounds.expand_to_include(covered.max);
     }
 
-    fn attach(&mut self, master: &Costmap, rolling_window: bool) -> Result<(), VoxelError> {
+    fn attach(&mut self, master: &Costmap, rolling_window: bool) -> Result<(), CostmapError> {
         let covered = master.world_bounds();
         self.coverage = if rolling_window {
             // A rolling master moves by whole cells: one more cell each side covers it.
@@ -164,7 +164,7 @@ mod tests {
 
     const CHUNK: u32 = 16;
 
-    fn tiles() -> TiledGrid<u8> {
+    fn chunked() -> TiledGrid<u8> {
         TiledGrid::new(1.0, CHUNK, COST_UNKNOWN).unwrap()
     }
 
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn a_map_much_larger_than_the_master_writes_the_overlap() {
-        let mut grid = tiles();
+        let mut grid = chunked();
         for cy in -6..6 {
             for cx in -6..6 {
                 fill_chunk(&mut grid, IVec2::new(cx, cy), COST_FREE);
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn unknown_map_cells_leave_the_fill_value() {
-        let mut grid = tiles();
+        let mut grid = chunked();
         fill_chunk(&mut grid, IVec2::new(0, 0), 40);
         fill_chunk(&mut grid, IVec2::new(1, 0), 40);
         grid.set(IVec2::new(17, 3), COST_LETHAL);
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn map_mut_pages_chunks_in_and_out() {
         let mut layered = fixed_master(16);
-        let id = layered.add_layer(layer_with(tiles())).unwrap();
+        let id = layered.add_layer(layer_with(chunked())).unwrap();
         let layer = layered.layer_mut::<StaticLayer<TiledGrid<u8>>>(id).unwrap();
         fill_chunk(layer.map_mut(), IVec2::ZERO, COST_LETHAL);
 
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn a_small_region_touches_only_its_cells() {
-        let mut grid = tiles();
+        let mut grid = chunked();
         fill_chunk(&mut grid, IVec2::new(0, 0), 60);
         let mut layer = StaticLayer::new(grid, MergePolicy::Overwrite);
         let mut master = Costmap::filled(
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_rolling_master_with_inflation_tracks_an_obstacle_across_chunks() {
-        let mut grid = tiles();
+        let mut grid = chunked();
         for cx in 0..5 {
             fill_chunk(&mut grid, IVec2::new(cx, 0), COST_FREE);
         }

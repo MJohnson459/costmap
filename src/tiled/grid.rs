@@ -5,7 +5,7 @@ use glam::{DVec2, IVec2, UVec2};
 use crate::{
     DenseGrid,
     grid::CostWindows,
-    types::{COST_UNKNOWN, CellRegion, Lattice, VoxelError},
+    types::{COST_UNKNOWN, CellRegion, CostmapError, Lattice},
 };
 
 /// Largest allowed chunk edge. Keeps `chunk_size * chunk_size` and chunk-local
@@ -82,14 +82,14 @@ impl<T: Clone> TiledGrid<T> {
     ///
     /// Fails if `chunk_size` is zero or above 32768, or if `resolution` is not
     /// finite and positive.
-    pub fn new(resolution: f64, chunk_size: u32, fill: T) -> Result<Self, VoxelError> {
+    pub fn new(resolution: f64, chunk_size: u32, fill: T) -> Result<Self, CostmapError> {
         if chunk_size == 0 || chunk_size > MAX_CHUNK_SIZE {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "chunk size {chunk_size} must be in 1..={MAX_CHUNK_SIZE}"
             )));
         }
         if !resolution.is_finite() || resolution <= 0.0 {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "resolution {resolution} must be finite and positive"
             )));
         }
@@ -177,9 +177,9 @@ impl<T: Clone> TiledGrid<T> {
     }
 
     /// Insert or replace chunk `coord`. `data` must hold `chunk_size * chunk_size` cells.
-    pub fn insert_chunk(&mut self, coord: IVec2, data: Box<[T]>) -> Result<(), VoxelError> {
+    pub fn insert_chunk(&mut self, coord: IVec2, data: Box<[T]>) -> Result<(), CostmapError> {
         if data.len() != self.chunk_len() {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "chunk data length {} does not match chunk size {size}x{size} = {}",
                 data.len(),
                 self.chunk_len(),
@@ -250,22 +250,22 @@ impl<T: Clone> TiledGrid<T> {
         grid
     }
 
-    /// Fill `target` from the tiles covering its cells.
+    /// Fill `target` from the chunks covering its cells.
     ///
     /// The target origin is snapped to the nearest cell boundary. Cells without a
     /// loaded chunk are set to the fill value. Fails if the resolutions differ by
     /// more than a relative 1e-4.
-    pub fn read_into(&self, target: &mut DenseGrid<T>) -> Result<(), VoxelError> {
+    pub fn read_into(&self, target: &mut DenseGrid<T>) -> Result<(), CostmapError> {
         let (min_cell, size) = self.window_extent(target)?;
         self.copy_out(min_cell, size, target.as_mut_slice());
         Ok(())
     }
 
-    /// Store the cells of `source` into the tiles it covers, allocating chunks as needed.
+    /// Store the cells of `source` into the chunks it covers, allocating chunks as needed.
     ///
     /// Inverse of [`read_into`](Self::read_into), with the same origin snapping and
     /// resolution check. Cells beyond the `i32` cell range are ignored.
-    pub fn write_window(&mut self, source: &DenseGrid<T>) -> Result<(), VoxelError> {
+    pub fn write_window(&mut self, source: &DenseGrid<T>) -> Result<(), CostmapError> {
         let (min_cell, size) = self.window_extent(source)?;
         for run in row_runs(self.chunk_size, min_cell, size) {
             let chunk = self.chunk_mut(run.chunk);
@@ -277,10 +277,10 @@ impl<T: Clone> TiledGrid<T> {
     }
 
     /// First cell and size, in this grid's cells, of the dense window `window`.
-    fn window_extent<U>(&self, window: &DenseGrid<U>) -> Result<(IVec2, UVec2), VoxelError> {
+    fn window_extent<U>(&self, window: &DenseGrid<U>) -> Result<(IVec2, UVec2), CostmapError> {
         let lattice = window.lattice();
         if !self.resolution_matches(lattice.resolution) {
-            return Err(VoxelError::InvalidArgument(format!(
+            return Err(CostmapError::InvalidArgument(format!(
                 "window resolution {} differs from tiled grid resolution {}",
                 lattice.resolution, self.resolution
             )));
@@ -311,7 +311,7 @@ impl CostWindows for TiledGrid<u8> {
         TiledGrid::lattice(self)
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<DenseGrid<u8>, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<DenseGrid<u8>, CostmapError> {
         Ok(TiledGrid::window(self, cells))
     }
 }
@@ -321,7 +321,7 @@ impl CostWindows for &TiledGrid<u8> {
         TiledGrid::lattice(self)
     }
 
-    fn window(&mut self, cells: CellRegion) -> Result<DenseGrid<u8>, VoxelError> {
+    fn window(&mut self, cells: CellRegion) -> Result<DenseGrid<u8>, CostmapError> {
         Ok(TiledGrid::window(self, cells))
     }
 }
@@ -333,12 +333,12 @@ impl TiledGrid<u8> {
     /// cell in its block is unknown, otherwise it holds the maximum of the known
     /// ones. The result has resolution `resolution * factor`, the same chunk size,
     /// fill value [`COST_UNKNOWN`], and chunks only where some input cell is known.
-    pub fn overview_max(&self, factor: u32) -> Result<TiledGrid<u8>, VoxelError> {
+    pub fn overview_max(&self, factor: u32) -> Result<TiledGrid<u8>, CostmapError> {
         let divisor = i32::try_from(factor)
             .ok()
             .filter(|&f| f >= 1)
             .ok_or_else(|| {
-                VoxelError::InvalidArgument(format!("overview factor {factor} must be >= 1"))
+                CostmapError::InvalidArgument(format!("overview factor {factor} must be >= 1"))
             })?;
         let mut out = TiledGrid::new(
             self.resolution * factor as f64,
@@ -534,7 +534,7 @@ mod tests {
         );
         assert!(matches!(
             g.read_into(&mut target),
-            Err(VoxelError::InvalidArgument(_))
+            Err(CostmapError::InvalidArgument(_))
         ));
         let mut g = g;
         assert!(g.write_window(&target).is_err());

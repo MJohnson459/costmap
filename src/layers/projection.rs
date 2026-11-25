@@ -93,7 +93,7 @@ impl<T: Clone + 'static> Layer for ProjectionLayer<T> {
         // layer's update_costs runs. This lets producers that write into the source
         // during update_costs (e.g. the lidar example) stamp into an already-centred grid.
         if self.rolling_window {
-            self.source.update_center(robot.position);
+            self.source.center_on(robot.position);
         }
 
         // Expand bounds to the source grid's (now current) world extent.
@@ -329,7 +329,7 @@ mod tests {
         layer.update_bounds(robot, &mut bounds);
 
         // Rolling: the source is re-centred on the robot during update_bounds. The
-        // origin snaps to whole cells (update_origin shifts by integer cell offsets),
+        // origin snaps to whole cells (move_to shifts by integer cell offsets),
         // so centring on (5,5) with 1 m cells gives origin (2.0, 2.0), not (2.5, 2.5).
         assert_eq!(layer.source().world_bounds().min, DVec2::new(2.0, 2.0));
         // Bounds cover exactly the (re-centred) source world extent — i.e. where the
